@@ -108,9 +108,9 @@ Its main selling point: every piece can be swapped or extended, without forking 
 | **D26** | Raw data | Store raw logs before decoding, so re-indexing costs zero RPC calls | Section 6.6 |
 | **D27** | Errors | Classified once at the edge into six classes; the class (not the message) drives the action | Section 10.8 |
 | **D28** | Handler failure | Per-handler policy: park (continue) or halt (stop that partition); default halt for stateful handlers | Section 10.10 |
-| **D29** | Unified Storage & Queue | No toy in-memory shortcuts. Docker (Postgres + RabbitMQ) by default locally, native cloud services in prod | `logrix dev` auto-manages local Postgres + RabbitMQ containers in background; zero behavioral drift between dev and prod |
+| **D29** | Kubernetes-Backed Architecture | Kubernetes is the foundational runtime everywhere (local `kind` to cloud EKS/GKE) | No toy in-memory or disparate local paradigms. All roles (listener, decoder, webhook, API) run as native Kubernetes pods in all environments |
 | **D30** | Hybrid RPC Gateway | JSON-RPC for live blocks + open bulk streams (SQD/HyperSync) as optional backfill fast-path | Standard JSON-RPC works everywhere; bulk streams provide 100x speedup when available |
-| **D31** | Local CLI DX | `logrix dev` auto-orchestrates local Docker containers | Instant setup for developers without requiring manual container management |
+| **D31** | Local K8s CLI DX | `logrix dev` operates against local Kubernetes (`kind` / local k8s context) | Automatically applies local manifests, streams pod logs, and port-forwards the GraphQL API to `localhost:4000` |
 
 ### Resolved Architectural Points
 
@@ -1121,13 +1121,11 @@ The core knows only traits. Everything cloud-specific lives in cloud packs: a se
 
 ### 13.1 Deployment modes summary
 
-| Mode | How | Use when |
-| :--- | :--- | :--- |
-| **Local, simple** | `logrix dev` (memory queue + SQLite + local disk) | Trying it, rapid development |
-| **Local, full** | Docker Compose with profiles: `rabbitmq`, `bullmq`, `localstack` | Testing real queues and containers |
-| **Kubernetes (Primary)** | Helm chart + KEDA ScaledObjects + HPA + Karpenter | Production, any cloud or on-prem |
-| **Cloud (IaC)** | Terraform modules per cloud pack (AWS first, GCP/Azure next) | Automated cloud infrastructure provisioning |
-| **Hybrid** | Mix via config (e.g., K8s workers + AWS SQS + RDS) | Flexible enterprise topologies |
+| Mode | Environment | How | Workloads & Pods |
+| :--- | :--- | :--- | :--- |
+| **Local Kubernetes** | Laptop / Dev | Local Kubernetes cluster (`kind` / `minikube` / `k3s`) managed via `logrix dev` | Pods for listener, decoders, webhook, API, and local dev PG/RabbitMQ in local namespace |
+| **Cloud Kubernetes** | Staging / Production | EKS, GKE, AKS managed via Helm (`deploy/helm/logrix`) + Terraform | Pods for listener, decoders (KEDA), webhook, API (HPA) connecting to cloud managed SQS, RDS, S3 |
+| **On-Premise Kubernetes** | Private Cloud / Bare Metal | Any standard Kubernetes cluster (v1.28+) via Helm | Full Kubernetes pod stack with local or external storage/queue infrastructure |
 
 ---
 

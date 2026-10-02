@@ -17,17 +17,24 @@ Most blockchain indexers force an uncomfortable choice:
 
 **Logrix eliminates this tradeoff.**
 
-- **Run on the go (Day 1):** Single static binary. Run `logrix init` and `logrix dev`. The CLI auto-manages default background Docker containers (PostgreSQL + RabbitMQ) with zero manual configuration, indexing events and serving dynamic GraphQL on `:4000` in under 60 seconds.
-- **Scale to millions of blocks (Production):** The exact same project config deploys to Kubernetes via Helm. Connect to native cloud services (AWS SQS, RDS Aurora Postgres, S3)—powered by KEDA scale-to-zero autoscaling, Karpenter spot worker nodes, and a budget-aware RPC gateway.
+- **Kubernetes-Native Everywhere (Local to Cloud):** Logrix is fundamentally a Kubernetes-backed indexer. Locally, `logrix dev` spins up and connects to a local Kubernetes environment (via `kind` or existing k8s context). In production, it deploys via Helm to EKS, GKE, or AKS.
+- **Identical Pod Workloads in All Environments:** Every role runs as a dedicated Kubernetes pod:
+  - `logrix-listener`: Stateful singleton pod per chain with Kubernetes Lease leader election.
+  - `logrix-decoder-live`: Low-latency live block decoders.
+  - `logrix-decoder-backfill`: Event-driven backfill decoders autoscaled from 0 to 50 via KEDA.
+  - `logrix-webhook-worker`: Outgoing webhook delivery pods.
+  - `logrix-api`: Dynamic GraphQL server pods autoscaled via HPA.
 
 ```text
-Laptop DX (CLI + Auto-Docker)                  Production Scale (Kubernetes)
-┌─────────────────────────────────┐           ┌──────────────────────────────────────┐
-│  $ logrix dev                   │           │  Helm + KEDA + Karpenter             │
-│  • Auto-managed Docker bg       │    ───►   │  • AWS SQS / RabbitMQ + RDS Aurora   │
-│  • Postgres + RabbitMQ          │           │  • Decoders autoscale 0 to 50        │
-│  • Local GraphQL on :4000       │           │  • Leader-elected singletons per chain│
-└─────────────────────────────────┘           └──────────────────────────────────────┘
+Local Kubernetes (kind / k8s context)          Production Kubernetes (EKS / GKE / AKS)
+┌──────────────────────────────────────┐      ┌──────────────────────────────────────┐
+│  $ logrix dev (Local K8s namespace)  │      │  Production Helm + KEDA + Karpenter  │
+│  • logrix-listener pod (Lease leader)│      │  • logrix-listener (HA active/standby│
+│  • logrix-decoder-live pod           │ ───► │  • logrix-decoder-backfill (0 to 50) │
+│  • logrix-decoder-backfill pod (KEDA)│      │  • logrix-api (HPA scaled)           │
+│  • logrix-api pod (GraphQL :4000)    │      │  • External AWS SQS / RDS Aurora     │
+│  • Local Postgres + RabbitMQ pods    │      │  • Ingress + NetworkPolicies + IRSA  │
+└──────────────────────────────────────┘      └──────────────────────────────────────┘
 ```
 
 ---

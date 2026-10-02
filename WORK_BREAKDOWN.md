@@ -42,18 +42,18 @@
 
 ---
 
-### Part 1: Walking Skeleton (Arbitrum Sepolia ERC-20)
-- **Objective:** First working end-to-end pipeline: index live ERC-20 `Transfer` events from Arbitrum Sepolia into PostgreSQL, queryable via GraphQL.
+### Part 1: Walking Skeleton (Arbitrum Sepolia ERC-20 on Kubernetes)
+- **Objective:** First working end-to-end Kubernetes pipeline: index live ERC-20 `Transfer` events from Arbitrum Sepolia into PostgreSQL, queryable via GraphQL, running inside Kubernetes pods.
 - **Granular Steps:**
-  1. Implement CLI Docker orchestration in `logrix-cli`: auto-detect Docker and spin up PostgreSQL and RabbitMQ containers with health checks.
-  2. Implement `logrix-store-postgres`: SQL migrations for checkpoints and raw event logs; atomic insert transaction.
-  3. Implement `logrix-queue-rabbitmq`: RabbitMQ publisher and consumer with manual acknowledgments.
-  4. Implement initial `logrix-chain-evm`: Connect to Arbitrum Sepolia RPC via `alloy`, poll new heads, and fetch logs for target contract.
-  5. Assemble `logrix dev`: Run Listener, Decoder, and embedded GraphQL server (`axum` + `async-graphql`).
+  1. Define Kubernetes base manifests in `deploy/k8s/base`: Deployments for `listener`, `decoder`, and `api` with Service and ConfigMaps.
+  2. Implement local Kubernetes orchestration in `logrix-cli`: `logrix dev` connects to local Kubernetes (`kind` / active k8s context), applies the `logrix` namespace manifests (including local PostgreSQL and RabbitMQ pods), streams pod logs, and port-forwards the GraphQL service to `localhost:4000`.
+  3. Implement `logrix-store-postgres`: PostgreSQL adapter with SQL migrations for checkpoints and raw event logs; atomic insert transaction.
+  4. Implement `logrix-queue-rabbitmq`: RabbitMQ publisher and consumer with manual acknowledgments.
+  5. Implement initial `logrix-chain-evm`: Connect to Arbitrum Sepolia RPC via `alloy`, poll new heads, and fetch logs for target contract.
 - **Custom Tests:**
-  - Automated integration test with Docker: spins up PG + RabbitMQ, publishes 10 synthetic ERC-20 Transfer logs, decodes them, commits to PG, and queries `/graphql`.
-  - Live test against Arbitrum Sepolia testnet ERC-20 contract.
-- **Git Commit:** `feat(skeleton): end-to-end indexer on testnet with docker postgres and rabbitmq`
+  - Automated integration test: spins up PostgreSQL & RabbitMQ in the test cluster, publishes synthetic ERC-20 Transfer logs, decodes them, commits to PostgreSQL, and queries `/graphql`.
+  - Live test against Arbitrum Sepolia testnet ERC-20 contract running on pod workloads.
+- **Git Commit:** `feat(skeleton): end-to-end indexer on testnet with kubernetes pod workloads`
 
 ---
 

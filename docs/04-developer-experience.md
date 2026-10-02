@@ -47,20 +47,21 @@ my-uniswap-indexer/
 
 ---
 
-## 3. Local Development: `logrix dev`
+## 3. Local Development: `logrix dev` on Kubernetes
 
-To run the entire indexing stack locally with zero external dependencies:
+Logrix is **Kubernetes-native from Day 1**. To run the entire indexing stack locally inside a local Kubernetes environment:
 
 ```bash
 logrix dev
 ```
 
 What `logrix dev` does under the hood:
-- Auto-detects Docker daemon and spins up default background containers for **PostgreSQL** (`logrix-postgres`) and **RabbitMQ** (`logrix-rabbitmq`) with healthchecks (or connects to custom ones if `DATABASE_URL` / `AMQP_URL` are set).
-- Applies internal system migrations (checkpoints, DLQ tables, block state).
-- Uses built-in chain presets for block times and safe confirmations.
-- Spawns the Listener, Decoder, and dynamic GraphQL API on `http://localhost:4000/graphql`.
-- Watches `logrix.yaml` and `schema.yaml` for instant hot-reloading with zero manual configuration.
+- Connects to your local Kubernetes context (e.g. `kind`, `minikube`, or existing local cluster). If no cluster is active, it prompts or auto-creates a lightweight `kind-logrix` cluster.
+- Applies local manifests to the `logrix` namespace: spins up the `listener`, `decoder`, and `api` pods alongside local PostgreSQL and RabbitMQ pods.
+- Applies internal database migrations (checkpoints, DLQ tables, block state).
+- Streams consolidated pod logs directly to your terminal.
+- Automatically port-forwards the `logrix-api` service to `http://localhost:4000/graphql`.
+- Watches `logrix.yaml` and `schema.yaml` for instant hot-reload sync to the running pods.
 
 ---
 
