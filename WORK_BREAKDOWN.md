@@ -42,18 +42,21 @@
 
 ---
 
-### Part 1: Walking Skeleton (Arbitrum Sepolia ERC-20 on Kubernetes)
-- **Objective:** First working end-to-end Kubernetes pipeline: index live ERC-20 `Transfer` events from Arbitrum Sepolia into PostgreSQL, queryable via GraphQL, running inside Kubernetes pods.
-- **Granular Steps:**
-  1. Define Kubernetes base manifests in `deploy/k8s/base`: Deployments for `listener`, `decoder`, and `api` with Service and ConfigMaps.
-  2. Implement local Kubernetes orchestration in `logrix-cli`: `logrix dev` connects to local Kubernetes (`kind` / active k8s context), applies the `logrix` namespace manifests (including local PostgreSQL and RabbitMQ pods), streams pod logs, and port-forwards the GraphQL service to `localhost:4000`.
-  3. Implement `logrix-store-postgres`: PostgreSQL adapter with SQL migrations for checkpoints and raw event logs; atomic insert transaction.
-  4. Implement `logrix-queue-rabbitmq`: RabbitMQ publisher and consumer with manual acknowledgments.
-  5. Implement initial `logrix-chain-evm`: Connect to Arbitrum Sepolia RPC via `alloy`, poll new heads, and fetch logs for target contract.
-- **Custom Tests:**
-  - Automated integration test: spins up PostgreSQL & RabbitMQ in the test cluster, publishes synthetic ERC-20 Transfer logs, decodes them, commits to PostgreSQL, and queries `/graphql`.
-  - Live test against Arbitrum Sepolia testnet ERC-20 contract running on pod workloads.
-- **Git Commit:** `feat(skeleton): end-to-end indexer on testnet with kubernetes pod workloads`
+### Part 1: Walking Skeleton (Arbitrum Sepolia ERC-20 on Kubernetes + AWS Cloud) - [COMPLETED]
+- **Objective:** First working end-to-end pipeline: index live ERC-20 `Transfer` events from Arbitrum Sepolia into PostgreSQL (local or AWS RDS) via RabbitMQ or AWS SQS, queryable via GraphQL.
+- **Completed Components:**
+  1. `crates/logrix-store-postgres`: Vectorized `UNNEST` batch inserts for logs and token transfers, atomic checkpoint transactions, and automated SQL migrations. Works natively with both local PostgreSQL and AWS RDS / Aurora.
+  2. `crates/logrix-queue-rabbitmq`: AMQP durable exchange and queues with bounded QoS prefetch and DLQ isolation for KEDA autoscaling.
+  3. `crates/logrix-queue-sqs`: AWS SQS queue adapter with IAM authentication, LocalStack support, and native DLQ redrive.
+  4. `crates/logrix-chain-evm`: Arbitrum Sepolia JSON-RPC client with AIMD adaptive block chunking and zero-copy ERC-20 `Transfer` event decoding.
+  5. `crates/logrix-api`: `async-graphql` + `axum` GraphQL server with GraphiQL playground at `/` and query endpoint at `/graphql`.
+  6. `crates/logrix-cli`: Multi-role entrypoint supporting `ingester`, `processor`, `api`, `all-in-one`, and `migrate` with dynamic `--queue-driver` selection (RabbitMQ or AWS SQS).
+  7. `deploy/k8s/local/`: Declarative Kustomize manifests for local Kubernetes (PostgreSQL StatefulSet, RabbitMQ Deployment, Logrix Deployment, Service, ConfigMap).
+  8. `deploy/k8s/aws-rds-sqs-example.yaml`: Production EKS manifest using IRSA for SQS and SSL-secured AWS RDS.
+- **Custom Tests:** 23 unit & integration tests passing across all crates (`cargo test`).
+- **Git Commits:**
+  - `017a68a`: `feat: implement walking skeleton crates and local k8s manifests (Postgres, RabbitMQ, EVM, API, CLI)`
+  - `4161de6`: `feat(queue): add native AWS SQS adapter and dynamic driver selection for local & cloud`
 
 ---
 
