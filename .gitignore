@@ -1,0 +1,27 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logrix local runtime data
+.logrix/
+*.db
+*.db-journal
+*.db-wal
+
+# Docker volumes / scratch
+scratch/
