@@ -41,19 +41,26 @@ impl AdaptiveChunker {
 
         if successes >= self.success_threshold_to_grow && latency < self.target_latency {
             self.consecutive_successes.store(0, Ordering::Relaxed);
-            let prev =
-                self.current_size
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
-                        Some((cur + self.additive_step).min(self.max_size))
-                    });
-            if let Ok(old) = prev {
-                let new_size = (old + self.additive_step).min(self.max_size);
-                if new_size != old {
-                    debug!(
-                        old_chunk = old,
-                        new_chunk = new_size,
-                        "Adaptive chunker increased chunk size"
-                    );
+            let mut cur = self.current_size.load(Ordering::Relaxed);
+            loop {
+                let new_size = (cur + self.additive_step).min(self.max_size);
+                match self.current_size.compare_exchange_weak(
+                    cur,
+                    new_size,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(old) => {
+                        if new_size != old {
+                            debug!(
+                                old_chunk = old,
+                                new_chunk = new_size,
+                                "Adaptive chunker increased chunk size"
+                            );
+                        }
+                        break;
+                    }
+                    Err(actual) => cur = actual,
                 }
             }
         }
@@ -62,18 +69,26 @@ impl AdaptiveChunker {
     /// Record an RPC error (e.g. timeout, payload size limit, rate limit), triggering multiplicative backoff.
     pub fn record_failure(&self) {
         self.consecutive_successes.store(0, Ordering::Relaxed);
-        let prev = self
-            .current_size
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
-                Some((cur / 2).max(self.min_size))
-            });
-        if let Ok(old) = prev {
-            let new_size = (old / 2).max(self.min_size);
-            warn!(
-                old_chunk = old,
-                new_chunk = new_size,
-                "Adaptive chunker cut chunk size due to RPC error"
-            );
+        let mut cur = self.current_size.load(Ordering::Relaxed);
+        loop {
+            let new_size = (cur / 2).max(self.min_size);
+            match self.current_size.compare_exchange_weak(
+                cur,
+                new_size,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(old) => {
+                    let cut_size = (old / 2).max(self.min_size);
+                    warn!(
+                        old_chunk = old,
+                        new_chunk = cut_size,
+                        "Adaptive chunker cut chunk size due to RPC error"
+                    );
+                    break;
+                }
+                Err(actual) => cur = actual,
+            }
         }
     }
 }
