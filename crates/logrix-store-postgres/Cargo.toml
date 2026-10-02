@@ -1,0 +1,23 @@
+[package]
+name = "logrix-store-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+logrix-core = { workspace = true }
+logrix-resilience = { workspace = true }
+
+sqlx = { workspace = true, features = ["migrate", "macros"] }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+alloy-primitives = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+logrix-testkit = { workspace = true }

@@ -4,6 +4,11 @@ members = [
     "crates/logrix-core",
     "crates/logrix-resilience",
     "crates/logrix-testkit",
+    "crates/logrix-store-postgres",
+    "crates/logrix-queue-rabbitmq",
+    "crates/logrix-chain-evm",
+    "crates/logrix-api",
+    "crates/logrix-cli",
 ]
 
 [workspace.package]
@@ -34,10 +39,27 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Resilience
-tower = { version = "0.5", features = ["util"] }
+# Database & SQL
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "uuid", "json", "migrate", "macros"] }
+
+# Message Queue
+lapin = "2.5"
+
+# Networking & API
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.8"
+async-graphql = { version = "7.0", features = ["chrono", "uuid"] }
+async-graphql-axum = "7.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
 
 # Internal workspace crates
 logrix-core = { path = "crates/logrix-core" }
 logrix-resilience = { path = "crates/logrix-resilience" }
 logrix-testkit = { path = "crates/logrix-testkit" }
+logrix-store-postgres = { path = "crates/logrix-store-postgres" }
+logrix-queue-rabbitmq = { path = "crates/logrix-queue-rabbitmq" }
+logrix-chain-evm = { path = "crates/logrix-chain-evm" }
+logrix-api = { path = "crates/logrix-api" }
+logrix-cli = { path = "crates/logrix-cli" }

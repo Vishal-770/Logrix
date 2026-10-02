@@ -1,0 +1,27 @@
+[package]
+name = "logrix-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "logrix"
+path = "src/main.rs"
+
+[dependencies]
+logrix-core = { workspace = true }
+logrix-resilience = { workspace = true }
+logrix-store-postgres = { workspace = true }
+logrix-queue-rabbitmq = { workspace = true }
+logrix-chain-evm = { workspace = true }
+logrix-api = { workspace = true }
+
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+alloy-primitives = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

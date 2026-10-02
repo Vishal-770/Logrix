@@ -19,6 +19,11 @@ impl ChainId {
     pub const BASE_SEPOLIA: Self = Self(84532);
 
     #[must_use]
+    pub const fn new(val: u64) -> Self {
+        Self(val)
+    }
+
+    #[must_use]
     pub fn as_u64(&self) -> u64 {
         self.0
     }
