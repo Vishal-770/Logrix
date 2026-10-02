@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logrix-config
+  labels:
+    app.kubernetes.io/name: logrix
+    app.kubernetes.io/part-of: logrix
+data:
+  CHAIN_ID: "421614"
+  RPC_URL: "https://sepolia-rollup.arbitrum.io/rpc"
+  CONTRACT_ADDRESS: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+  PORT: "4000"
+  QUEUE_DRIVER: "rabbitmq"

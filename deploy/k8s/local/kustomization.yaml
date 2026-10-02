@@ -5,6 +5,12 @@ namespace: logrix-dev
 
 resources:
   - namespace.yaml
+  - ../base
   - postgres.yaml
   - rabbitmq.yaml
-  - logrix.yaml
+
+secretGenerator:
+  - name: logrix-secrets
+    literals:
+      - DATABASE_URL=postgres://logrix:logrix@postgres:5432/logrix
+      - RABBITMQ_URL=amqp://logrix:logrix@rabbitmq:5672
