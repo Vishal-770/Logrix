@@ -15,7 +15,12 @@ pub struct Checkpoint {
 }
 
 impl Checkpoint {
-    pub fn new(chain_id: ChainId, last_indexed_block: u64, last_indexed_hash: B256, is_finalized: bool) -> Self {
+    pub fn new(
+        chain_id: ChainId,
+        last_indexed_block: u64,
+        last_indexed_hash: B256,
+        is_finalized: bool,
+    ) -> Self {
         Self {
             chain_id,
             last_indexed_block,

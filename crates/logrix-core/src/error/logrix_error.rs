@@ -71,7 +71,11 @@ impl LogrixError {
         Self::new(ErrorClass::Transient, source, message)
     }
 
-    pub fn rate_limited(source: ErrorSource, message: impl Into<String>, retry_after: Option<std::time::Duration>) -> Self {
+    pub fn rate_limited(
+        source: ErrorSource,
+        message: impl Into<String>,
+        retry_after: Option<std::time::Duration>,
+    ) -> Self {
         Self::new(ErrorClass::RateLimited { retry_after }, source, message)
     }
 
@@ -94,11 +98,7 @@ impl LogrixError {
 
 impl fmt::Display for LogrixError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{:?}::{:?}] {}",
-            self.source, self.class, self.message
-        )?;
+        write!(f, "[{:?}::{:?}] {}", self.source, self.class, self.message)?;
         if let Some(chain) = self.chain_id {
             write!(f, " (chain: {chain})")?;
         }

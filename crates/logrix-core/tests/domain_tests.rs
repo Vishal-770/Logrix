@@ -1,8 +1,6 @@
 use alloy_primitives::{address, b256, Bytes};
 use logrix_core::{
-    domain::{
-        BlockRangeJob, ChainId, Checkpoint, EventLog, LiveBlockJob, QueueMessage,
-    },
+    domain::{BlockRangeJob, ChainId, Checkpoint, EventLog, LiveBlockJob, QueueMessage},
     error::{ErrorClass, ErrorSource, LogrixError},
 };
 
@@ -49,7 +47,8 @@ fn test_queue_message_versioned_serialization() {
     assert!(json.contains("\"schema_version\":\"v1:live_block\""));
     assert!(json.contains("5000000"));
 
-    let deserialized: QueueMessage = serde_json::from_str(&json).expect("deserialize live block job");
+    let deserialized: QueueMessage =
+        serde_json::from_str(&json).expect("deserialize live block job");
     assert_eq!(msg, deserialized);
 }
 
@@ -80,7 +79,9 @@ fn test_block_range_split_half() {
 fn test_event_log_idempotency_key() {
     let log = EventLog {
         address: address!("88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"),
-        topics: vec![b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")],
+        topics: vec![b256!(
+            "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        )],
         data: Bytes::from(vec![0x01, 0x02]),
         tx_hash: b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         log_index: 42,
@@ -154,6 +155,7 @@ fn test_custom_queue_message_ocp() {
     assert!(json.contains("\"schema_version\":\"v1:custom\""));
     assert!(json.contains("\"parquet_export\""));
 
-    let deserialized: QueueMessage = serde_json::from_str(&json).expect("deserialize custom queue msg");
+    let deserialized: QueueMessage =
+        serde_json::from_str(&json).expect("deserialize custom queue msg");
     assert_eq!(custom_msg, deserialized);
 }

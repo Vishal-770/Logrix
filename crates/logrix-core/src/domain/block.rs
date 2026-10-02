@@ -40,7 +40,12 @@ impl EventLog {
     /// Unique compound key for idempotency: (chain_id, block_hash, log_index)
     #[must_use]
     pub fn idempotency_key(&self, chain_id: ChainId) -> String {
-        format!("{}:{}:{}", chain_id.as_u64(), self.block_hash, self.log_index)
+        format!(
+            "{}:{}:{}",
+            chain_id.as_u64(),
+            self.block_hash,
+            self.log_index
+        )
     }
 }
 

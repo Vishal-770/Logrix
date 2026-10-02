@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Strong newtype for an EVM chain ID (e.g. 1 for Ethereum Mainnet, 421614 for Arbitrum Sepolia).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct ChainId(pub u64);
 
 impl ChainId {

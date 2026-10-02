@@ -40,7 +40,10 @@ impl ErrorClass {
     /// Whether this error class is considered retryable by the resilience engine.
     #[must_use]
     pub fn is_retryable(&self) -> bool {
-        matches!(self, Self::Transient | Self::RateLimited { .. } | Self::Shrinkable)
+        matches!(
+            self,
+            Self::Transient | Self::RateLimited { .. } | Self::Shrinkable
+        )
     }
 
     /// Whether this error represents a permanent failure that should be parked in the DLQ.

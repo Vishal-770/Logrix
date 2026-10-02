@@ -53,7 +53,12 @@ pub struct BlockRangeJob {
 }
 
 impl BlockRangeJob {
-    pub fn new(chain_id: ChainId, from_block: u64, to_block: u64, partition_key: impl Into<String>) -> Self {
+    pub fn new(
+        chain_id: ChainId,
+        from_block: u64,
+        to_block: u64,
+        partition_key: impl Into<String>,
+    ) -> Self {
         Self {
             job_id: Uuid::new_v4().to_string(),
             chain_id,
