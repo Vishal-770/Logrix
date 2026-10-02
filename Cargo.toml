@@ -9,6 +9,7 @@ members = [
     "crates/logrix-chain-evm",
     "crates/logrix-api",
     "crates/logrix-cli",
+    "crates/logrix-queue-sqs",
 ]
 
 [workspace.package]
@@ -63,3 +64,4 @@ logrix-queue-rabbitmq = { path = "crates/logrix-queue-rabbitmq" }
 logrix-chain-evm = { path = "crates/logrix-chain-evm" }
 logrix-api = { path = "crates/logrix-api" }
 logrix-cli = { path = "crates/logrix-cli" }
+logrix-queue-sqs = { path = "crates/logrix-queue-sqs" }

@@ -7,13 +7,14 @@ use logrix_core::{
     ports::{ChainPort, QueuePort, StorePort},
 };
 use logrix_queue_rabbitmq::RabbitMQQueue;
+use logrix_queue_sqs::SqsQueue;
 use logrix_store_postgres::{PostgresStore, TokenTransfer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     name = "logrix",
     version,
@@ -23,6 +24,7 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
+    /// PostgreSQL connection URL (supports local K8s Postgres and AWS RDS)
     #[arg(
         long,
         env = "DATABASE_URL",
@@ -30,6 +32,11 @@ struct Cli {
     )]
     database_url: String,
 
+    /// Queue driver to use: "rabbitmq" (default) or "sqs" (AWS SQS)
+    #[arg(long, env = "QUEUE_DRIVER", default_value = "rabbitmq")]
+    queue_driver: String,
+
+    /// RabbitMQ connection URL (used when QUEUE_DRIVER=rabbitmq)
     #[arg(
         long,
         env = "RABBITMQ_URL",
@@ -37,6 +44,27 @@ struct Cli {
     )]
     rabbitmq_url: String,
 
+    /// AWS SQS Live Block Queue URL (used when QUEUE_DRIVER=sqs)
+    #[arg(long, env = "SQS_LIVE_URL", default_value = "")]
+    sqs_live_url: String,
+
+    /// AWS SQS Backfill Queue URL (used when QUEUE_DRIVER=sqs)
+    #[arg(long, env = "SQS_BACKFILL_URL", default_value = "")]
+    sqs_backfill_url: String,
+
+    /// AWS SQS Webhook Queue URL (used when QUEUE_DRIVER=sqs)
+    #[arg(long, env = "SQS_WEBHOOK_URL", default_value = "")]
+    sqs_webhook_url: String,
+
+    /// AWS SQS DLQ Queue URL (used when QUEUE_DRIVER=sqs)
+    #[arg(long, env = "SQS_DLQ_URL", default_value = "")]
+    sqs_dlq_url: String,
+
+    /// Custom AWS endpoint override (e.g. http://localhost:4566 for LocalStack)
+    #[arg(long, env = "SQS_ENDPOINT")]
+    sqs_endpoint: Option<String>,
+
+    /// Target EVM JSON-RPC URL
     #[arg(
         long,
         env = "RPC_URL",
@@ -60,7 +88,7 @@ struct Cli {
     start_block: Option<u64>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Commands {
     /// Apply database migrations
     Migrate,
@@ -78,6 +106,25 @@ enum Commands {
         #[arg(long, env = "PORT", default_value_t = 4000)]
         port: u16,
     },
+}
+
+async fn create_queue_adapter(cli: &Cli) -> Result<Arc<dyn QueuePort>, Box<dyn std::error::Error>> {
+    if cli.queue_driver.eq_ignore_ascii_case("sqs") {
+        info!("Initializing AWS SQS queue adapter...");
+        let queue = SqsQueue::from_env(
+            &cli.sqs_live_url,
+            &cli.sqs_backfill_url,
+            &cli.sqs_webhook_url,
+            &cli.sqs_dlq_url,
+            cli.sqs_endpoint.as_deref(),
+        )
+        .await?;
+        Ok(Arc::new(queue))
+    } else {
+        info!("Initializing RabbitMQ AMQP queue adapter...");
+        let queue = RabbitMQQueue::connect(&cli.rabbitmq_url, 100).await?;
+        Ok(Arc::new(queue))
+    }
 }
 
 #[tokio::main]
@@ -104,20 +151,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Migrations finished successfully.");
         }
         Commands::Ingester => {
+            let queue = create_queue_adapter(&cli).await?;
             run_ingester(
                 chain_id,
                 &cli.rpc_url,
-                &cli.rabbitmq_url,
+                queue,
                 &cli.database_url,
                 cli.start_block,
             )
             .await?;
         }
         Commands::Processor => {
+            let queue = create_queue_adapter(&cli).await?;
             run_processor(
                 chain_id,
                 &cli.rpc_url,
-                &cli.rabbitmq_url,
+                queue,
                 &cli.database_url,
                 target_contract,
             )
@@ -133,27 +182,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let store = PostgresStore::connect(&cli.database_url, "default").await?;
             store.migrate().await?;
 
+            let queue = create_queue_adapter(&cli).await?;
+
             let db_url = cli.database_url.clone();
-            let rmq_url = cli.rabbitmq_url.clone();
             let rpc = cli.rpc_url.clone();
             let start = cli.start_block;
+            let ingester_queue = queue.clone();
 
             // Ingester task
             let ingester_handle = tokio::spawn(async move {
-                if let Err(e) = run_ingester(chain_id, &rpc, &rmq_url, &db_url, start).await {
+                if let Err(e) = run_ingester(chain_id, &rpc, ingester_queue, &db_url, start).await {
                     error!(error = %e, "Ingester task failed");
                 }
             });
 
             // Processor task
             let db_url_proc = cli.database_url.clone();
-            let rmq_url_proc = cli.rabbitmq_url.clone();
             let rpc_proc = cli.rpc_url.clone();
+            let processor_queue = queue.clone();
             let processor_handle = tokio::spawn(async move {
                 if let Err(e) = run_processor(
                     chain_id,
                     &rpc_proc,
-                    &rmq_url_proc,
+                    processor_queue,
                     &db_url_proc,
                     target_contract,
                 )
@@ -196,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_ingester(
     chain_id: ChainId,
     rpc_url: &str,
-    rabbitmq_url: &str,
+    queue: Arc<dyn QueuePort>,
     database_url: &str,
     start_block: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -207,7 +258,6 @@ async fn run_ingester(
     );
 
     let client = EvmChainClient::new(chain_id, rpc_url);
-    let queue = Arc::new(RabbitMQQueue::connect(rabbitmq_url, 100).await?);
     let store = PostgresStore::connect(database_url, "default").await?;
 
     // Determine initial block
@@ -274,13 +324,12 @@ async fn run_ingester(
 async fn run_processor(
     chain_id: ChainId,
     rpc_url: &str,
-    rabbitmq_url: &str,
+    queue: Arc<dyn QueuePort>,
     database_url: &str,
     target_contract: Address,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Logrix Processor");
     let client = EvmChainClient::new(chain_id, rpc_url);
-    let queue = Arc::new(RabbitMQQueue::connect(rabbitmq_url, 50).await?);
     let store = Arc::new(PostgresStore::connect(database_url, "default").await?);
 
     loop {
@@ -333,7 +382,10 @@ async fn run_processor(
                         let checkpoint = Checkpoint::new(chain_id, to_block, B256::ZERO, true);
                         if let Err(e) = store.write_events_and_checkpoint(&logs, &checkpoint).await
                         {
-                            error!(error = %e, "Failed to commit events and checkpoint, requeueing");
+                            error!(
+                                error = %e,
+                                "Failed to commit events and checkpoint, requeueing"
+                            );
                             let _ = queue.nack(&handle, true).await;
                             tokio::time::sleep(Duration::from_millis(500)).await;
                             continue;

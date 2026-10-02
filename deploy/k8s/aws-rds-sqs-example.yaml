@@ -1,0 +1,71 @@
+# Production Deployment Example: AWS EKS with RDS PostgreSQL and SQS
+# Uses IRSA (IAM Roles for Service Accounts) for zero-secret cloud authentication.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logrix-sa
+  namespace: logrix-prod
+  annotations:
+    # Associate Kubernetes ServiceAccount with AWS IAM Role for SQS access
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/LogrixProductionSqsRole"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: logrix-rds-secret
+  namespace: logrix-prod
+type: Opaque
+stringData:
+  # AWS RDS PostgreSQL connection string with SSL enforcement
+  DATABASE_URL: "postgres://logrix_admin:StrongPassword@logrix-db.xxxxxx.us-east-1.rds.amazonaws.com:5432/logrix?sslmode=verify-full"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logrix-aws-config
+  namespace: logrix-prod
+data:
+  CHAIN_ID: "421614"
+  RPC_URL: "https://sepolia-rollup.arbitrum.io/rpc"
+  CONTRACT_ADDRESS: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+  PORT: "4000"
+  # SQS Queue Driver
+  QUEUE_DRIVER: "sqs"
+  SQS_LIVE_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-live-blocks"
+  SQS_BACKFILL_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-backfill-blocks"
+  SQS_WEBHOOK_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-webhooks"
+  SQS_DLQ_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-dlq"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logrix-aws-worker
+  namespace: logrix-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logrix-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logrix-worker
+    spec:
+      serviceAccountName: logrix-sa
+      containers:
+        - name: logrix
+          image: ghcr.io/vishal-770/logrix:latest
+          command: ["logrix", "processor"]
+          envFrom:
+            - configMapRef:
+                name: logrix-aws-config
+            - secretRef:
+                name: logrix-rds-secret
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
