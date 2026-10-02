@@ -106,3 +106,54 @@ fn test_checkpoint_creation() {
     assert_eq!(cp.last_indexed_block, 1500000);
     assert!(cp.is_finalized);
 }
+
+#[test]
+fn test_block_envelope_ocp_extensibility() {
+    use logrix_core::domain::{BlockEnvelope, EnvelopeKind};
+
+    let envelope = BlockEnvelope::new(
+        ChainId::ETHEREUM,
+        19000000,
+        b256!("1111111111111111111111111111111111111111111111111111111111111111"),
+        b256!("0000000000000000000000000000000000000000000000000000000000000000"),
+        1700000000,
+        vec![],
+    )
+    .with_kind(EnvelopeKind::Trace)
+    .with_extra("trace_count", serde_json::json!(150))
+    .with_extra("gas_used", serde_json::json!("0x5208"));
+
+    assert_eq!(envelope.kind, EnvelopeKind::Trace);
+    assert_eq!(envelope.extra["trace_count"], 150);
+
+    // Verify wire serialization
+    let json = serde_json::to_string(&envelope).expect("serialize envelope");
+    assert!(json.contains("\"kind\":\"trace\""));
+    assert!(json.contains("\"trace_count\":150"));
+
+    let deserialized: BlockEnvelope = serde_json::from_str(&json).expect("deserialize envelope");
+    assert_eq!(deserialized.kind, EnvelopeKind::Trace);
+    assert_eq!(deserialized.extra["gas_used"], "0x5208");
+}
+
+#[test]
+fn test_custom_queue_message_ocp() {
+    let custom_msg = QueueMessage::Custom {
+        job_id: "plugin-job-99".to_string(),
+        chain_id: ChainId::BASE,
+        job_type: "parquet_export".to_string(),
+        attempt: 1,
+        payload: serde_json::json!({ "s3_bucket": "archive-bucket", "format": "parquet" }),
+    };
+
+    assert_eq!(custom_msg.job_id(), "plugin-job-99");
+    assert_eq!(custom_msg.chain_id(), ChainId::BASE);
+    assert_eq!(custom_msg.attempt(), 1);
+
+    let json = serde_json::to_string(&custom_msg).expect("serialize custom queue msg");
+    assert!(json.contains("\"schema_version\":\"v1:custom\""));
+    assert!(json.contains("\"parquet_export\""));
+
+    let deserialized: QueueMessage = serde_json::from_str(&json).expect("deserialize custom queue msg");
+    assert_eq!(custom_msg, deserialized);
+}

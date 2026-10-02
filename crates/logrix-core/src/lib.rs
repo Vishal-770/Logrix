@@ -5,7 +5,7 @@ pub mod error;
 pub mod ports;
 
 // Re-export core domain types
-pub use domain::block::{BlockEnvelope, BlockRef, EventLog};
+pub use domain::block::{BlockEnvelope, BlockRef, EnvelopeKind, EventLog};
 pub use domain::chain::ChainId;
 pub use domain::checkpoint::Checkpoint;
 pub use domain::job::{BlockRangeJob, LiveBlockJob, MessageHandle, QueueMessage, QueueType};

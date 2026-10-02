@@ -44,9 +44,31 @@ impl EventLog {
     }
 }
 
+/// The category of data carried within a block envelope.
+///
+/// Leaves seams for future data types (traces, state diffs, non-EVM blocks) without schema rewrites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvelopeKind {
+    /// Standard EVM smart contract event logs.
+    #[default]
+    Log,
+    /// Raw full block header and metadata.
+    Block,
+    /// Transaction list with status and receipts.
+    Transaction,
+    /// Parity / Geth execution call traces and internal calls.
+    Trace,
+    /// State trie diffs / account storage changes.
+    StateDiff,
+    /// Custom user or non-EVM envelope payload.
+    Custom,
+}
+
 /// Generic block container exchanged across the Source and Decode pipeline boundary.
 ///
-/// Designed to satisfy Design Rule Zero (seam for non-EVM and extra block headers).
+/// Strictly adheres to the Open/Closed Principle (OCP) and Design Rule Zero:
+/// any future chain family or data type can be conveyed via `kind` and `extra` without breaking core traits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockEnvelope {
     pub chain_id: ChainId,
@@ -54,10 +76,46 @@ pub struct BlockEnvelope {
     pub block_hash: B256,
     pub parent_hash: B256,
     pub timestamp: u64,
+    #[serde(default)]
+    pub kind: EnvelopeKind,
     pub logs: Vec<EventLog>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl BlockEnvelope {
+    pub fn new(
+        chain_id: ChainId,
+        block_number: u64,
+        block_hash: B256,
+        parent_hash: B256,
+        timestamp: u64,
+        logs: Vec<EventLog>,
+    ) -> Self {
+        Self {
+            chain_id,
+            block_number,
+            block_hash,
+            parent_hash,
+            timestamp,
+            kind: EnvelopeKind::Log,
+            logs,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_kind(mut self, kind: EnvelopeKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    #[must_use]
+    pub fn with_extra(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.extra.insert(key.into(), value);
+        self
+    }
+
     #[must_use]
     pub fn block_ref(&self) -> BlockRef {
         BlockRef::new(self.block_number, self.block_hash)

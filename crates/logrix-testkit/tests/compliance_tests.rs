@@ -110,14 +110,14 @@ async fn test_mock_chain_port() {
         block_hash: b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
     };
 
-    let envelope = BlockEnvelope {
-        chain_id: ChainId::ARBITRUM_SEPOLIA,
-        block_number: 100,
-        block_hash: log.block_hash,
-        parent_hash: b256!("0000000000000000000000000000000000000000000000000000000000000000"),
-        timestamp: 1700000000,
-        logs: vec![log.clone()],
-    };
+    let envelope = BlockEnvelope::new(
+        ChainId::ARBITRUM_SEPOLIA,
+        100,
+        log.block_hash,
+        b256!("0000000000000000000000000000000000000000000000000000000000000000"),
+        1700000000,
+        vec![log.clone()],
+    );
 
     chain.add_block(envelope).await;
 
