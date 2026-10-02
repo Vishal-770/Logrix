@@ -8,7 +8,7 @@ metadata:
   namespace: logrix-prod
   annotations:
     # Associate Kubernetes ServiceAccount with AWS IAM Role for SQS access
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/LogrixProductionSqsRole"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/logrix-sqs-role"
 ---
 apiVersion: v1
 kind: Secret
@@ -18,7 +18,7 @@ metadata:
 type: Opaque
 stringData:
   # AWS RDS PostgreSQL connection string with SSL enforcement
-  DATABASE_URL: "postgres://logrix_admin:StrongPassword@logrix-db.xxxxxx.us-east-1.rds.amazonaws.com:5432/logrix?sslmode=verify-full"
+  DATABASE_URL: "postgres://<DB_USER>:<DB_PASSWORD>@<RDS_ENDPOINT>:5432/logrix?sslmode=verify-full"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -32,10 +32,10 @@ data:
   PORT: "4000"
   # SQS Queue Driver
   QUEUE_DRIVER: "sqs"
-  SQS_LIVE_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-live-blocks"
-  SQS_BACKFILL_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-backfill-blocks"
-  SQS_WEBHOOK_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-webhooks"
-  SQS_DLQ_URL: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-dlq"
+  SQS_LIVE_URL: "https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/logrix-live-blocks"
+  SQS_BACKFILL_URL: "https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/logrix-backfill-blocks"
+  SQS_WEBHOOK_URL: "https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/logrix-webhooks"
+  SQS_DLQ_URL: "https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/logrix-dlq"
 ---
 apiVersion: apps/v1
 kind: Deployment

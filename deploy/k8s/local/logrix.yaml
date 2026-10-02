@@ -9,8 +9,8 @@ data:
   CHAIN_ID: "421614"
   RPC_URL: "https://sepolia-rollup.arbitrum.io/rpc"
   CONTRACT_ADDRESS: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
-  DATABASE_URL: "postgres://logrix:logrix@postgres.logrix-dev.svc.cluster.local:5432/logrix"
-  RABBITMQ_URL: "amqp://logrix:logrix@rabbitmq.logrix-dev.svc.cluster.local:5672/%2f"
+  DATABASE_URL: "postgres://logrix:logrix@postgres:5432/logrix"
+  RABBITMQ_URL: "amqp://logrix:logrix@rabbitmq:5672"
   PORT: "4000"
 ---
 apiVersion: v1
