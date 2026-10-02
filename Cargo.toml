@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/logrix-core",
+    "crates/logrix-resilience",
+    "crates/logrix-testkit",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Logrix Contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/logrix/logrix"
+
+[workspace.dependencies]
+# Async Runtime
+tokio = { version = "1.43", features = ["full"] }
+async-trait = "0.1.86"
+futures = "0.3.31"
+
+# Serialization & Data
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.13", features = ["v4", "serde"] }
+
+# Ethereum Primitives
+alloy-primitives = { version = "0.8", features = ["serde"] }
+alloy-dyn-abi = { version = "0.8" }
+
+# Error Handling & Observability
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Resilience
+tower = { version = "0.5", features = ["util"] }
+
+# Internal workspace crates
+logrix-core = { path = "crates/logrix-core" }
+logrix-resilience = { path = "crates/logrix-resilience" }
+logrix-testkit = { path = "crates/logrix-testkit" }

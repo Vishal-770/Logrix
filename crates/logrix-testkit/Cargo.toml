@@ -1,0 +1,17 @@
+[package]
+name = "logrix-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+logrix-core.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait.workspace = true
+alloy-primitives.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
