@@ -12,6 +12,7 @@ members = [
     "crates/logrix-queue-sqs",
     "crates/logrix-rpc-gateway",
     "crates/logrix-reconciler",
+    "crates/logrix-handlers",
 ]
 
 [workspace.package]
@@ -30,6 +31,7 @@ futures = "0.3.31"
 # Serialization & Data
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.13", features = ["v4", "serde"] }
 
@@ -57,6 +59,9 @@ axum = "0.8"
 async-graphql = { version = "7.0", features = ["chrono", "uuid"] }
 async-graphql-axum = "7.0"
 
+# WebAssembly Runtime
+wasmtime = "29"
+
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
 
@@ -72,3 +77,4 @@ logrix-cli = { path = "crates/logrix-cli" }
 logrix-queue-sqs = { path = "crates/logrix-queue-sqs" }
 logrix-rpc-gateway = { path = "crates/logrix-rpc-gateway" }
 logrix-reconciler = { path = "crates/logrix-reconciler" }
+logrix-handlers = { path = "crates/logrix-handlers" }

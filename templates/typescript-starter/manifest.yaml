@@ -1,0 +1,17 @@
+schema_version: "1.0"
+chain_id: 421614
+contracts:
+  - name: "ArbitrumSepoliaUSDC"
+    address: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+    events:
+      - "Transfer(address,address,uint256)"
+    declarative:
+      - event: "Transfer"
+        entity: "TokenTransfer"
+        fields:
+          contract: "log.address"
+          block: "log.block_number"
+          from: "log.topics[1]"
+          to: "log.topics[2]"
+          amount_raw: "log.data[0..32]"
+    wasm_handler: "build/handler.wasm"

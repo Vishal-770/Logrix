@@ -1,0 +1,14 @@
+{
+  "name": "logrix-typescript-starter",
+  "version": "1.0.0",
+  "description": "Logrix WebAssembly Event Handler Starter in TypeScript / AssemblyScript",
+  "main": "build/handler.wasm",
+  "scripts": {
+    "asbuild:debug": "asc assembly/index.ts --target debug -o build/handler.wasm",
+    "asbuild:release": "asc assembly/index.ts --target release -o build/handler.wasm",
+    "build": "npm run asbuild:release"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.34"
+  }
+}

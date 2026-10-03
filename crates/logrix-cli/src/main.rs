@@ -15,7 +15,7 @@ use logrix_store_postgres::{PostgresStore, TokenTransfer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -113,6 +113,10 @@ struct Cli {
     /// In-memory ring buffer depth for parent-hash reorg detection
     #[arg(long, env = "RING_BUFFER_DEPTH", default_value_t = 128)]
     ring_buffer_depth: usize,
+
+    /// Optional path to YAML manifest for declarative mappings and WASM handlers
+    #[arg(long, env = "MANIFEST_PATH")]
+    manifest_path: Option<String>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -226,6 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ring_buffer_depth: cli.ring_buffer_depth,
                 webhook_url: cli.webhook_url.clone(),
                 reconciler_interval_secs: cli.reconciler_interval_secs,
+                manifest_path: cli.manifest_path.clone(),
             };
             run_processor(config, gateway, queue).await?;
         }
@@ -320,6 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ring_buffer_depth: cli.ring_buffer_depth,
                 webhook_url: cli.webhook_url.clone(),
                 reconciler_interval_secs: cli.reconciler_interval_secs,
+                manifest_path: cli.manifest_path.clone(),
             };
             let processor_handle = tokio::spawn(async move {
                 if let Err(e) = run_processor(proc_config, processor_gw, processor_queue).await {
@@ -442,6 +448,7 @@ pub struct ProcessorConfig {
     pub ring_buffer_depth: usize,
     pub webhook_url: Option<String>,
     pub reconciler_interval_secs: u64,
+    pub manifest_path: Option<String>,
 }
 
 async fn run_processor(
@@ -467,6 +474,22 @@ async fn run_processor(
         Duration::from_secs(config.reconciler_interval_secs),
     );
     let webhook_dispatcher = WebhookDispatcher::new(queue.clone(), config.webhook_url);
+
+    // Initialize User Logic Engine if manifest is provided
+    let engine_opt = if let Some(ref path) = config.manifest_path {
+        info!(path, "Loading user logic engine manifest");
+        let manifest = logrix_handlers::Manifest::from_file(path)?;
+        let mut engine = logrix_handlers::UserLogicEngine::new(manifest)?;
+        for contract in &engine.manifest().contracts.clone() {
+            if let Some(ref wasm_path) = contract.wasm_handler {
+                info!(%contract.address, wasm_path, "Loading contract WASM handler");
+                engine.load_wasm_handler_file(contract.address, wasm_path)?;
+            }
+        }
+        Some(engine)
+    } else {
+        None
+    };
 
     // Spawn background gap reconciler loop
     tokio::spawn(async move {
@@ -540,6 +563,22 @@ async fn run_processor(
                                 if !transfers.is_empty() {
                                     if let Err(e) = store.save_transfers_batch(&transfers).await {
                                         error!(error = %e, "Failed to save token transfers");
+                                    }
+                                }
+
+                                if let Some(ref engine) = engine_opt {
+                                    for log in &envelope.logs {
+                                        if let Ok(staging) = engine.process_log(log).await {
+                                            let (mutations, emitted) =
+                                                engine.commit_staging(staging).await;
+                                            if !emitted.is_empty() || !mutations.is_empty() {
+                                                debug!(
+                                                    emitted = emitted.len(),
+                                                    mutations = mutations.len(),
+                                                    "Committed user logic entities and state"
+                                                );
+                                            }
+                                        }
                                     }
                                 }
 
@@ -666,6 +705,22 @@ async fn run_processor(
                             if !transfers.is_empty() {
                                 if let Err(e) = store.save_transfers_batch(&transfers).await {
                                     error!(error = %e, "Failed to save token transfers");
+                                }
+                            }
+
+                            if let Some(ref engine) = engine_opt {
+                                for log in &logs {
+                                    if let Ok(staging) = engine.process_log(log).await {
+                                        let (mutations, emitted) =
+                                            engine.commit_staging(staging).await;
+                                        if !emitted.is_empty() || !mutations.is_empty() {
+                                            debug!(
+                                                emitted = emitted.len(),
+                                                mutations = mutations.len(),
+                                                "Committed user logic entities and state"
+                                            );
+                                        }
+                                    }
                                 }
                             }
 

@@ -19,6 +19,7 @@ logrix-api = { workspace = true }
 logrix-queue-sqs = { workspace = true }
 logrix-rpc-gateway = { workspace = true }
 logrix-reconciler = { workspace = true }
+logrix-handlers = { workspace = true }
 
 clap = { workspace = true }
 tokio = { workspace = true }
