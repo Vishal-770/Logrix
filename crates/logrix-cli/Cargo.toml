@@ -18,6 +18,7 @@ logrix-chain-evm = { workspace = true }
 logrix-api = { workspace = true }
 logrix-queue-sqs = { workspace = true }
 logrix-rpc-gateway = { workspace = true }
+logrix-reconciler = { workspace = true }
 
 clap = { workspace = true }
 tokio = { workspace = true }

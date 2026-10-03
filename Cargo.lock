@@ -3372,6 +3372,7 @@ dependencies = [
  "logrix-core",
  "logrix-queue-rabbitmq",
  "logrix-queue-sqs",
+ "logrix-reconciler",
  "logrix-resilience",
  "logrix-rpc-gateway",
  "logrix-store-postgres",
@@ -3423,6 +3424,26 @@ dependencies = [
  "aws-sdk-sqs",
  "logrix-core",
  "logrix-testkit",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "logrix-reconciler"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "async-trait",
+ "chrono",
+ "logrix-core",
+ "logrix-resilience",
+ "logrix-testkit",
+ "rand 0.8.8",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",

@@ -8,6 +8,9 @@ use logrix_core::{
 };
 use logrix_queue_rabbitmq::RabbitMQQueue;
 use logrix_queue_sqs::SqsQueue;
+use logrix_reconciler::{
+    ContinuityStatus, GapReconciler, ReorgDetector, ReorgHandler, WebhookDispatcher,
+};
 use logrix_store_postgres::{PostgresStore, TokenTransfer};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -98,6 +101,18 @@ struct Cli {
     /// Initial block to begin indexing if no database checkpoint exists
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
+
+    /// Target Webhook URL for external reorg and event notifications
+    #[arg(long, env = "WEBHOOK_URL")]
+    webhook_url: Option<String>,
+
+    /// Background gap reconciler polling interval in seconds
+    #[arg(long, env = "RECONCILER_INTERVAL_SECS", default_value_t = 30)]
+    reconciler_interval_secs: u64,
+
+    /// In-memory ring buffer depth for parent-hash reorg detection
+    #[arg(long, env = "RING_BUFFER_DEPTH", default_value_t = 128)]
+    ring_buffer_depth: usize,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -204,7 +219,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Processor => {
             let queue = create_queue_adapter(&cli).await?;
             let gateway = create_rpc_gateway(&cli, chain_id).await;
-            run_processor(chain_id, gateway, queue, &cli.database_url, target_contract).await?;
+            let config = ProcessorConfig {
+                chain_id,
+                database_url: cli.database_url.clone(),
+                target_contract,
+                ring_buffer_depth: cli.ring_buffer_depth,
+                webhook_url: cli.webhook_url.clone(),
+                reconciler_interval_secs: cli.reconciler_interval_secs,
+            };
+            run_processor(config, gateway, queue).await?;
         }
         Commands::Backfill {
             from_block,
@@ -288,19 +311,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             // Processor task
-            let db_url_proc = cli.database_url.clone();
             let processor_queue = queue.clone();
             let processor_gw = gateway.clone();
+            let proc_config = ProcessorConfig {
+                chain_id,
+                database_url: cli.database_url.clone(),
+                target_contract,
+                ring_buffer_depth: cli.ring_buffer_depth,
+                webhook_url: cli.webhook_url.clone(),
+                reconciler_interval_secs: cli.reconciler_interval_secs,
+            };
             let processor_handle = tokio::spawn(async move {
-                if let Err(e) = run_processor(
-                    chain_id,
-                    processor_gw,
-                    processor_queue,
-                    &db_url_proc,
-                    target_contract,
-                )
-                .await
-                {
+                if let Err(e) = run_processor(proc_config, processor_gw, processor_queue).await {
                     error!(error = %e, "Processor task failed");
                 }
             });
@@ -411,15 +433,50 @@ async fn run_ingester(
     }
 }
 
+/// Configuration for the Logrix stream and reorg processor.
+#[derive(Debug, Clone)]
+pub struct ProcessorConfig {
+    pub chain_id: ChainId,
+    pub database_url: String,
+    pub target_contract: Address,
+    pub ring_buffer_depth: usize,
+    pub webhook_url: Option<String>,
+    pub reconciler_interval_secs: u64,
+}
+
 async fn run_processor(
-    chain_id: ChainId,
+    config: ProcessorConfig,
     gateway: Arc<logrix_rpc_gateway::RpcGateway>,
     queue: Arc<dyn QueuePort>,
-    database_url: &str,
-    target_contract: Address,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting Logrix Processor with Cost-Aware RPC Gateway");
-    let store = Arc::new(PostgresStore::connect(database_url, "default").await?);
+    info!("Starting Logrix Processor with Reorg Engine & Self-Healing Reconciler");
+    let store = Arc::new(PostgresStore::connect(&config.database_url, "default").await?);
+
+    let detector = ReorgDetector::new(config.chain_id, gateway.clone(), config.ring_buffer_depth);
+    let handler = ReorgHandler::new(
+        config.chain_id,
+        store.clone(),
+        queue.clone(),
+        detector.clone(),
+    );
+    let reconciler = GapReconciler::new(
+        config.chain_id,
+        store.clone(),
+        queue.clone(),
+        gateway.clone(),
+        Duration::from_secs(config.reconciler_interval_secs),
+    );
+    let webhook_dispatcher = WebhookDispatcher::new(queue.clone(), config.webhook_url);
+
+    // Spawn background gap reconciler loop
+    tokio::spawn(async move {
+        reconciler.run_loop().await;
+    });
+
+    // Spawn background webhook notification loop
+    tokio::spawn(async move {
+        webhook_dispatcher.run_loop().await;
+    });
 
     loop {
         // Try Backfill queue first, then Live queue
@@ -432,78 +489,204 @@ async fn run_processor(
         };
 
         match msg_opt {
-            Some((_q_type, handle)) => {
-                let (from_block, to_block) = match &handle.message {
-                    QueueMessage::BackfillRange(job) => (job.from_block, job.to_block),
-                    QueueMessage::LiveBlock(job) => (job.block_number, job.block_number),
-                    _ => {
-                        let _ = queue.ack(&handle).await;
-                        continue;
-                    }
-                };
+            Some((_q_type, handle)) => match &handle.message {
+                QueueMessage::LiveBlock(job) => {
+                    let block_num = job.block_number;
+                    match gateway
+                        .fetch_block_envelope(block_num, &[config.target_contract])
+                        .await
+                    {
+                        Ok(Some(envelope)) => match detector.check_envelope(&envelope).await {
+                            Ok(ContinuityStatus::Continuous) => {
+                                let mut transfers = Vec::new();
+                                for log in &envelope.logs {
+                                    if let Some(decoded) =
+                                        decode_erc20_transfer(config.chain_id.as_u64(), log)
+                                    {
+                                        transfers.push(TokenTransfer {
+                                            chain_id: decoded.chain_id,
+                                            block_number: decoded.block_number,
+                                            block_hash: decoded.block_hash,
+                                            tx_hash: decoded.tx_hash,
+                                            log_index: decoded.log_index,
+                                            contract_address: decoded.contract_address,
+                                            from_address: decoded.from_address,
+                                            to_address: decoded.to_address,
+                                            amount: decoded.amount,
+                                            timestamp: decoded.timestamp,
+                                        });
+                                    }
+                                }
 
-                // Fetch logs for range via Gateway
-                match gateway
-                    .fetch_logs(from_block, to_block, &[target_contract])
-                    .await
-                {
-                    Ok(logs) => {
-                        // 1. Decode ERC-20 transfers
-                        let mut transfers = Vec::new();
-                        for log in &logs {
-                            if let Some(decoded) = decode_erc20_transfer(chain_id.as_u64(), log) {
-                                transfers.push(TokenTransfer {
-                                    chain_id: decoded.chain_id,
-                                    block_number: decoded.block_number,
-                                    block_hash: decoded.block_hash,
-                                    tx_hash: decoded.tx_hash,
-                                    log_index: decoded.log_index,
-                                    contract_address: decoded.contract_address,
-                                    from_address: decoded.from_address,
-                                    to_address: decoded.to_address,
-                                    amount: decoded.amount,
-                                    timestamp: decoded.timestamp,
-                                });
+                                let checkpoint = Checkpoint::new(
+                                    config.chain_id,
+                                    block_num,
+                                    envelope.block_hash,
+                                    true,
+                                );
+                                if let Err(e) = store
+                                    .write_events_and_checkpoint(&envelope.logs, &checkpoint)
+                                    .await
+                                {
+                                    error!(
+                                        error = %e,
+                                        "Failed to commit live events and checkpoint, requeueing"
+                                    );
+                                    let _ = queue.nack(&handle, true).await;
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    continue;
+                                }
+
+                                if !transfers.is_empty() {
+                                    if let Err(e) = store.save_transfers_batch(&transfers).await {
+                                        error!(error = %e, "Failed to save token transfers");
+                                    }
+                                }
+
+                                let _ = queue.ack(&handle).await;
                             }
-                        }
-
-                        // 2. Commit events and checkpoint atomically
-                        let checkpoint = Checkpoint::new(chain_id, to_block, B256::ZERO, true);
-                        if let Err(e) = store.write_events_and_checkpoint(&logs, &checkpoint).await
-                        {
-                            error!(
-                                error = %e,
-                                "Failed to commit events and checkpoint, requeueing"
+                            Ok(ContinuityStatus::ReorgDetected {
+                                fork_block,
+                                fork_hash,
+                                reorg_depth,
+                            }) => {
+                                warn!(
+                                    fork_block,
+                                    fork_hash = %fork_hash,
+                                    reorg_depth,
+                                    "Reorg detected! Executing atomic rollback"
+                                );
+                                if let Err(e) = handler
+                                    .execute_rollback(fork_block, fork_hash, reorg_depth)
+                                    .await
+                                {
+                                    error!(
+                                        error = %e,
+                                        "Reorg rollback execution failed, requeueing"
+                                    );
+                                    let _ = queue.nack(&handle, true).await;
+                                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                                    continue;
+                                }
+                                let _ = queue.ack(&handle).await;
+                            }
+                            Ok(ContinuityStatus::GapDetected {
+                                from_block,
+                                to_block,
+                            }) => {
+                                warn!(
+                                    from_block,
+                                    to_block,
+                                    "Gap detected in live stream; dispatching backfill range"
+                                );
+                                let gap_job = BlockRangeJob::new(
+                                    config.chain_id,
+                                    from_block,
+                                    to_block,
+                                    format!("{}:{from_block}-{to_block}", config.chain_id),
+                                );
+                                let _ = queue
+                                    .publish(
+                                        QueueType::Backfill,
+                                        &QueueMessage::BackfillRange(gap_job),
+                                    )
+                                    .await;
+                                let _ = queue.nack(&handle, true).await;
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                            }
+                            Err(e) => {
+                                error!(
+                                    error = %e,
+                                    "Reorg continuity check failed, requeueing"
+                                );
+                                let _ = queue.nack(&handle, true).await;
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                            }
+                        },
+                        Ok(None) => {
+                            warn!(
+                                block_num,
+                                "Block envelope not found on chain yet, requeueing"
                             );
                             let _ = queue.nack(&handle, true).await;
                             tokio::time::sleep(Duration::from_millis(500)).await;
-                            continue;
                         }
-
-                        // 3. Save domain transfers
-                        if !transfers.is_empty() {
-                            if let Err(e) = store.save_transfers_batch(&transfers).await {
-                                error!(error = %e, "Failed to save token transfers");
-                            }
+                        Err(e) => {
+                            warn!(
+                                block_num,
+                                error = %e,
+                                "Failed to fetch block envelope from RPC Gateway, requeueing"
+                            );
+                            let _ = queue.nack(&handle, true).await;
+                            tokio::time::sleep(Duration::from_millis(500)).await;
                         }
-
-                        // 4. Acknowledge message from queue
-                        if let Err(e) = queue.ack(&handle).await {
-                            error!(error = %e, "Failed to ack message handle");
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            from_block,
-                            to_block,
-                            error = %e,
-                            "Failed to fetch logs from RPC Gateway, requeueing"
-                        );
-                        let _ = queue.nack(&handle, true).await;
-                        tokio::time::sleep(Duration::from_millis(500)).await;
                     }
                 }
-            }
+                QueueMessage::BackfillRange(job) => {
+                    let (from_block, to_block) = (job.from_block, job.to_block);
+                    match gateway
+                        .fetch_logs(from_block, to_block, &[config.target_contract])
+                        .await
+                    {
+                        Ok(logs) => {
+                            let mut transfers = Vec::new();
+                            for log in &logs {
+                                if let Some(decoded) =
+                                    decode_erc20_transfer(config.chain_id.as_u64(), log)
+                                {
+                                    transfers.push(TokenTransfer {
+                                        chain_id: decoded.chain_id,
+                                        block_number: decoded.block_number,
+                                        block_hash: decoded.block_hash,
+                                        tx_hash: decoded.tx_hash,
+                                        log_index: decoded.log_index,
+                                        contract_address: decoded.contract_address,
+                                        from_address: decoded.from_address,
+                                        to_address: decoded.to_address,
+                                        amount: decoded.amount,
+                                        timestamp: decoded.timestamp,
+                                    });
+                                }
+                            }
+
+                            let checkpoint =
+                                Checkpoint::new(config.chain_id, to_block, B256::ZERO, true);
+                            if let Err(e) =
+                                store.write_events_and_checkpoint(&logs, &checkpoint).await
+                            {
+                                error!(
+                                    error = %e,
+                                    "Failed to commit backfill events and checkpoint, requeueing"
+                                );
+                                let _ = queue.nack(&handle, true).await;
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                continue;
+                            }
+
+                            if !transfers.is_empty() {
+                                if let Err(e) = store.save_transfers_batch(&transfers).await {
+                                    error!(error = %e, "Failed to save token transfers");
+                                }
+                            }
+
+                            let _ = queue.ack(&handle).await;
+                        }
+                        Err(e) => {
+                            warn!(
+                                from_block,
+                                to_block,
+                                error = %e,
+                                "Failed to fetch logs from RPC Gateway, requeueing"
+                            );
+                            let _ = queue.nack(&handle, true).await;
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                    }
+                }
+                _ => {
+                    let _ = queue.ack(&handle).await;
+                }
+            },
             None => {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }

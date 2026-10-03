@@ -156,7 +156,7 @@ impl PostgresStore {
                 chain_id, block_number, block_hash, tx_hash, log_index,
                 contract_address, from_address, to_address, amount::text, timestamp
             FROM token_transfers
-            WHERE chain_id = $1
+            WHERE chain_id = $1 AND is_reverted = FALSE
             "#,
         );
 
@@ -394,31 +394,35 @@ impl StorePort for PostgresStore {
         let chain_id_val = chain_id.as_u64() as i64;
         let to_block_val = to_block as i64;
 
-        sqlx::query("DELETE FROM logrix_events WHERE chain_id = $1 AND block_number > $2")
-            .bind(chain_id_val)
-            .bind(to_block_val)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Database,
-                    format!("Failed to delete rolled-back events: {e}"),
-                )
-            })?;
+        sqlx::query(
+            "UPDATE logrix_events SET is_reverted = TRUE, reverted_at = NOW() WHERE chain_id = $1 AND block_number > $2 AND is_reverted = FALSE"
+        )
+        .bind(chain_id_val)
+        .bind(to_block_val)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::Database,
+                format!("Failed to soft-delete rolled-back events: {e}"),
+            )
+        })?;
 
-        sqlx::query("DELETE FROM token_transfers WHERE chain_id = $1 AND block_number > $2")
-            .bind(chain_id_val)
-            .bind(to_block_val)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Database,
-                    format!("Failed to delete rolled-back transfers: {e}"),
-                )
-            })?;
+        sqlx::query(
+            "UPDATE token_transfers SET is_reverted = TRUE, reverted_at = NOW() WHERE chain_id = $1 AND block_number > $2 AND is_reverted = FALSE"
+        )
+        .bind(chain_id_val)
+        .bind(to_block_val)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::Database,
+                format!("Failed to soft-delete rolled-back transfers: {e}"),
+            )
+        })?;
 
         sqlx::query(
             r#"
