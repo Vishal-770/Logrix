@@ -3,6 +3,7 @@
 pub mod domain;
 pub mod error;
 pub mod leader;
+pub mod lease;
 pub mod ports;
 
 // Re-export core domain types
@@ -24,4 +25,5 @@ pub use ports::sink::SinkPort;
 pub use ports::store::StorePort;
 
 // Re-export leader electors
-pub use leader::{KubernetesLeaseElector, LocalLeaderElector};
+pub use leader::LocalLeaderElector;
+pub use lease::KubernetesLeaseElector;

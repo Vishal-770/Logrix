@@ -58,7 +58,10 @@ pub async fn index_envelope(
     if let Some(blob) = blob_store {
         if let Ok(raw_json) = serde_json::to_vec(envelope) {
             if let Ok(compressed) = compress_zstd(&raw_json, 3) {
-                let s3_key = format!("chain_{}/blocks/{}.json.zst", chain_id_u64, envelope.block_number);
+                let s3_key = format!(
+                    "chain_{}/blocks/{}.json.zst",
+                    chain_id_u64, envelope.block_number
+                );
                 let _ = blob.put(&s3_key, &compressed).await;
             }
         }
@@ -142,7 +145,10 @@ async fn process_entities(
                 }
             }
             if !mutations.is_empty() {
-                debug!(mutations = mutations.len(), "Committed user logic state mutations");
+                debug!(
+                    mutations = mutations.len(),
+                    "Committed user logic state mutations"
+                );
             }
         }
     }

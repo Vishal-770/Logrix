@@ -6,7 +6,11 @@ use logrix_core::{
 use tracing::info;
 
 impl PostgresStore {
-    pub(crate) async fn rollback_internal(&self, chain_id: ChainId, to_block: u64) -> LogrixResult<()> {
+    pub(crate) async fn rollback_internal(
+        &self,
+        chain_id: ChainId,
+        to_block: u64,
+    ) -> LogrixResult<()> {
         let mut tx = self.pool().begin().await.map_err(|e| {
             LogrixError::new(
                 ErrorClass::Transient,

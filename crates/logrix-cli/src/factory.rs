@@ -5,7 +5,9 @@ use logrix_queue_sqs::SqsQueue;
 use std::sync::Arc;
 use tracing::info;
 
-pub async fn create_queue_adapter(cli: &Cli) -> Result<Arc<dyn QueuePort>, Box<dyn std::error::Error>> {
+pub async fn create_queue_adapter(
+    cli: &Cli,
+) -> Result<Arc<dyn QueuePort>, Box<dyn std::error::Error>> {
     if cli.queue_driver.eq_ignore_ascii_case("sqs") {
         info!("Initializing AWS SQS queue adapter...");
         let queue = SqsQueue::from_env(
@@ -24,7 +26,10 @@ pub async fn create_queue_adapter(cli: &Cli) -> Result<Arc<dyn QueuePort>, Box<d
     }
 }
 
-pub async fn create_rpc_gateway(cli: &Cli, chain_id: ChainId) -> Arc<logrix_rpc_gateway::RpcGateway> {
+pub async fn create_rpc_gateway(
+    cli: &Cli,
+    chain_id: ChainId,
+) -> Arc<logrix_rpc_gateway::RpcGateway> {
     use logrix_rpc_gateway::{ManagedProvider, ProviderPool, RpcGateway};
 
     let pool = ProviderPool::new(chain_id);

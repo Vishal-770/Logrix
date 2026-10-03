@@ -1,18 +1,18 @@
 use alloy_primitives::Address;
 use logrix_blob_s3::{S3BlobStore, S3Config};
 use logrix_core::{
-    domain::{BlockRangeJob, ChainId, MessageHandle, QueueMessage, QueueType},
-    ports::{ChainPort, QueuePort},
+    domain::{ChainId, QueueMessage, QueueType},
+    ports::QueuePort,
 };
 use logrix_handlers::UserLogicEngine;
-use logrix_reconciler::{ContinuityStatus, GapReconciler, ReorgDetector, ReorgHandler};
+use logrix_reconciler::{GapReconciler, ReorgDetector, ReorgHandler};
 use logrix_store_postgres::PostgresStore;
 use logrix_webhook::{generate_secret, WebhookDispatcherService, WebhookStore};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::indexer::{index_envelope, index_logs_batch};
+use crate::handlers::{handle_backfill_range, handle_live_block};
 
 #[derive(Debug, Clone)]
 pub struct ProcessorConfig {
@@ -30,15 +30,34 @@ pub struct ProcessorConfig {
     pub s3_prefix: Option<String>,
 }
 
-struct ProcessorContext<'a> {
-    config: &'a ProcessorConfig,
-    store: &'a PostgresStore,
-    blob_store: Option<&'a S3BlobStore>,
-    detector: &'a ReorgDetector,
-    handler: &'a ReorgHandler,
-    gateway: &'a logrix_rpc_gateway::RpcGateway,
-    queue: &'a Arc<dyn QueuePort>,
-    engine: Option<&'a UserLogicEngine>,
+impl ProcessorConfig {
+    pub fn from_cli(cli: &crate::args::Cli, chain_id: ChainId, target_contract: Address) -> Self {
+        Self {
+            chain_id,
+            database_url: cli.database_url.clone(),
+            target_contract,
+            ring_buffer_depth: cli.ring_buffer_depth,
+            webhook_url: cli.webhook_url.clone(),
+            webhook_secret: cli.webhook_secret.clone(),
+            reconciler_interval_secs: cli.reconciler_interval_secs,
+            manifest_path: cli.manifest_path.clone(),
+            enable_webhooks: cli.enable_webhooks,
+            s3_bucket: cli.s3_bucket.clone(),
+            s3_endpoint: cli.s3_endpoint.clone(),
+            s3_prefix: cli.s3_prefix.clone(),
+        }
+    }
+}
+
+pub struct ProcessorContext<'a> {
+    pub config: &'a ProcessorConfig,
+    pub store: &'a PostgresStore,
+    pub blob_store: Option<&'a S3BlobStore>,
+    pub detector: &'a ReorgDetector,
+    pub handler: &'a ReorgHandler,
+    pub gateway: &'a logrix_rpc_gateway::RpcGateway,
+    pub queue: &'a Arc<dyn QueuePort>,
+    pub engine: Option<&'a UserLogicEngine>,
 }
 
 pub async fn run_processor(
@@ -49,22 +68,51 @@ pub async fn run_processor(
     info!("Starting Logrix Processor with Reorg Engine & Self-Healing Reconciler");
     let store = Arc::new(PostgresStore::connect(&config.database_url, "default").await?);
     let blob_store = if let Some(ref bucket) = config.s3_bucket {
-        let s3_conf = S3Config::from_env(bucket, config.s3_prefix.clone(), config.s3_endpoint.as_deref()).await?;
+        let s3_conf = S3Config::from_env(
+            bucket,
+            config.s3_prefix.clone(),
+            config.s3_endpoint.as_deref(),
+        )
+        .await?;
         Some(S3BlobStore::new(s3_conf))
     } else {
         None
     };
 
     let detector = ReorgDetector::new(config.chain_id, gateway.clone(), config.ring_buffer_depth);
-    let handler = ReorgHandler::new(config.chain_id, store.clone(), queue.clone(), detector.clone());
-    let reconciler = GapReconciler::new(config.chain_id, store.clone(), queue.clone(), gateway.clone(), Duration::from_secs(config.reconciler_interval_secs));
-    tokio::spawn(async move { reconciler.run_loop().await; });
+    let handler = ReorgHandler::new(
+        config.chain_id,
+        store.clone(),
+        queue.clone(),
+        detector.clone(),
+    );
+    let reconciler = GapReconciler::new(
+        config.chain_id,
+        store.clone(),
+        queue.clone(),
+        gateway.clone(),
+        Duration::from_secs(config.reconciler_interval_secs),
+    );
+    tokio::spawn(async move {
+        reconciler.run_loop().await;
+    });
 
     if config.enable_webhooks {
         let wh_store = WebhookStore::new(store.pool().clone());
-        let secret = if config.webhook_secret.is_empty() { generate_secret() } else { config.webhook_secret.clone() };
-        let wh_dispatcher = WebhookDispatcherService::new(queue.clone(), Some(wh_store), config.webhook_url.clone(), secret);
-        tokio::spawn(async move { wh_dispatcher.run_loop().await; });
+        let secret = if config.webhook_secret.is_empty() {
+            generate_secret()
+        } else {
+            config.webhook_secret.clone()
+        };
+        let wh_dispatcher = WebhookDispatcherService::new(
+            queue.clone(),
+            Some(wh_store),
+            config.webhook_url.clone(),
+            secret,
+        );
+        tokio::spawn(async move {
+            wh_dispatcher.run_loop().await;
+        });
     }
 
     let engine_opt = if let Some(ref path) = config.manifest_path {
@@ -98,7 +146,11 @@ async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std
     loop {
         let msg_res = match ctx.queue.consume(QueueType::Backfill).await? {
             Some(h) => Some((QueueType::Backfill, h)),
-            None => ctx.queue.consume(QueueType::Live).await?.map(|h| (QueueType::Live, h)),
+            None => ctx
+                .queue
+                .consume(QueueType::Live)
+                .await?
+                .map(|h| (QueueType::Live, h)),
         };
 
         let Some((_q_type, handle)) = msg_res else {
@@ -113,83 +165,9 @@ async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std
             QueueMessage::BackfillRange(job) => {
                 handle_backfill_range(ctx, job, &handle).await?;
             }
-            _ => { let _ = ctx.queue.ack(&handle).await; }
-        }
-    }
-}
-
-async fn handle_live_block(
-    ctx: &ProcessorContext<'_>,
-    block_num: u64,
-    handle: &MessageHandle,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(Some(env)) = ctx.gateway.fetch_block_envelope(block_num, &[ctx.config.target_contract]).await else {
-        let _ = ctx.queue.nack(handle, true).await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        return Ok(());
-    };
-
-    match ctx.detector.check_envelope(&env).await {
-        Ok(ContinuityStatus::Continuous) => {
-            if index_envelope(ctx.store, ctx.blob_store, ctx.config.chain_id.as_u64(), &env, ctx.engine).await.is_ok() {
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-            }
-        }
-        Ok(ContinuityStatus::ReorgDetected { fork_block, fork_hash, reorg_depth }) => {
-            warn!(fork_block, fork_hash = %fork_hash, reorg_depth, "Reorg detected! Executing atomic rollback");
-            if ctx.handler.execute_rollback(fork_block, fork_hash, reorg_depth).await.is_ok() {
-                if fork_block == env.block_number - 1 {
-                    ctx.detector.buffer().write().await.push(env.block_ref());
-                    let _ = index_envelope(ctx.store, ctx.blob_store, ctx.config.chain_id.as_u64(), &env, ctx.engine).await;
-                } else {
-                    let gap = BlockRangeJob::new(ctx.config.chain_id, fork_block + 1, env.block_number, format!("{}:{}-{}", ctx.config.chain_id, fork_block + 1, env.block_number));
-                    let _ = ctx.queue.publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap)).await;
-                }
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-            }
-        }
-        Ok(ContinuityStatus::GapDetected { from_block, to_block }) => {
-            let gap = BlockRangeJob::new(ctx.config.chain_id, from_block, to_block, format!("{}:{from_block}-{to_block}", ctx.config.chain_id));
-            let _ = ctx.queue.publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap)).await;
-            let _ = ctx.queue.nack(handle, true).await;
-        }
-        Err(_) => { let _ = ctx.queue.nack(handle, true).await; }
-    }
-    Ok(())
-}
-
-async fn handle_backfill_range(
-    ctx: &ProcessorContext<'_>,
-    job: &BlockRangeJob,
-    handle: &MessageHandle,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match ctx.gateway.fetch_logs(job.from_block, job.to_block, &[ctx.config.target_contract]).await {
-        Ok(logs) => {
-            if index_logs_batch(ctx.store, ctx.config.chain_id, job.to_block, &logs, ctx.engine).await.is_ok() {
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-            }
-        }
-        Err(e) => {
-            let err = e.to_string();
-            if err.contains("more than") || err.contains("limit") || err.contains("range") || err.contains("exceeded") || err.contains("10000 results") || err.contains("413") {
-                let (first, second_opt) = job.split_half();
-                warn!(from = job.from_block, to = job.to_block, "RPC range limit exceeded; halving range: {}..={}", first.from_block, first.to_block);
-                let _ = ctx.queue.publish(QueueType::Backfill, &QueueMessage::BackfillRange(first)).await;
-                if let Some(second) = second_opt {
-                    let _ = ctx.queue.publish(QueueType::Backfill, &QueueMessage::BackfillRange(second)).await;
-                }
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+            _ => {
+                let _ = ctx.queue.ack(&handle).await;
             }
         }
     }
-    Ok(())
 }

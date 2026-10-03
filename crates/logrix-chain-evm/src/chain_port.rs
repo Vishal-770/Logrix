@@ -86,7 +86,12 @@ impl ChainPort for EvmChainClient {
         })?;
 
         let event_logs: Vec<EventLog> = logs_array.iter().map(parse_rpc_log).collect();
-        debug!(from_block, to_block, count = event_logs.len(), "Fetched logs from EVM RPC");
+        debug!(
+            from_block,
+            to_block,
+            count = event_logs.len(),
+            "Fetched logs from EVM RPC"
+        );
         Ok(event_logs)
     }
 
@@ -104,21 +109,43 @@ impl ChainPort for EvmChainClient {
             return Ok(None);
         }
 
-        let hash_str = block_res.get("hash").and_then(|v| v.as_str()).unwrap_or_default();
-        let parent_hash_str = block_res.get("parentHash").and_then(|v| v.as_str()).unwrap_or_default();
-        let timestamp_hex = block_res.get("timestamp").and_then(|v| v.as_str()).unwrap_or("0x0");
+        let hash_str = block_res
+            .get("hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let parent_hash_str = block_res
+            .get("parentHash")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let timestamp_hex = block_res
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0x0");
 
         let hash: B256 = hash_str.parse().unwrap_or_default();
         let parent_hash: B256 = parent_hash_str.parse().unwrap_or_default();
-        let timestamp = u64::from_str_radix(timestamp_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+        let timestamp =
+            u64::from_str_radix(timestamp_hex.trim_start_matches("0x"), 16).unwrap_or(0);
 
         let logs = self.fetch_logs(number, number, addresses).await?;
-        Ok(Some(BlockEnvelope::new(self.chain_id(), number, hash, parent_hash, timestamp, logs)))
+        Ok(Some(BlockEnvelope::new(
+            self.chain_id(),
+            number,
+            hash,
+            parent_hash,
+            timestamp,
+            logs,
+        )))
     }
 }
 
 fn parse_rpc_log(item: &Value) -> EventLog {
-    let address: Address = item.get("address").and_then(|v| v.as_str()).unwrap_or_default().parse().unwrap_or_default();
+    let address: Address = item
+        .get("address")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or_default();
     let mut topics = Vec::new();
     if let Some(t_arr) = item.get("topics").and_then(|v| v.as_array()) {
         for t in t_arr {
@@ -130,9 +157,20 @@ fn parse_rpc_log(item: &Value) -> EventLog {
         }
     }
     let data_str = item.get("data").and_then(|v| v.as_str()).unwrap_or("0x");
-    let data_bytes = alloy_primitives::hex::decode(data_str.trim_start_matches("0x")).unwrap_or_default();
-    let tx_hash: B256 = item.get("transactionHash").and_then(|v| v.as_str()).unwrap_or_default().parse().unwrap_or_default();
-    let block_hash: B256 = item.get("blockHash").and_then(|v| v.as_str()).unwrap_or_default().parse().unwrap_or_default();
+    let data_bytes =
+        alloy_primitives::hex::decode(data_str.trim_start_matches("0x")).unwrap_or_default();
+    let tx_hash: B256 = item
+        .get("transactionHash")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or_default();
+    let block_hash: B256 = item
+        .get("blockHash")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or_default();
     let block_number = parse_hex_u64(item.get("blockNumber").and_then(|v| v.as_str()));
     let log_index = parse_hex_u64(item.get("logIndex").and_then(|v| v.as_str()));
     let tx_index = parse_hex_u64(item.get("transactionIndex").and_then(|v| v.as_str()));
@@ -150,5 +188,6 @@ fn parse_rpc_log(item: &Value) -> EventLog {
 }
 
 fn parse_hex_u64(val: Option<&str>) -> u64 {
-    val.map(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0)).unwrap_or(0)
+    val.map(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0))
+        .unwrap_or(0)
 }
