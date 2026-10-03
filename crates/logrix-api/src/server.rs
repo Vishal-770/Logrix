@@ -47,6 +47,7 @@ pub fn create_router(schema: LogrixSchema) -> Router {
         .route("/graphiql", get(graphiql))
         .route("/graphql", post(graphql_handler))
         .route("/healthz", get(health_check))
+        .route("/readyz", get(health_check))
         .layer(Extension(schema))
 }
 
@@ -57,6 +58,7 @@ pub fn create_dynamic_router(schema: async_graphql::dynamic::Schema) -> Router {
         .route("/graphiql", get(graphiql))
         .route("/graphql", post(dynamic_graphql_handler))
         .route("/healthz", get(health_check))
+        .route("/readyz", get(health_check))
         .layer(Extension(schema))
 }
 
