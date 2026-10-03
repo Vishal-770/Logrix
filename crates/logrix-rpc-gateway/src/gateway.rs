@@ -63,7 +63,7 @@ impl RpcGateway {
     /// Execute a fallible operation across providers in the pool.
     /// Automatically trips circuit breakers on errors, records latencies on success,
     /// and retries on healthy fallback providers.
-    async fn execute_with_fallback<T, F, Fut>(&self, method: &str, mut op: F) -> LogrixResult<T>
+    pub async fn execute_with_fallback<T, F, Fut>(&self, method: &str, mut op: F) -> LogrixResult<T>
     where
         F: FnMut(ManagedProvider) -> Fut,
         Fut: std::future::Future<Output = LogrixResult<T>>,
@@ -82,10 +82,17 @@ impl RpcGateway {
 
         let mut last_err = None;
         let all_providers = self.pool.all_providers().await;
-        let attempts = all_providers.len().max(1);
+        let mut tried_names = std::collections::HashSet::new();
 
-        for _ in 0..attempts {
-            let provider = self.pool.select_provider().await?;
+        for _ in 0..all_providers.len().max(1) {
+            let provider = match self.pool.select_provider_excluding(&tried_names).await {
+                Ok(p) => p,
+                Err(e) => {
+                    last_err = Some(e);
+                    break;
+                }
+            };
+            tried_names.insert(provider.name().to_string());
             let start = Instant::now();
 
             match op(provider.clone()).await {

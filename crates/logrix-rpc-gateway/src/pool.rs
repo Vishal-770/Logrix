@@ -39,6 +39,15 @@ impl ProviderPool {
     /// 3. Picks lowest-latency provider in that tier.
     /// 4. If all in tier are tripped, falls back to next priority tier.
     pub async fn select_provider(&self) -> LogrixResult<ManagedProvider> {
+        self.select_provider_excluding(&std::collections::HashSet::new())
+            .await
+    }
+
+    /// Select the best available provider, excluding those already attempted in this request.
+    pub async fn select_provider_excluding(
+        &self,
+        excluded_names: &std::collections::HashSet<String>,
+    ) -> LogrixResult<ManagedProvider> {
         let list = self.providers.read().await;
         if list.is_empty() {
             return Err(LogrixError::new(
@@ -48,10 +57,10 @@ impl ProviderPool {
             ));
         }
 
-        // Find healthy providers
+        // Find healthy providers that have not yet been tried
         let mut healthy = Vec::new();
         for p in list.iter() {
-            if p.is_healthy().await {
+            if !excluded_names.contains(p.name()) && p.is_healthy().await {
                 healthy.push(p);
             }
         }
@@ -69,15 +78,28 @@ impl ProviderPool {
             return Ok((*best).clone());
         }
 
-        // All circuit breakers are currently open. Fall back to provider with shortest cooldown.
-        warn!("All RPC providers are currently unhealthy or cooling down. Selecting best-effort fallback.");
-        let best_effort = list
+        // If no healthy untried providers, fallback to best-effort untried provider with shortest cooldown
+        let untried: Vec<&ManagedProvider> = list
+            .iter()
+            .filter(|p| !excluded_names.contains(p.name()))
+            .collect();
+
+        if let Some(best_effort) = untried
             .iter()
             .min_by_key(|p| (p.priority(), p.cooldown_duration()))
-            .cloned()
-            .unwrap();
+        {
+            warn!(
+                provider = best_effort.name(),
+                "All preferred providers cooling down or tried. Selecting best-effort fallback."
+            );
+            return Ok((*best_effort).clone());
+        }
 
-        Ok(best_effort)
+        Err(LogrixError::new(
+            ErrorClass::Transient,
+            ErrorSource::ChainRpc,
+            "All available RPC providers exhausted for this request",
+        ))
     }
 
     /// Get all providers in pool for status reporting.
