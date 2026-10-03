@@ -1006,7 +1006,7 @@ Because the DB is behind a trait with middleware (Section 4.7), each stage is a 
 
 ### 11.7 Autoscaling architecture (targeted scaling per role)
 
-> **Detailed Blueprint:** See [`KUBERNETES_PLAN.md`](file:///home/vishal/Projects/logrix/KUBERNETES_PLAN.md) for full Kubernetes manifests, Karpenter NodePool specs, and production deployment templates.
+> **Detailed Blueprint:** See [`KUBERNETES_PLAN.md`](./KUBERNETES_PLAN.md) for full Kubernetes manifests, Karpenter NodePool specs, and production deployment templates.
 
 #### 11.7.1 Core principle: use each autoscaler for what it does best
 Instead of forcing one autoscaler everywhere:
@@ -1117,7 +1117,7 @@ The core knows only traits. Everything cloud-specific lives in cloud packs: a se
 
 ## 13. Deployment modes & Kubernetes architecture
 
-> **Detailed Kubernetes Guide:** For complete YAML manifests, KEDA ScaledObjects, Karpenter NodePool definitions, and RBAC configs, see [`KUBERNETES_PLAN.md`](file:///home/vishal/Projects/logrix/KUBERNETES_PLAN.md).
+> **Detailed Kubernetes Guide:** For complete YAML manifests, KEDA ScaledObjects, Karpenter NodePool definitions, and RBAC configs, see [`KUBERNETES_PLAN.md`](./KUBERNETES_PLAN.md).
 
 ### 13.1 Deployment modes summary
 
