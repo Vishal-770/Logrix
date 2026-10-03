@@ -13,6 +13,7 @@ members = [
     "crates/logrix-rpc-gateway",
     "crates/logrix-reconciler",
     "crates/logrix-handlers",
+    "crates/logrix-blob-s3",
 ]
 
 [workspace.package]
@@ -80,3 +81,4 @@ logrix-queue-sqs = { path = "crates/logrix-queue-sqs" }
 logrix-rpc-gateway = { path = "crates/logrix-rpc-gateway" }
 logrix-reconciler = { path = "crates/logrix-reconciler" }
 logrix-handlers = { path = "crates/logrix-handlers" }
+logrix-blob-s3 = { path = "crates/logrix-blob-s3" }

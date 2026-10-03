@@ -1,5 +1,5 @@
 [package]
-name = "logrix-queue-sqs"
+name = "logrix-blob-s3"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,16 +8,14 @@ repository.workspace = true
 [dependencies]
 logrix-core = { workspace = true }
 aws-config = { version = "1.5", default-features = false, features = ["rustls", "behavior-version-latest", "rt-tokio"] }
-aws-sdk-sqs = { version = "1.50", default-features = false, features = ["rustls"] }
+aws-sdk-s3 = { version = "1.60", default-features = false, features = ["rustls"] }
+aws-smithy-types = "1.8"
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
+zstd = "0.13"
 
 [dev-dependencies]
 logrix-testkit = { workspace = true }
-alloy-primitives = { workspace = true }

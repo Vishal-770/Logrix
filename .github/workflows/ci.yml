@@ -97,3 +97,23 @@ jobs:
             kustomize build deploy/k8s/base > /dev/null
             echo "Base Kubernetes manifests validated successfully."
           fi
+
+  terraform-validate:
+    name: Validate Terraform Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      - name: Validate Terraform Format and Syntax
+        run: |
+          cd deploy/terraform/aws
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+          echo "Terraform modules validated successfully."

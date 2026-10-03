@@ -1,0 +1,15 @@
+aws_region             = "us-east-1"
+environment            = "production"
+project_name           = "logrix"
+vpc_cidr               = "10.0.0.0/16"
+eks_cluster_version    = "1.30"
+eks_node_instance_types = ["m6i.xlarge"]
+eks_node_desired_size  = 3
+eks_node_min_size      = 2
+eks_node_max_size      = 20
+rds_min_acu            = 0.5
+rds_max_acu            = 16.0
+rds_database_name      = "logrix"
+rds_master_username    = "logrix_admin"
+sqs_enable_fifo        = false
+k8s_namespace          = "logrix"

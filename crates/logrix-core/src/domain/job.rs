@@ -173,6 +173,7 @@ impl QueueMessage {
 pub struct MessageHandle {
     pub receipt_id: String,
     pub message: QueueMessage,
+    pub source_queue: Option<QueueType>,
 }
 
 impl MessageHandle {
@@ -180,6 +181,19 @@ impl MessageHandle {
         Self {
             receipt_id: receipt_id.into(),
             message,
+            source_queue: None,
+        }
+    }
+
+    pub fn with_queue(
+        receipt_id: impl Into<String>,
+        message: QueueMessage,
+        queue_type: QueueType,
+    ) -> Self {
+        Self {
+            receipt_id: receipt_id.into(),
+            message,
+            source_queue: Some(queue_type),
         }
     }
 }
