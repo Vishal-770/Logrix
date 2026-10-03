@@ -16,6 +16,7 @@ alloy-primitives.workspace = true
 alloy-dyn-abi.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

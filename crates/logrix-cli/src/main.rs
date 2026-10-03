@@ -4,7 +4,8 @@ use logrix_api::start_api_server_with_schema;
 use logrix_chain_evm::decode_erc20_transfer;
 use logrix_core::{
     domain::{BlockRangeJob, ChainId, Checkpoint, LiveBlockJob, QueueMessage, QueueType},
-    ports::{ChainPort, QueuePort, StorePort},
+    ports::{ChainPort, LeaderElectionPort, QueuePort, StorePort},
+    KubernetesLeaseElector, LocalLeaderElector,
 };
 use logrix_queue_rabbitmq::RabbitMQQueue;
 use logrix_queue_sqs::SqsQueue;
@@ -137,6 +138,22 @@ struct Cli {
     /// GraphQL maximum pagination page size limit
     #[arg(long, env = "GRAPHQL_MAX_LIMIT", default_value_t = 1000)]
     graphql_max_limit: usize,
+
+    /// Enable Kubernetes Lease active-passive leader election for Ingester
+    #[arg(long, env = "ENABLE_LEADER_ELECTION", default_value_t = false)]
+    enable_leader_election: bool,
+
+    /// Kubernetes Lease name for active-passive ingester HA
+    #[arg(long, env = "LEASE_NAME", default_value = "logrix-ingester-lease")]
+    lease_name: String,
+
+    /// Kubernetes namespace where Lease resource is managed
+    #[arg(long, env = "K8S_NAMESPACE", default_value = "default")]
+    k8s_namespace: String,
+
+    /// Pod or instance identity used in the Kubernetes Lease holderIdentity
+    #[arg(long, env = "POD_NAME", default_value = "local-instance")]
+    pod_name: String,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -238,7 +255,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Ingester => {
             let queue = create_queue_adapter(&cli).await?;
             let gateway = create_rpc_gateway(&cli, chain_id).await;
-            run_ingester(chain_id, gateway, queue, &cli.database_url, cli.start_block).await?;
+            let leader_elector: Arc<dyn LeaderElectionPort> = if cli.enable_leader_election {
+                Arc::new(KubernetesLeaseElector::new(
+                    cli.lease_name.clone(),
+                    cli.k8s_namespace.clone(),
+                    cli.pod_name.clone(),
+                    None,
+                    None,
+                ))
+            } else {
+                Arc::new(LocalLeaderElector::new())
+            };
+            run_ingester(
+                chain_id,
+                gateway,
+                queue,
+                &cli.database_url,
+                cli.start_block,
+                leader_elector,
+            )
+            .await?;
         }
         Commands::Processor => {
             let queue = create_queue_adapter(&cli).await?;
@@ -335,9 +371,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ingester_gw = gateway.clone();
 
             // Ingester task
+            let ingester_leader: Arc<dyn LeaderElectionPort> = Arc::new(LocalLeaderElector::new());
             let ingester_handle = tokio::spawn(async move {
-                if let Err(e) =
-                    run_ingester(chain_id, ingester_gw, ingester_queue, &db_url, start).await
+                if let Err(e) = run_ingester(
+                    chain_id,
+                    ingester_gw,
+                    ingester_queue,
+                    &db_url,
+                    start,
+                    ingester_leader,
+                )
+                .await
                 {
                     error!(error = %e, "Ingester task failed");
                 }
@@ -412,6 +456,7 @@ async fn run_ingester(
     queue: Arc<dyn QueuePort>,
     database_url: &str,
     start_block: Option<u64>,
+    leader_elector: Arc<dyn LeaderElectionPort>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         chain = chain_id.as_u64(),
@@ -448,6 +493,22 @@ async fn run_ingester(
     let chunk_size = 500u64;
 
     loop {
+        // Leader election check: Only the active leader queries chain tip and pushes to queue
+        match leader_elector.try_acquire_or_renew().await {
+            Ok(true) => {
+                debug!("Active leader status confirmed, continuing ingestion loop");
+            }
+            Ok(false) => {
+                info!("Standby instance (non-leader). Waiting to acquire lease...");
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+            Err(e) => {
+                warn!(error = %e, "Leader election check error, standing by...");
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+        }
         match gateway.get_latest_block_number().await {
             Ok(latest) => {
                 if current_block <= latest {
@@ -544,307 +605,334 @@ async fn run_processor(
         webhook_dispatcher.run_loop().await;
     });
 
+    // Set up shutdown signal listener for graceful drain
+    let mut shutdown_signal = std::pin::pin!(async {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm = signal(SignalKind::terminate()).expect("Register SIGTERM handler");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = sigterm.recv() => {},
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c().await.ok();
+        }
+    });
+
     loop {
-        // Try Backfill queue first, then Live queue
-        let msg_opt = match queue.consume(QueueType::Backfill).await? {
-            Some(h) => Some((QueueType::Backfill, h)),
-            None => queue
-                .consume(QueueType::Live)
-                .await?
-                .map(|h| (QueueType::Live, h)),
-        };
+        tokio::select! {
+                    _ = &mut shutdown_signal => {
+                        info!("SIGTERM/Ctrl+C received! Entering two-tier graceful drain (finishing in-flight messages)...");
+                        info!("Graceful drain completed. Exiting processor loop.");
+                        break;
+                    }
+                    msg_res = async {
+                        match queue.consume(QueueType::Backfill).await? {
+                            Some(h) => Ok(Some((QueueType::Backfill, h))),
+                            None => queue
+                                .consume(QueueType::Live)
+                                .await
+                                .map(|opt| opt.map(|h| (QueueType::Live, h))),
+                        }
+                    } => {
+                        let msg_opt = msg_res?;
+                        match msg_opt {
+                            Some((_q_type, handle)) => match &handle.message {
+                                QueueMessage::LiveBlock(job) => {
+                            let block_num = job.block_number;
+                            match gateway
+                                .fetch_block_envelope(block_num, &[config.target_contract])
+                                .await
+                            {
+                                Ok(Some(envelope)) => match detector.check_envelope(&envelope).await {
+                                    Ok(ContinuityStatus::Continuous) => {
+                                        let mut transfers = Vec::new();
+                                        for log in &envelope.logs {
+                                            if let Some(decoded) =
+                                                decode_erc20_transfer(config.chain_id.as_u64(), log)
+                                            {
+                                                transfers.push(TokenTransfer {
+                                                    chain_id: decoded.chain_id,
+                                                    block_number: decoded.block_number,
+                                                    block_hash: decoded.block_hash,
+                                                    tx_hash: decoded.tx_hash,
+                                                    log_index: decoded.log_index,
+                                                    contract_address: decoded.contract_address,
+                                                    from_address: decoded.from_address,
+                                                    to_address: decoded.to_address,
+                                                    amount: decoded.amount,
+                                                    timestamp: decoded.timestamp,
+                                                });
+                                            }
+                                        }
 
-        match msg_opt {
-            Some((_q_type, handle)) => match &handle.message {
-                QueueMessage::LiveBlock(job) => {
-                    let block_num = job.block_number;
-                    match gateway
-                        .fetch_block_envelope(block_num, &[config.target_contract])
-                        .await
-                    {
-                        Ok(Some(envelope)) => match detector.check_envelope(&envelope).await {
-                            Ok(ContinuityStatus::Continuous) => {
-                                let mut transfers = Vec::new();
-                                for log in &envelope.logs {
-                                    if let Some(decoded) =
-                                        decode_erc20_transfer(config.chain_id.as_u64(), log)
-                                    {
-                                        transfers.push(TokenTransfer {
-                                            chain_id: decoded.chain_id,
-                                            block_number: decoded.block_number,
-                                            block_hash: decoded.block_hash,
-                                            tx_hash: decoded.tx_hash,
-                                            log_index: decoded.log_index,
-                                            contract_address: decoded.contract_address,
-                                            from_address: decoded.from_address,
-                                            to_address: decoded.to_address,
-                                            amount: decoded.amount,
-                                            timestamp: decoded.timestamp,
-                                        });
+                                        let checkpoint = Checkpoint::new(
+                                            config.chain_id,
+                                            block_num,
+                                            envelope.block_hash,
+                                            true,
+                                        );
+                                        if let Err(e) = store
+                                            .write_events_and_checkpoint(&envelope.logs, &checkpoint)
+                                            .await
+                                        {
+                                            error!(
+                                                error = %e,
+                                                "Failed to commit live events and checkpoint, requeueing"
+                                            );
+                                            let _ = queue.nack(&handle, true).await;
+                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            continue;
+                                        }
+
+                                        if !transfers.is_empty() {
+                                            if let Err(e) = store.save_transfers_batch(&transfers).await {
+                                                error!(error = %e, "Failed to save token transfers");
+                                            }
+                                        }
+
+                                        if let Some(ref engine) = engine_opt {
+                                            for log in &envelope.logs {
+                                                if let Ok(staging) = engine.process_log(log).await {
+                                                    let (mutations, emitted) =
+                                                        engine.commit_staging(staging).await;
+                                                    if !emitted.is_empty() {
+                                                        let inserts: Vec<
+                                                            logrix_store_postgres::EntityInsert,
+                                                        > = emitted
+                                                            .into_iter()
+                                                            .map(|e| {
+                                                                let entity_id = e
+                                                                    .payload
+                                                                    .get("id")
+                                                                    .and_then(|v| v.as_str())
+                                                                    .unwrap_or("default")
+                                                                    .to_string();
+                                                                logrix_store_postgres::EntityInsert {
+                                                                    entity_type: e.entity_type,
+                                                                    entity_id,
+                                                                    data: e.payload,
+                                                                }
+                                                            })
+                                                            .collect();
+                                                        if let Err(e) = store
+                                                            .save_entities_batch(
+                                                                config.chain_id.as_u64(),
+                                                                block_num,
+                                                                &inserts,
+                                                            )
+                                                            .await
+                                                        {
+                                                            error!(error = %e, "Failed to save dynamic schema entities");
+                                                        }
+                                                    }
+                                                    if !mutations.is_empty() {
+                                                        debug!(
+                                                            mutations = mutations.len(),
+                                                            "Committed user logic state mutations"
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        let _ = queue.ack(&handle).await;
                                     }
-                                }
-
-                                let checkpoint = Checkpoint::new(
-                                    config.chain_id,
-                                    block_num,
-                                    envelope.block_hash,
-                                    true,
-                                );
-                                if let Err(e) = store
-                                    .write_events_and_checkpoint(&envelope.logs, &checkpoint)
-                                    .await
-                                {
-                                    error!(
-                                        error = %e,
-                                        "Failed to commit live events and checkpoint, requeueing"
+                                    Ok(ContinuityStatus::ReorgDetected {
+                                        fork_block,
+                                        fork_hash,
+                                        reorg_depth,
+                                    }) => {
+                                        warn!(
+                                            fork_block,
+                                            fork_hash = %fork_hash,
+                                            reorg_depth,
+                                            "Reorg detected! Executing atomic rollback"
+                                        );
+                                        if let Err(e) = handler
+                                            .execute_rollback(fork_block, fork_hash, reorg_depth)
+                                            .await
+                                        {
+                                            error!(
+                                                error = %e,
+                                                "Reorg rollback execution failed, requeueing"
+                                            );
+                                            let _ = queue.nack(&handle, true).await;
+                                            tokio::time::sleep(Duration::from_millis(1000)).await;
+                                            continue;
+                                        }
+                                        let _ = queue.ack(&handle).await;
+                                    }
+                                    Ok(ContinuityStatus::GapDetected {
+                                        from_block,
+                                        to_block,
+                                    }) => {
+                                        warn!(
+                                            from_block,
+                                            to_block,
+                                            "Gap detected in live stream; dispatching backfill range"
+                                        );
+                                        let gap_job = BlockRangeJob::new(
+                                            config.chain_id,
+                                            from_block,
+                                            to_block,
+                                            format!("{}:{from_block}-{to_block}", config.chain_id),
+                                        );
+                                        let _ = queue
+                                            .publish(
+                                                QueueType::Backfill,
+                                                &QueueMessage::BackfillRange(gap_job),
+                                            )
+                                            .await;
+                                        let _ = queue.nack(&handle, true).await;
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            error = %e,
+                                            "Reorg continuity check failed, requeueing"
+                                        );
+                                        let _ = queue.nack(&handle, true).await;
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
+                                    }
+                                },
+                                Ok(None) => {
+                                    warn!(
+                                        block_num,
+                                        "Block envelope not found on chain yet, requeueing"
                                     );
                                     let _ = queue.nack(&handle, true).await;
                                     tokio::time::sleep(Duration::from_millis(500)).await;
-                                    continue;
                                 }
-
-                                if !transfers.is_empty() {
-                                    if let Err(e) = store.save_transfers_batch(&transfers).await {
-                                        error!(error = %e, "Failed to save token transfers");
-                                    }
-                                }
-
-                                if let Some(ref engine) = engine_opt {
-                                    for log in &envelope.logs {
-                                        if let Ok(staging) = engine.process_log(log).await {
-                                            let (mutations, emitted) =
-                                                engine.commit_staging(staging).await;
-                                            if !emitted.is_empty() {
-                                                let inserts: Vec<
-                                                    logrix_store_postgres::EntityInsert,
-                                                > = emitted
-                                                    .into_iter()
-                                                    .map(|e| {
-                                                        let entity_id = e
-                                                            .payload
-                                                            .get("id")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or("default")
-                                                            .to_string();
-                                                        logrix_store_postgres::EntityInsert {
-                                                            entity_type: e.entity_type,
-                                                            entity_id,
-                                                            data: e.payload,
-                                                        }
-                                                    })
-                                                    .collect();
-                                                if let Err(e) = store
-                                                    .save_entities_batch(
-                                                        config.chain_id.as_u64(),
-                                                        block_num,
-                                                        &inserts,
-                                                    )
-                                                    .await
-                                                {
-                                                    error!(error = %e, "Failed to save dynamic schema entities");
-                                                }
-                                            }
-                                            if !mutations.is_empty() {
-                                                debug!(
-                                                    mutations = mutations.len(),
-                                                    "Committed user logic state mutations"
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-
-                                let _ = queue.ack(&handle).await;
-                            }
-                            Ok(ContinuityStatus::ReorgDetected {
-                                fork_block,
-                                fork_hash,
-                                reorg_depth,
-                            }) => {
-                                warn!(
-                                    fork_block,
-                                    fork_hash = %fork_hash,
-                                    reorg_depth,
-                                    "Reorg detected! Executing atomic rollback"
-                                );
-                                if let Err(e) = handler
-                                    .execute_rollback(fork_block, fork_hash, reorg_depth)
-                                    .await
-                                {
-                                    error!(
+                                Err(e) => {
+                                    warn!(
+                                        block_num,
                                         error = %e,
-                                        "Reorg rollback execution failed, requeueing"
+                                        "Failed to fetch block envelope from RPC Gateway, requeueing"
                                     );
                                     let _ = queue.nack(&handle, true).await;
-                                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                                    continue;
-                                }
-                                let _ = queue.ack(&handle).await;
-                            }
-                            Ok(ContinuityStatus::GapDetected {
-                                from_block,
-                                to_block,
-                            }) => {
-                                warn!(
-                                    from_block,
-                                    to_block,
-                                    "Gap detected in live stream; dispatching backfill range"
-                                );
-                                let gap_job = BlockRangeJob::new(
-                                    config.chain_id,
-                                    from_block,
-                                    to_block,
-                                    format!("{}:{from_block}-{to_block}", config.chain_id),
-                                );
-                                let _ = queue
-                                    .publish(
-                                        QueueType::Backfill,
-                                        &QueueMessage::BackfillRange(gap_job),
-                                    )
-                                    .await;
-                                let _ = queue.nack(&handle, true).await;
-                                tokio::time::sleep(Duration::from_millis(500)).await;
-                            }
-                            Err(e) => {
-                                error!(
-                                    error = %e,
-                                    "Reorg continuity check failed, requeueing"
-                                );
-                                let _ = queue.nack(&handle, true).await;
-                                tokio::time::sleep(Duration::from_millis(500)).await;
-                            }
-                        },
-                        Ok(None) => {
-                            warn!(
-                                block_num,
-                                "Block envelope not found on chain yet, requeueing"
-                            );
-                            let _ = queue.nack(&handle, true).await;
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        }
-                        Err(e) => {
-                            warn!(
-                                block_num,
-                                error = %e,
-                                "Failed to fetch block envelope from RPC Gateway, requeueing"
-                            );
-                            let _ = queue.nack(&handle, true).await;
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        }
-                    }
-                }
-                QueueMessage::BackfillRange(job) => {
-                    let (from_block, to_block) = (job.from_block, job.to_block);
-                    match gateway
-                        .fetch_logs(from_block, to_block, &[config.target_contract])
-                        .await
-                    {
-                        Ok(logs) => {
-                            let mut transfers = Vec::new();
-                            for log in &logs {
-                                if let Some(decoded) =
-                                    decode_erc20_transfer(config.chain_id.as_u64(), log)
-                                {
-                                    transfers.push(TokenTransfer {
-                                        chain_id: decoded.chain_id,
-                                        block_number: decoded.block_number,
-                                        block_hash: decoded.block_hash,
-                                        tx_hash: decoded.tx_hash,
-                                        log_index: decoded.log_index,
-                                        contract_address: decoded.contract_address,
-                                        from_address: decoded.from_address,
-                                        to_address: decoded.to_address,
-                                        amount: decoded.amount,
-                                        timestamp: decoded.timestamp,
-                                    });
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                             }
-
-                            let checkpoint =
-                                Checkpoint::new(config.chain_id, to_block, B256::ZERO, true);
-                            if let Err(e) =
-                                store.write_events_and_checkpoint(&logs, &checkpoint).await
+                        }
+                        QueueMessage::BackfillRange(job) => {
+                            let (from_block, to_block) = (job.from_block, job.to_block);
+                            match gateway
+                                .fetch_logs(from_block, to_block, &[config.target_contract])
+                                .await
                             {
-                                error!(
-                                    error = %e,
-                                    "Failed to commit backfill events and checkpoint, requeueing"
-                                );
-                                let _ = queue.nack(&handle, true).await;
-                                tokio::time::sleep(Duration::from_millis(500)).await;
-                                continue;
-                            }
-
-                            if !transfers.is_empty() {
-                                if let Err(e) = store.save_transfers_batch(&transfers).await {
-                                    error!(error = %e, "Failed to save token transfers");
-                                }
-                            }
-
-                            if let Some(ref engine) = engine_opt {
-                                for log in &logs {
-                                    if let Ok(staging) = engine.process_log(log).await {
-                                        let (mutations, emitted) =
-                                            engine.commit_staging(staging).await;
-                                        if !emitted.is_empty() {
-                                            let inserts: Vec<logrix_store_postgres::EntityInsert> =
-                                                emitted
-                                                    .into_iter()
-                                                    .map(|e| {
-                                                        let entity_id = e
-                                                            .payload
-                                                            .get("id")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or("default")
-                                                            .to_string();
-                                                        logrix_store_postgres::EntityInsert {
-                                                            entity_type: e.entity_type,
-                                                            entity_id,
-                                                            data: e.payload,
-                                                        }
-                                                    })
-                                                    .collect();
-                                            if let Err(e) = store
-                                                .save_entities_batch(
-                                                    config.chain_id.as_u64(),
-                                                    log.block_number,
-                                                    &inserts,
-                                                )
-                                                .await
-                                            {
-                                                error!(error = %e, "Failed to save dynamic schema entities");
-                                            }
-                                        }
-                                        if !mutations.is_empty() {
-                                            debug!(
-                                                mutations = mutations.len(),
-                                                "Committed user logic state mutations"
-                                            );
+                                Ok(logs) => {
+                                    let mut transfers = Vec::new();
+                                    for log in &logs {
+                                        if let Some(decoded) =
+                                            decode_erc20_transfer(config.chain_id.as_u64(), log)
+                                        {
+                                            transfers.push(TokenTransfer {
+                                                chain_id: decoded.chain_id,
+                                                block_number: decoded.block_number,
+                                                block_hash: decoded.block_hash,
+                                                tx_hash: decoded.tx_hash,
+                                                log_index: decoded.log_index,
+                                                contract_address: decoded.contract_address,
+                                                from_address: decoded.from_address,
+                                                to_address: decoded.to_address,
+                                                amount: decoded.amount,
+                                                timestamp: decoded.timestamp,
+                                            });
                                         }
                                     }
+
+                                    let checkpoint =
+                                        Checkpoint::new(config.chain_id, to_block, B256::ZERO, true);
+                                    if let Err(e) =
+                                        store.write_events_and_checkpoint(&logs, &checkpoint).await
+                                    {
+                                        error!(
+                                            error = %e,
+                                            "Failed to commit backfill events and checkpoint, requeueing"
+                                        );
+                                        let _ = queue.nack(&handle, true).await;
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
+                                        continue;
+                                    }
+
+                                    if !transfers.is_empty() {
+                                        if let Err(e) = store.save_transfers_batch(&transfers).await {
+                                            error!(error = %e, "Failed to save token transfers");
+                                        }
+                                    }
+
+                                    if let Some(ref engine) = engine_opt {
+                                        for log in &logs {
+                                            if let Ok(staging) = engine.process_log(log).await {
+                                                let (mutations, emitted) =
+                                                    engine.commit_staging(staging).await;
+                                                if !emitted.is_empty() {
+                                                    let inserts: Vec<logrix_store_postgres::EntityInsert> =
+                                                        emitted
+                                                            .into_iter()
+                                                            .map(|e| {
+                                                                let entity_id = e
+                                                                    .payload
+                                                                    .get("id")
+                                                                    .and_then(|v| v.as_str())
+                                                                    .unwrap_or("default")
+                                                                    .to_string();
+                                                                logrix_store_postgres::EntityInsert {
+                                                                    entity_type: e.entity_type,
+                                                                    entity_id,
+                                                                    data: e.payload,
+                                                                }
+                                                            })
+                                                            .collect();
+                                                    if let Err(e) = store
+                                                        .save_entities_batch(
+                                                            config.chain_id.as_u64(),
+                                                            log.block_number,
+                                                            &inserts,
+                                                        )
+                                                        .await
+                                                    {
+                                                        error!(error = %e, "Failed to save dynamic schema entities");
+                                                    }
+                                                }
+                                                if !mutations.is_empty() {
+                                                    debug!(
+                                                        mutations = mutations.len(),
+                                                        "Committed user logic state mutations"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    let _ = queue.ack(&handle).await;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        from_block,
+                                        to_block,
+                                        error = %e,
+                                        "Failed to fetch logs from RPC Gateway, requeueing"
+                                    );
+                                    let _ = queue.nack(&handle, true).await;
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                             }
-
+                        }
+                        _ => {
                             let _ = queue.ack(&handle).await;
                         }
-                        Err(e) => {
-                            warn!(
-                                from_block,
-                                to_block,
-                                error = %e,
-                                "Failed to fetch logs from RPC Gateway, requeueing"
-                            );
-                            let _ = queue.nack(&handle, true).await;
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        }
+                    },
+                    None => {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
                     }
                 }
-                _ => {
-                    let _ = queue.ack(&handle).await;
-                }
-            },
-            None => {
-                tokio::time::sleep(Duration::from_millis(200)).await;
             }
         }
     }
+    Ok(())
 }

@@ -2,6 +2,7 @@
 
 pub mod domain;
 pub mod error;
+pub mod leader;
 pub mod ports;
 
 // Re-export core domain types
@@ -17,6 +18,10 @@ pub use error::logrix_error::{ErrorSource, LogrixError, LogrixResult};
 // Re-export port traits
 pub use ports::blob::BlobPort;
 pub use ports::chain::ChainPort;
+pub use ports::leader::LeaderElectionPort;
 pub use ports::queue::QueuePort;
 pub use ports::sink::SinkPort;
 pub use ports::store::StorePort;
+
+// Re-export leader electors
+pub use leader::{KubernetesLeaseElector, LocalLeaderElector};

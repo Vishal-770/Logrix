@@ -1,0 +1,28 @@
+{{- if and .Values.processor.enabled .Values.processor.keda.enabled -}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "logrix.fullname" . }}-processor-autoscaler
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: processor
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "logrix.fullname" . }}-processor
+  pollingInterval: {{ .Values.processor.keda.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.processor.keda.cooldownPeriod | default 300 }}
+  minReplicaCount: {{ .Values.processor.keda.minReplicaCount | default 1 }}
+  maxReplicaCount: {{ .Values.processor.keda.maxReplicaCount | default 50 }}
+  triggers:
+    {{- if eq .Values.processor.keda.queueType "rabbitmq" }}
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: {{ .Values.processor.keda.rabbitmq.queueName | quote }}
+        mode: QueueLength
+        value: {{ .Values.processor.keda.targetQueueDepth | quote }}
+        host: {{ .Values.processor.keda.rabbitmq.host | quote }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logrix
+description: High-performance, modular blockchain indexer for EVM chains
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - blockchain
+  - ethereum
+  - indexer
+  - graphql
+  - evm
+  - keda
+maintainers:
+  - name: Vishal
+    url: https://github.com/Vishal-770/Logrix

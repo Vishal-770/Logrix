@@ -1,0 +1,37 @@
+{{- if .Values.processor.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logrix.fullname" . }}-processor
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: processor
+spec:
+  replicas: {{ .Values.processor.replicas }}
+  selector:
+    matchLabels:
+      {{- include "logrix.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: processor
+  template:
+    metadata:
+      labels:
+        {{- include "logrix.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: processor
+    spec:
+      serviceAccountName: {{ include "logrix.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.processor.terminationGracePeriodSeconds | default 60 }}
+      containers:
+        - name: processor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["logrix", "processor"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "logrix.fullname" . }}-config
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          resources:
+            {{- toYaml .Values.processor.resources | nindent 12 }}
+{{- end }}

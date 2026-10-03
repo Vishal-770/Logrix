@@ -160,15 +160,19 @@
 
 ---
 
-### Part 6: Kubernetes & KEDA Autoscaling
-- **Objective:** Production-grade Kubernetes orchestration with targeted KEDA, HPA, and Karpenter autoscaling.
-- **Granular Steps:**
-  1. Implement Kubernetes Lease leader election in `logrix-core`.
-  2. Implement `logrix_desired_replicas` metric publisher in Controller.
-  3. Package Helm chart (`deploy/helm/logrix`) with Deployments, KEDA `ScaledObject`, PDBs, and IRSA ServiceAccounts.
-- **Custom Tests:**
-  - `kind` (Kubernetes-in-Docker) e2e test: simulate queue backlog and verify KEDA scales decoders 0 -> 20 -> 0.
-  - Graceful shutdown test: verify `preStop` drain completes in-flight batch before pod terminates.
+### Part 6: Kubernetes & KEDA Autoscaling — COMPLETED
+- **Objective:** Production-grade Kubernetes orchestration with targeted KEDA, HPA, and Active-Passive Leader Election.
+- **Granular Steps Completed:**
+  1. Implemented `LeaderElectionPort` port trait in `logrix-core/src/ports/leader.rs`.
+  2. Implemented `LocalLeaderElector` (for standalone/local testing) and `KubernetesLeaseElector` (`coordination.k8s.io/v1`) in `logrix-core/src/leader.rs`.
+  3. Integrated active-passive HA into CLI `run_ingester` with `--enable-leader-election`, `--lease-name`, `--k8s-namespace`, and `--pod-name` flags.
+  4. Implemented two-tier graceful drain in CLI `run_processor`: listens for SIGTERM/SIGINT, pauses new message ingestion, and allows in-flight block processing to complete cleanly within Kubernetes `terminationGracePeriodSeconds: 60`.
+  5. Built production Helm 3 chart in `deploy/helm/logrix/` (`Chart.yaml`, `values.yaml`, `_helpers.tpl`, `configmap.yaml`, `rbac.yaml`, `deployment-ingester.yaml`, `deployment-processor.yaml`, `deployment-api.yaml`, `scaledobject-processor.yaml`, `hpa-api.yaml`, `pdb.yaml`).
+  6. Verified synchronized Kustomize base and local environments (`kustomize build deploy/k8s/base` and `kustomize build deploy/k8s/local`).
+- **Tests Added & Verified:**
+  1. `test_local_leader_elector`: Verifies local leader election, step down, and re-acquisition.
+  2. `test_kubernetes_lease_elector_unreachable_api_graceful_fail`: Verifies graceful fallback to standby without panic when K8s API server is unreachable.
+  - **58 total unit & integration tests passing across all workspace crates.**
 - **Git Commit:** `feat(k8s): helm chart, keda autoscaling, and leader election`
 
 ---

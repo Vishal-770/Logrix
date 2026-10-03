@@ -3760,6 +3760,7 @@ dependencies = [
  "alloy-primitives",
  "async-trait",
  "chrono",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

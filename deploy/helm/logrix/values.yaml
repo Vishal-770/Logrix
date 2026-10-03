@@ -1,0 +1,117 @@
+# Default values for logrix.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+image:
+  repository: ghcr.io/vishal-770/logrix
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+config:
+  chainId: 421614
+  contractAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+  rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc"
+  rpcFallbackUrls: ""
+  queueDriver: "rabbitmq"
+  rabbitmqUrl: "amqp://logrix:logrix@rabbitmq:5672/%2f"
+  databaseUrl: "postgres://logrix:logrix@postgres:5432/logrix"
+  startBlock: ""
+  cuBudget: ""
+  bulkStreamUrl: ""
+  webhookUrl: ""
+  reconcilerIntervalSecs: 30
+  ringBufferDepth: 128
+  manifestPath: ""
+  schemaPath: ""
+
+ingester:
+  enabled: true
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: "logrix-ingester-lease"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: ingester
+            topologyKey: kubernetes.io/hostname
+
+processor:
+  enabled: true
+  replicas: 1
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 50
+    cooldownPeriod: 300
+    pollingInterval: 15
+    targetQueueDepth: 30
+    queueType: rabbitmq
+    rabbitmq:
+      queueName: "logrix.live.jobs"
+      host: "amqp://logrix:logrix@rabbitmq:5672/%2f"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  terminationGracePeriodSeconds: 60
+
+api:
+  enabled: true
+  replicas: 2
+  port: 4000
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  service:
+    type: ClusterIP
+    port: 4000
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: logrix.local
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "logrix-sa"
+
+rbac:
+  create: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

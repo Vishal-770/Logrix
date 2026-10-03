@@ -1,0 +1,49 @@
+{{- if .Values.ingester.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logrix.fullname" . }}-ingester
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingester
+spec:
+  replicas: {{ .Values.ingester.replicas }}
+  selector:
+    matchLabels:
+      {{- include "logrix.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingester
+  template:
+    metadata:
+      labels:
+        {{- include "logrix.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ingester
+    spec:
+      serviceAccountName: {{ include "logrix.serviceAccountName" . }}
+      containers:
+        - name: ingester
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["logrix", "ingester"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "logrix.fullname" . }}-config
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ENABLE_LEADER_ELECTION
+              value: {{ .Values.ingester.leaderElection.enabled | quote }}
+            - name: LEASE_NAME
+              value: {{ .Values.ingester.leaderElection.leaseName | quote }}
+          resources:
+            {{- toYaml .Values.ingester.resources | nindent 12 }}
+      {{- with .Values.ingester.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
