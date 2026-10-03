@@ -21,6 +21,7 @@ module "vpc" {
   environment  = var.environment
   cidr_block   = var.vpc_cidr
   cluster_name = local.cluster_name
+  aws_region   = var.aws_region
 }
 
 module "eks" {

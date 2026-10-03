@@ -91,7 +91,10 @@ impl SqsQueue {
             let url = self.config().resolve_url(target_queue)?;
             let mut entries = Vec::with_capacity(chunk.len());
             for (idx, h) in chunk.iter().enumerate() {
-                entries.push(build_delete_batch_entry(&format!("d_{idx}"), &h.receipt_id)?);
+                entries.push(build_delete_batch_entry(
+                    &format!("d_{idx}"),
+                    &h.receipt_id,
+                )?);
             }
             self.client()
                 .delete_message_batch()

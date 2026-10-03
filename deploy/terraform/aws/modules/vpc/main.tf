@@ -25,9 +25,9 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                                           = "${var.project_name}-${var.environment}-pub-${local.azs[count.index]}"
-    "kubernetes.io/role/elb"                      = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"   = "shared"
+    Name                                        = "${var.project_name}-${var.environment}-pub-${local.azs[count.index]}"
+    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -38,9 +38,9 @@ resource "aws_subnet" "private" {
   availability_zone = local.azs[count.index]
 
   tags = {
-    Name                                           = "${var.project_name}-${var.environment}-priv-${local.azs[count.index]}"
-    "kubernetes.io/role/internal-elb"             = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"   = "shared"
+    Name                                        = "${var.project_name}-${var.environment}-priv-${local.azs[count.index]}"
+    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -109,11 +109,9 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-data "aws_region" "current" {}
-
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
-  service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private.id]
 

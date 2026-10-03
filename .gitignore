@@ -25,3 +25,11 @@ Thumbs.db
 
 # Docker volumes / scratch
 scratch/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+.terraform.lock.hcl
