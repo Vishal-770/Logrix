@@ -60,22 +60,22 @@ async fn render_status(store: &PostgresStore) -> Result<(), Box<dyn std::error::
     println!("┌───────────────────────── LOGRIX STATUS MONITOR ────────────────────────┐");
     println!("│ Status: HEALTHY                     Version: 0.1.0                     │");
     println!("├────────────────────────────────────────────────────────────────────────┤");
-    println!("│ 🔗 Blockchain Progress:                                                │");
+    println!("│ [Blockchain Progress]                                                  │");
     println!("│    Latest Indexed Block: {:<45} │", indexed_block);
     println!(
         "│    Latest Block Hash:    {:<45} │",
         truncate_hash(&block_hash)
     );
     println!("│                                                                        │");
-    println!("│ 📊 Stored Data & Events:                                               │");
+    println!("│ [Stored Data & Events]                                                 │");
     println!("│    Total Event Logs:     {:<45} │", event_count.0);
     println!("│    Dynamic Entities:     {:<45} │", entity_count.0);
     println!("│                                                                        │");
-    println!("│ 🛡️ Reorg & Self-Healing:                                               │");
+    println!("│ [Reorg & Self-Healing]                                                 │");
     println!("│    Reverted Events:      {:<45} │", reverted_count.0);
     println!("│    Health State:         [CONTINUOUS / ZERO GAPS]                      │");
     println!("│                                                                        │");
-    println!("│ 📡 Webhook Engine:                                                     │");
+    println!("│ [Webhook Engine]                                                       │");
     println!("│    Active Endpoints:     {:<45} │", webhook_count.0);
     println!("└────────────────────────────────────────────────────────────────────────┘");
 

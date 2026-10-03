@@ -17,18 +17,18 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 
 **Logrix is engineered for 100% data sovereignty, cost control, and high-throughput production:**
 
-- ⚡ **Blazing Fast Ingestion:** Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/second**.
-- 🛡️ **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the winning block immediately, and self-heals gaps.
-- 💰 **RPC Billing Protection:** Multi-provider failover pool with per-provider circuit breakers, decorrelated jitter, and a built-in Compute Unit (CU) ledger that pauses backfills before exceeding your monthly budget.
-- 📦 **Dual Storage Tiering:** Hot GraphQL entities in PostgreSQL; raw full block envelopes compressed with **`zstd`** into cold AWS S3/MinIO buckets, slashing cloud database storage bills by up to 85%.
-- 📡 **Production Webhooks:** Cryptographically signed (`HMAC-SHA256`) outgoing notifications with timestamp replay defense and dead-letter queue (DLQ) retries.
-- ☸️ **Kubernetes & Cloud Native:** Microservice architecture with active-passive Ingester leader election (Kubernetes Leases) and event-driven auto-scaling via **KEDA** (1 to 50+ worker pods).
+- **High-Throughput Ingestion:** Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/second**.
+- **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the winning block immediately, and self-heals gaps.
+- **RPC Billing Protection:** Multi-provider failover pool with per-provider circuit breakers, decorrelated jitter, and a built-in Compute Unit (CU) ledger that pauses backfills before exceeding your monthly budget.
+- **Dual Storage Tiering:** Hot GraphQL entities in PostgreSQL; raw full block envelopes compressed with **`zstd`** into cold AWS S3/MinIO buckets, slashing cloud database storage bills by up to 85%.
+- **Production Webhooks:** Cryptographically signed (`HMAC-SHA256`) outgoing notifications with timestamp replay defense and dead-letter queue (DLQ) retries.
+- **Kubernetes & Cloud Native:** Microservice architecture with active-passive Ingester leader election (Kubernetes Leases) and event-driven auto-scaling via **KEDA** (1 to 50+ worker pods).
 
 ---
 
 ## Architecture Overview
 
-```
+```text
                       EVM Blockchain (Ethereum, Arbitrum, Base, Polygon)
                                        │
                                        ▼
@@ -99,7 +99,7 @@ docker compose up -d
 logrix all-in-one
 ```
 
-That's it! Logrix automatically runs migrations, connects to the chain, starts indexing, and launches the API.
+That's it. Logrix automatically runs migrations, connects to the chain, starts indexing, and launches the API.
 
 ---
 
@@ -151,19 +151,19 @@ logrix status --watch
 ┌───────────────────────── LOGRIX STATUS MONITOR ────────────────────────┐
 │ Status: HEALTHY                     Version: 0.1.0                     │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 🔗 Blockchain Progress:                                                │
+│ [Blockchain Progress]                                                  │
 │    Latest Indexed Block: 22150418                                      │
 │    Latest Block Hash:    0x7b2f48...3e91a0                             │
 │                                                                        │
-│ 📊 Stored Data & Events:                                               │
+│ [Stored Data & Events]                                                 │
 │    Total Event Logs:     1842910                                       │
 │    Dynamic Entities:     1420                                          │
 │                                                                        │
-│ 🛡️ Reorg & Self-Healing:                                               │
+│ [Reorg & Self-Healing]                                                 │
 │    Reverted Events:      0                                             │
 │    Health State:         [CONTINUOUS / ZERO GAPS]                      │
 │                                                                        │
-│ 📡 Webhook Engine:                                                     │
+│ [Webhook Engine]                                                       │
 │    Active Endpoints:     3                                             │
 └────────────────────────────────────────────────────────────────────────┘
 ```

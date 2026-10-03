@@ -13,7 +13,7 @@ pub struct InitOptions {
 }
 
 pub fn run_init(opts: InitOptions) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n🚀 Welcome to Logrix! Let's scaffold your new blockchain indexer.\n");
+    println!("\nWelcome to Logrix! Let's scaffold your new blockchain indexer.\n");
 
     let name = if let Some(n) = opts.name {
         n
@@ -55,8 +55,8 @@ pub fn run_init(opts: InitOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     scaffold_project(&cfg)?;
 
-    println!("\n✨ Successfully created project '{name}'!");
-    println!("👉 Next steps:\n");
+    println!("\nSuccessfully created project '{name}'!");
+    println!("Next steps:\n");
     match profile {
         InfraProfile::LocalDocker => {
             println!("  cd {name}");
@@ -76,7 +76,7 @@ pub fn run_init(opts: InitOptions) -> Result<(), Box<dyn std::error::Error>> {
             println!("  logrix all-in-one");
         }
     }
-    println!("\n🌐 GraphQL API will be available at http://localhost:4000/\n");
+    println!("\nGraphQL API will be available at http://localhost:4000/\n");
 
     Ok(())
 }
