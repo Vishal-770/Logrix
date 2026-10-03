@@ -6,5 +6,5 @@
 pub mod model;
 pub mod store;
 
-pub use model::{TokenTransfer, TransferFilter};
+pub use model::{DynamicEntityRecord, EntityInsert, TokenTransfer, TransferFilter};
 pub use store::PostgresStore;

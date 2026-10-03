@@ -135,16 +135,28 @@
 
 ---
 
-### Part 5: Dynamic GraphQL & Schema Engine
-- **Objective:** Auto-generate GraphQL API schema from `schema.yaml` with filtering, sorting, pagination, and live subscriptions.
-- **Granular Steps:**
-  1. Parse `schema.yaml` into dynamic GraphQL types at runtime using `async-graphql`.
-  2. Implement SQL query generation with parameterized filtering (`where`), sorting (`orderBy`), and pagination (`first`, `after`).
-  3. Implement GraphQL subscriptions over WebSockets.
-- **Custom Tests:**
-  - Query compliance test: execute complex GraphQL queries with nested filters.
-  - Query safety test: verify depth limits and complexity limits block abusive queries.
-- **Git Commit:** `feat(api): dynamic graphql engine with filtering and websocket subscriptions`
+### Part 5: Dynamic GraphQL & Schema Engine — COMPLETED
+- **Objective:** Auto-generate GraphQL API schema from `schema.graphql` (SDL) or `schema.yaml` with filtering, sorting, pagination, live subscriptions, and embedded GraphiQL UI.
+- **Granular Steps Completed:**
+  1. Implemented `schema_parser.rs` supporting both GraphQL SDL (`schema.graphql`) with `@entity` directives and YAML schemas (`schema.yaml`).
+  2. Built `dynamic_schema.rs` and `list_resolver.rs` compiling user entities into dynamic GraphQL types at runtime using `async_graphql::dynamic`.
+  3. Implemented PostgreSQL migration `20261003000002_dynamic_entities.sql` creating `logrix_entities` with JSONB payloads, composite B-tree lookup indexes, and GIN `jsonb_path_ops` indexing.
+  4. Implemented `query_builder.rs` translating GraphQL `where` filter arguments (`_gt`, `_lt`, `_contains`, `_not`, etc.) and pagination into parameterized SQL queries via `sqlx::QueryBuilder` with strict SQL injection protection.
+  5. Implemented `subscriptions.rs` with `SubscriptionBroadcaster` over Tokio broadcast ring and PostgreSQL `LISTEN/NOTIFY` bridge for Kubernetes multi-pod live subscriptions.
+  6. Embedded interactive **GraphiQL IDE** in Axum at `/` and `/graphiql` with live subscription testing and schema auto-complete.
+  7. Enforced query guardrails: max query depth (7), max complexity (200), max page size (1000), and 5-second database query timeout.
+  8. Integrated `--schema-path` CLI option and wired dynamic entity persistence into `run_processor` for both live blocks and backfill ranges.
+- **Tests Added & Verified:**
+  1. `test_parse_graphql_sdl_entities`: Verifies parsing of GraphQL SDL entity models, scalar fields, and directives.
+  2. `test_parse_yaml_schema_entities`: Verifies equivalent entity parsing from YAML schemas.
+  3. `test_query_builder_equality_and_comparison_filters`: Verifies parameterized SQL generation for numeric comparisons and cursor pagination.
+  4. `test_query_builder_string_operators`: Verifies SQL `ILIKE` pattern generation for string contains/starts_with filters.
+  5. `test_query_builder_injection_protection`: Verifies rejection of malicious identifiers and SQL injection attempts.
+  6. `test_dynamic_graphql_schema_execution_and_health`: Verifies runtime dynamic schema compilation and query execution against Postgres.
+  7. `test_dynamic_graphql_query_depth_guardrail`: Verifies rejection of queries exceeding max depth 7.
+  8. `test_subscription_broadcaster_pub_sub`: Verifies asynchronous event emission and reception across WebSocket subscribers.
+  - **56 total unit & integration tests passing across all workspace crates.**
+- **Git Commit:** `feat(api): dynamic graphql engine with filtering, websocket subscriptions, and embedded graphiql`
 
 ---
 

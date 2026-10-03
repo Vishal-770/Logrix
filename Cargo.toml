@@ -25,6 +25,7 @@ repository = "https://github.com/logrix/logrix"
 [workspace.dependencies]
 # Async Runtime
 tokio = { version = "1.43", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 async-trait = "0.1.86"
 futures = "0.3.31"
 
@@ -56,7 +57,8 @@ lapin = "2.5"
 # Networking & API
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
-async-graphql = { version = "7.0", features = ["chrono", "uuid"] }
+async-graphql = { version = "7.0", features = ["chrono", "uuid", "dynamic-schema"] }
+async-graphql-parser = "7.0"
 async-graphql-axum = "7.0"
 
 # WebAssembly Runtime

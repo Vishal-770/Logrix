@@ -25,3 +25,23 @@ pub struct TransferFilter {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
+
+/// Dynamic entity insert payload for custom schema entities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityInsert {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub data: serde_json::Value,
+}
+
+/// Full database record of a dynamic schema entity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DynamicEntityRecord {
+    pub chain_id: u64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub data: serde_json::Value,
+    pub block_number: u64,
+    pub is_reverted: bool,
+    pub updated_at: DateTime<Utc>,
+}

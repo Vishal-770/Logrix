@@ -10,11 +10,16 @@ logrix-core = { workspace = true }
 logrix-store-postgres = { workspace = true }
 
 async-graphql = { workspace = true }
+async-graphql-parser = { workspace = true }
 async-graphql-axum = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sqlx = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }

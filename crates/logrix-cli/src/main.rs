@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, B256};
 use clap::{Parser, Subcommand};
-use logrix_api::start_api_server;
+use logrix_api::start_api_server_with_schema;
 use logrix_chain_evm::decode_erc20_transfer;
 use logrix_core::{
     domain::{BlockRangeJob, ChainId, Checkpoint, LiveBlockJob, QueueMessage, QueueType},
@@ -117,6 +117,10 @@ struct Cli {
     /// Optional path to YAML manifest for declarative mappings and WASM handlers
     #[arg(long, env = "MANIFEST_PATH")]
     manifest_path: Option<String>,
+
+    /// Optional path to entity schema definition (schema.graphql or schema.yaml)
+    #[arg(long, env = "SCHEMA_PATH")]
+    schema_path: Option<String>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -291,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Api { port } => {
             let store = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
-            start_api_server(store, addr).await?;
+            start_api_server_with_schema(store, cli.schema_path.as_deref(), addr).await?;
         }
         Commands::AllInOne { port } => {
             info!("Starting Logrix All-In-One service...");
@@ -336,8 +340,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // API task
             let store_api = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
+            let schema_path_clone = cli.schema_path.clone();
             let api_handle = tokio::spawn(async move {
-                if let Err(e) = start_api_server(store_api, addr).await {
+                if let Err(e) =
+                    start_api_server_with_schema(store_api, schema_path_clone.as_deref(), addr)
+                        .await
+                {
                     error!(error = %e, "API server failed");
                 }
             });
@@ -571,11 +579,40 @@ async fn run_processor(
                                         if let Ok(staging) = engine.process_log(log).await {
                                             let (mutations, emitted) =
                                                 engine.commit_staging(staging).await;
-                                            if !emitted.is_empty() || !mutations.is_empty() {
+                                            if !emitted.is_empty() {
+                                                let inserts: Vec<
+                                                    logrix_store_postgres::EntityInsert,
+                                                > = emitted
+                                                    .into_iter()
+                                                    .map(|e| {
+                                                        let entity_id = e
+                                                            .payload
+                                                            .get("id")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("default")
+                                                            .to_string();
+                                                        logrix_store_postgres::EntityInsert {
+                                                            entity_type: e.entity_type,
+                                                            entity_id,
+                                                            data: e.payload,
+                                                        }
+                                                    })
+                                                    .collect();
+                                                if let Err(e) = store
+                                                    .save_entities_batch(
+                                                        config.chain_id.as_u64(),
+                                                        block_num,
+                                                        &inserts,
+                                                    )
+                                                    .await
+                                                {
+                                                    error!(error = %e, "Failed to save dynamic schema entities");
+                                                }
+                                            }
+                                            if !mutations.is_empty() {
                                                 debug!(
-                                                    emitted = emitted.len(),
                                                     mutations = mutations.len(),
-                                                    "Committed user logic entities and state"
+                                                    "Committed user logic state mutations"
                                                 );
                                             }
                                         }
@@ -713,11 +750,39 @@ async fn run_processor(
                                     if let Ok(staging) = engine.process_log(log).await {
                                         let (mutations, emitted) =
                                             engine.commit_staging(staging).await;
-                                        if !emitted.is_empty() || !mutations.is_empty() {
+                                        if !emitted.is_empty() {
+                                            let inserts: Vec<logrix_store_postgres::EntityInsert> =
+                                                emitted
+                                                    .into_iter()
+                                                    .map(|e| {
+                                                        let entity_id = e
+                                                            .payload
+                                                            .get("id")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("default")
+                                                            .to_string();
+                                                        logrix_store_postgres::EntityInsert {
+                                                            entity_type: e.entity_type,
+                                                            entity_id,
+                                                            data: e.payload,
+                                                        }
+                                                    })
+                                                    .collect();
+                                            if let Err(e) = store
+                                                .save_entities_batch(
+                                                    config.chain_id.as_u64(),
+                                                    log.block_number,
+                                                    &inserts,
+                                                )
+                                                .await
+                                            {
+                                                error!(error = %e, "Failed to save dynamic schema entities");
+                                            }
+                                        }
+                                        if !mutations.is_empty() {
                                             debug!(
-                                                emitted = emitted.len(),
                                                 mutations = mutations.len(),
-                                                "Committed user logic entities and state"
+                                                "Committed user logic state mutations"
                                             );
                                         }
                                     }
