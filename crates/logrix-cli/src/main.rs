@@ -121,6 +121,22 @@ struct Cli {
     /// Optional path to entity schema definition (schema.graphql or schema.yaml)
     #[arg(long, env = "SCHEMA_PATH")]
     schema_path: Option<String>,
+
+    /// GraphQL maximum query depth limit
+    #[arg(long, env = "GRAPHQL_MAX_DEPTH", default_value_t = 7)]
+    graphql_max_depth: usize,
+
+    /// GraphQL maximum query complexity limit
+    #[arg(long, env = "GRAPHQL_MAX_COMPLEXITY", default_value_t = 200)]
+    graphql_max_complexity: usize,
+
+    /// GraphQL default pagination page size limit
+    #[arg(long, env = "GRAPHQL_DEFAULT_LIMIT", default_value_t = 100)]
+    graphql_default_limit: usize,
+
+    /// GraphQL maximum pagination page size limit
+    #[arg(long, env = "GRAPHQL_MAX_LIMIT", default_value_t = 1000)]
+    graphql_max_limit: usize,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -295,7 +311,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Api { port } => {
             let store = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
-            start_api_server_with_schema(store, cli.schema_path.as_deref(), addr).await?;
+            let api_config = logrix_api::ApiConfig {
+                max_depth: cli.graphql_max_depth,
+                max_complexity: cli.graphql_max_complexity,
+                default_limit: cli.graphql_default_limit,
+                max_limit: cli.graphql_max_limit,
+                query_timeout_secs: 5,
+            };
+            start_api_server_with_schema(store, cli.schema_path.as_deref(), Some(api_config), addr)
+                .await?;
         }
         Commands::AllInOne { port } => {
             info!("Starting Logrix All-In-One service...");
@@ -341,10 +365,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let store_api = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
             let schema_path_clone = cli.schema_path.clone();
+            let api_config = logrix_api::ApiConfig {
+                max_depth: cli.graphql_max_depth,
+                max_complexity: cli.graphql_max_complexity,
+                default_limit: cli.graphql_default_limit,
+                max_limit: cli.graphql_max_limit,
+                query_timeout_secs: 5,
+            };
             let api_handle = tokio::spawn(async move {
-                if let Err(e) =
-                    start_api_server_with_schema(store_api, schema_path_clone.as_deref(), addr)
-                        .await
+                if let Err(e) = start_api_server_with_schema(
+                    store_api,
+                    schema_path_clone.as_deref(),
+                    Some(api_config),
+                    addr,
+                )
+                .await
                 {
                     error!(error = %e, "API server failed");
                 }

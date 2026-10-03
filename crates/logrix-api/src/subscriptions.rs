@@ -56,33 +56,31 @@ impl SubscriptionBroadcaster {
     pub fn start_postgres_listener(self: Arc<Self>, pool: PgPool) {
         tokio::spawn(async move {
             info!("Starting PostgreSQL LISTEN background task on channel 'logrix_entity_mutations'...");
-            let mut listener = match PgListener::connect_with(&pool).await {
-                Ok(l) => l,
-                Err(e) => {
-                    error!(error = %e, "Failed to connect PgListener for subscriptions");
-                    return;
-                }
-            };
-
-            if let Err(e) = listener.listen("logrix_entity_mutations").await {
-                error!(error = %e, "Failed to LISTEN on logrix_entity_mutations");
-                return;
-            }
-
             loop {
-                match listener.recv().await {
-                    Ok(notification) => {
-                        let payload_str = notification.payload();
-                        if let Ok(event) = serde_json::from_str::<EntityMutationEvent>(payload_str)
-                        {
-                            self.broadcast(event);
-                        }
-                    }
+                let mut listener = match PgListener::connect_with(&pool).await {
+                    Ok(l) => l,
                     Err(e) => {
-                        warn!(error = %e, "PgListener error, reconnecting after 2s...");
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        error!(error = %e, "Failed to connect PgListener for subscriptions, retrying in 3s...");
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    }
+                };
+
+                if let Err(e) = listener.listen("logrix_entity_mutations").await {
+                    error!(error = %e, "Failed to LISTEN on logrix_entity_mutations, retrying in 3s...");
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    continue;
+                }
+
+                while let Ok(notification) = listener.recv().await {
+                    let payload_str = notification.payload();
+                    if let Ok(event) = serde_json::from_str::<EntityMutationEvent>(payload_str) {
+                        self.broadcast(event);
                     }
                 }
+
+                warn!("PgListener disconnected, reconnecting in 2s...");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
         });
     }

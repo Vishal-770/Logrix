@@ -31,6 +31,7 @@ async fn graphiql() -> impl IntoResponse {
         GraphiQLSource::build()
             .endpoint("/graphql")
             .subscription_endpoint("/ws")
+            .title("Logrix Studio - GraphQL IDE")
             .finish(),
     )
 }
@@ -59,21 +60,50 @@ pub fn create_dynamic_router(schema: async_graphql::dynamic::Schema) -> Router {
         .layer(Extension(schema))
 }
 
+/// Configuration for the Logrix GraphQL API server and query guardrails.
+#[derive(Debug, Clone)]
+pub struct ApiConfig {
+    pub max_depth: usize,
+    pub max_complexity: usize,
+    pub default_limit: usize,
+    pub max_limit: usize,
+    pub query_timeout_secs: u64,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 7,
+            max_complexity: 200,
+            default_limit: 100,
+            max_limit: 1000,
+            query_timeout_secs: 5,
+        }
+    }
+}
+
 /// Start GraphQL API server with optional user-defined schema path (.graphql / .yaml).
 pub async fn start_api_server(
     store: Arc<PostgresStore>,
     addr: SocketAddr,
 ) -> Result<(), std::io::Error> {
-    start_api_server_with_schema(store, None, addr).await
+    start_api_server_with_schema(store, None, None, addr).await
 }
 
-/// Start GraphQL API server with optional dynamic schema definition path.
+/// Start GraphQL API server with optional dynamic schema definition path and guardrail config.
 pub async fn start_api_server_with_schema(
     store: Arc<PostgresStore>,
     schema_path: Option<&str>,
+    config: Option<ApiConfig>,
     addr: SocketAddr,
 ) -> Result<(), std::io::Error> {
+    let conf = config.unwrap_or_default();
     info!("Starting Logrix GraphQL server on http://{}", addr);
+    info!(
+        max_depth = conf.max_depth,
+        max_complexity = conf.max_complexity,
+        "Configured query guardrails"
+    );
     info!(
         "GraphiQL interactive UI available at http://{}/ and http://{}/graphiql",
         addr, addr
@@ -85,8 +115,13 @@ pub async fn start_api_server_with_schema(
             info!(path = path_str, "Loading dynamic GraphQL entity schema");
             let schema_def = SchemaDefinition::from_file(p)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-            let dynamic_schema = DynamicSchemaEngine::build(&schema_def, store.clone())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+            let dynamic_schema = DynamicSchemaEngine::build_with_limits(
+                &schema_def,
+                store.clone(),
+                conf.max_depth,
+                conf.max_complexity,
+            )
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             create_dynamic_router(dynamic_schema)
         } else {
             info!("Schema path provided does not exist; using default core schema");

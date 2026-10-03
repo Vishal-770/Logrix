@@ -82,3 +82,26 @@ fn test_query_builder_injection_protection() {
     assert!(validate_identifier("field$name").is_err());
     assert!(validate_identifier("").is_err());
 }
+
+#[test]
+fn test_query_builder_bigint_arbitrary_precision() {
+    let params = DynamicQueryParams {
+        chain_id: 1,
+        entity_type: "Account".to_string(),
+        filters: vec![FieldFilter {
+            field: "balance".to_string(),
+            op: FilterOperator::Gt,
+            value: "10000000000000000000000000000000000000000".to_string(),
+        }],
+        order_by: None,
+        order_direction: None,
+        first: None,
+        skip: None,
+        after: None,
+    };
+
+    let builder = params.build_query().expect("Valid query builder");
+    let sql = builder.into_sql();
+    assert!(sql.contains("(data->>'balance')::numeric >"));
+    assert!(sql.contains("::numeric"));
+}

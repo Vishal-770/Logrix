@@ -80,3 +80,30 @@ async fn test_subscription_broadcaster_pub_sub() {
     assert_eq!(received.entity_id, "0x123");
     assert_eq!(received.data["balance"], "5000");
 }
+
+#[tokio::test]
+async fn test_dynamic_graphql_custom_configurable_limits() {
+    let sdl = r#"
+    type Node @entity {
+        id: ID!
+        child: Node
+    }
+    "#;
+    let schema_def = SchemaDefinition::from_graphql_sdl(sdl).unwrap();
+    let pool = sqlx::PgPool::connect_lazy("postgres://mock:mock@localhost:5432/mock").unwrap();
+    let store = Arc::new(PostgresStore::from_pool(pool, "test-pipeline"));
+
+    // Build with tight custom limit of depth 3
+    let schema = DynamicSchemaEngine::build_with_limits(&schema_def, store, 3, 50)
+        .expect("Schema builds cleanly");
+
+    // Depth 4 query must be rejected under limit of 3
+    let query = "{ node(id: \"1\") { child { child { child { id } } } } }";
+    let resp = schema.execute(async_graphql::Request::new(query)).await;
+
+    assert!(!resp.errors.is_empty());
+    assert!(
+        resp.errors[0].message.to_lowercase().contains("deep")
+            || resp.errors[0].message.to_lowercase().contains("depth")
+    );
+}

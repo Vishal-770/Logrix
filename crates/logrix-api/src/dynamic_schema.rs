@@ -14,6 +14,16 @@ impl DynamicSchemaEngine {
         schema_def: &SchemaDefinition,
         store: Arc<PostgresStore>,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
+        Self::build_with_limits(schema_def, store, 7, 200)
+    }
+
+    /// Build dynamic schema with custom query depth and complexity limits.
+    pub fn build_with_limits(
+        schema_def: &SchemaDefinition,
+        store: Arc<PostgresStore>,
+        max_depth: usize,
+        max_complexity: usize,
+    ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
         let mut builder = Schema::build("Query", None, None);
         let mut query = Object::new("Query");
 
@@ -40,8 +50,8 @@ impl DynamicSchemaEngine {
         builder
             .register(query)
             .data(store)
-            .limit_depth(7)
-            .limit_complexity(200)
+            .limit_depth(max_depth)
+            .limit_complexity(max_complexity)
             .finish()
     }
 }

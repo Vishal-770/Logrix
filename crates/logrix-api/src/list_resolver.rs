@@ -76,23 +76,27 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
                     after,
                 };
 
-                let builder = match params.build_query() {
+                let mut builder = match params.build_query() {
                     Ok(b) => b,
                     Err(e) => return Err(async_graphql::Error::new(e)),
                 };
 
-                let query_str = builder.into_sql();
-                let records = store
-                    .query_entities_raw(&query_str)
-                    .await
-                    .unwrap_or_default();
+                use sqlx::Row;
+                let rows = match builder.build().fetch_all(store.pool()).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Dynamic entity query execution error");
+                        Vec::new()
+                    }
+                };
 
-                let results: Vec<FieldValue> = records
+                let results: Vec<FieldValue> = rows
                     .into_iter()
-                    .map(|r| {
-                        let mut data = r.data;
+                    .map(|row| {
+                        let entity_id: String = row.get("entity_id");
+                        let mut data: serde_json::Value = row.get("data");
                         if let Some(obj) = data.as_object_mut() {
-                            obj.insert("id".to_string(), serde_json::Value::String(r.entity_id));
+                            obj.insert("id".to_string(), serde_json::Value::String(entity_id));
                         }
                         FieldValue::owned_any(data)
                     })
