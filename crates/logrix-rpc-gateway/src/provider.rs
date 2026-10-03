@@ -96,8 +96,15 @@ impl ManagedProvider {
         self.avg_latency_ms.load(Ordering::Relaxed)
     }
 
-    /// Get current cooldown duration.
+    /// Get current cooldown duration with full jitter to prevent thundering herd recovery storms.
     pub fn cooldown_duration(&self) -> Duration {
-        Duration::from_secs(self.cooldown_secs.load(Ordering::Relaxed))
+        use rand::Rng;
+        let base_secs = self.cooldown_secs.load(Ordering::Relaxed);
+        let mut rng = rand::thread_rng();
+        // Decorrelated Full Jitter: [base/2, base] + random millisecond offset
+        let min_millis = (base_secs * 1000) / 2;
+        let max_millis = base_secs * 1000;
+        let jittered_millis = rng.gen_range(min_millis..=max_millis);
+        Duration::from_millis(jittered_millis)
     }
 }

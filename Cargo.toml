@@ -36,6 +36,9 @@ uuid = { version = "1.13", features = ["v4", "serde"] }
 alloy-primitives = { version = "0.8", features = ["serde"] }
 alloy-dyn-abi = { version = "0.8" }
 
+# Utilities
+rand = "0.8"
+
 # Error Handling & Observability
 thiserror = "2.0"
 tracing = "0.1"
