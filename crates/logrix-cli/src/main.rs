@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, B256};
 use clap::{Parser, Subcommand};
 use logrix_api::start_api_server;
-use logrix_chain_evm::{decode_erc20_transfer, EvmChainClient};
+use logrix_chain_evm::decode_erc20_transfer;
 use logrix_core::{
     domain::{BlockRangeJob, ChainId, Checkpoint, LiveBlockJob, QueueMessage, QueueType},
     ports::{ChainPort, QueuePort, StorePort},
@@ -72,6 +72,18 @@ struct Cli {
     )]
     rpc_url: String,
 
+    /// Secondary / Fallback EVM JSON-RPC URLs (comma-separated)
+    #[arg(long, env = "RPC_FALLBACK_URLS", value_delimiter = ',')]
+    rpc_fallback_urls: Vec<String>,
+
+    /// Compute Unit (CU) budget limit for historical backfill
+    #[arg(long, env = "CU_BUDGET")]
+    cu_budget: Option<u64>,
+
+    /// Bulk stream archive endpoint override (e.g. SQD / HyperSync)
+    #[arg(long, env = "BULK_STREAM_URL")]
+    bulk_stream_url: Option<String>,
+
     #[arg(long, env = "CHAIN_ID", default_value_t = 421614)]
     chain_id: u64,
 
@@ -96,6 +108,18 @@ enum Commands {
     Ingester,
     /// Run the queue consumer, event decoder, and PostgreSQL committer
     Processor,
+    /// Run historical backfill or perform pre-flight cost estimation
+    Backfill {
+        #[arg(long)]
+        from_block: u64,
+
+        #[arg(long)]
+        to_block: u64,
+
+        /// Dry-run estimation of chunks, CUs, estimated USD costs, and duration
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
     /// Run the GraphQL query API server
     Api {
         #[arg(long, env = "PORT", default_value_t = 4000)]
@@ -127,6 +151,28 @@ async fn create_queue_adapter(cli: &Cli) -> Result<Arc<dyn QueuePort>, Box<dyn s
     }
 }
 
+async fn create_rpc_gateway(cli: &Cli, chain_id: ChainId) -> Arc<logrix_rpc_gateway::RpcGateway> {
+    use logrix_rpc_gateway::{ManagedProvider, ProviderPool, RpcGateway};
+
+    let pool = ProviderPool::new(chain_id);
+
+    // Primary provider (priority 1)
+    let primary = ManagedProvider::new("primary", &cli.rpc_url, 1, chain_id);
+    pool.add_provider(primary).await;
+
+    // Fallback providers (priority 2+)
+    for (idx, fallback_url) in cli.rpc_fallback_urls.iter().enumerate() {
+        if !fallback_url.trim().is_empty() {
+            let name = format!("fallback-{}", idx + 1);
+            let p = ManagedProvider::new(name, fallback_url.trim(), (idx + 2) as u32, chain_id);
+            pool.add_provider(p).await;
+        }
+    }
+
+    let gateway = RpcGateway::new(chain_id, pool, cli.cu_budget, cli.bulk_stream_url.clone());
+    Arc::new(gateway)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -152,25 +198,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Ingester => {
             let queue = create_queue_adapter(&cli).await?;
-            run_ingester(
-                chain_id,
-                &cli.rpc_url,
-                queue,
-                &cli.database_url,
-                cli.start_block,
-            )
-            .await?;
+            let gateway = create_rpc_gateway(&cli, chain_id).await;
+            run_ingester(chain_id, gateway, queue, &cli.database_url, cli.start_block).await?;
         }
         Commands::Processor => {
             let queue = create_queue_adapter(&cli).await?;
-            run_processor(
-                chain_id,
-                &cli.rpc_url,
-                queue,
-                &cli.database_url,
-                target_contract,
-            )
-            .await?;
+            let gateway = create_rpc_gateway(&cli, chain_id).await;
+            run_processor(chain_id, gateway, queue, &cli.database_url, target_contract).await?;
+        }
+        Commands::Backfill {
+            from_block,
+            to_block,
+            dry_run,
+        } => {
+            if dry_run {
+                use logrix_rpc_gateway::CuBudgetTracker;
+                let chunk_size = 500;
+                let (chunks, cu, usd) =
+                    CuBudgetTracker::estimate_range_cost(from_block, to_block, chunk_size);
+                let total_blocks = if to_block >= from_block {
+                    to_block - from_block + 1
+                } else {
+                    0
+                };
+                let est_seconds = chunks * 2; // rough assumption: ~2 sec per chunk
+
+                println!("\n=======================================================");
+                println!("           LOGRIX HISTORICAL BACKFILL DRY-RUN          ");
+                println!("=======================================================");
+                println!("  Target Chain ID       : {}", chain_id);
+                println!("  Target Contract       : {}", target_contract);
+                println!("  Block Range           : {} -> {}", from_block, to_block);
+                println!("  Total Blocks          : {}", total_blocks);
+                println!("  Average Chunk Size    : {} blocks", chunk_size);
+                println!("  Estimated Chunks      : {}", chunks);
+                println!("  Estimated CUs         : {} Compute Units", cu);
+                println!("  Estimated Cloud Cost  : ${:.4} USD (@ $1/1M CU)", usd);
+                println!(
+                    "  Estimated Duration    : ~{} seconds ({:.1} minutes)",
+                    est_seconds,
+                    est_seconds as f64 / 60.0
+                );
+                println!("=======================================================\n");
+            } else {
+                info!(
+                    from_block,
+                    to_block,
+                    chain = chain_id.as_u64(),
+                    "Dispatching backfill range to queue..."
+                );
+                let queue = create_queue_adapter(&cli).await?;
+                let job = BlockRangeJob::new(
+                    chain_id,
+                    from_block,
+                    to_block,
+                    format!("{chain_id}:{from_block}-{to_block}"),
+                );
+                queue
+                    .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
+                    .await?;
+                info!("Backfill range dispatched successfully.");
+            }
         }
         Commands::Api { port } => {
             let store = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
@@ -183,27 +271,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             store.migrate().await?;
 
             let queue = create_queue_adapter(&cli).await?;
+            let gateway = create_rpc_gateway(&cli, chain_id).await;
 
             let db_url = cli.database_url.clone();
-            let rpc = cli.rpc_url.clone();
             let start = cli.start_block;
             let ingester_queue = queue.clone();
+            let ingester_gw = gateway.clone();
 
             // Ingester task
             let ingester_handle = tokio::spawn(async move {
-                if let Err(e) = run_ingester(chain_id, &rpc, ingester_queue, &db_url, start).await {
+                if let Err(e) =
+                    run_ingester(chain_id, ingester_gw, ingester_queue, &db_url, start).await
+                {
                     error!(error = %e, "Ingester task failed");
                 }
             });
 
             // Processor task
             let db_url_proc = cli.database_url.clone();
-            let rpc_proc = cli.rpc_url.clone();
             let processor_queue = queue.clone();
+            let processor_gw = gateway.clone();
             let processor_handle = tokio::spawn(async move {
                 if let Err(e) = run_processor(
                     chain_id,
-                    &rpc_proc,
+                    processor_gw,
                     processor_queue,
                     &db_url_proc,
                     target_contract,
@@ -246,18 +337,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_ingester(
     chain_id: ChainId,
-    rpc_url: &str,
+    gateway: Arc<logrix_rpc_gateway::RpcGateway>,
     queue: Arc<dyn QueuePort>,
     database_url: &str,
     start_block: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         chain = chain_id.as_u64(),
-        rpc = rpc_url,
-        "Starting Logrix Ingester"
+        "Starting Logrix Ingester with Cost-Aware RPC Gateway"
     );
 
-    let client = EvmChainClient::new(chain_id, rpc_url);
     let store = PostgresStore::connect(database_url, "default").await?;
 
     // Determine initial block
@@ -274,7 +363,7 @@ async fn run_ingester(
                 info!(block, "Starting from configured start block");
                 block
             } else {
-                let latest = client.get_latest_block_number().await?;
+                let latest = gateway.get_latest_block_number().await?;
                 let start = latest.saturating_sub(50);
                 info!(
                     latest,
@@ -285,11 +374,12 @@ async fn run_ingester(
         }
     };
 
+    let chunk_size = 500u64;
+
     loop {
-        match client.get_latest_block_number().await {
+        match gateway.get_latest_block_number().await {
             Ok(latest) => {
                 if current_block <= latest {
-                    let chunk_size = client.chunker().chunk_size();
                     let to_block = (current_block + chunk_size - 1).min(latest);
 
                     if current_block == to_block && to_block == latest {
@@ -314,7 +404,7 @@ async fn run_ingester(
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Failed to query latest block number from RPC");
+                warn!(error = %e, "Failed to query latest block number from RPC Gateway");
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         }
@@ -323,13 +413,12 @@ async fn run_ingester(
 
 async fn run_processor(
     chain_id: ChainId,
-    rpc_url: &str,
+    gateway: Arc<logrix_rpc_gateway::RpcGateway>,
     queue: Arc<dyn QueuePort>,
     database_url: &str,
     target_contract: Address,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting Logrix Processor");
-    let client = EvmChainClient::new(chain_id, rpc_url);
+    info!("Starting Logrix Processor with Cost-Aware RPC Gateway");
     let store = Arc::new(PostgresStore::connect(database_url, "default").await?);
 
     loop {
@@ -353,8 +442,8 @@ async fn run_processor(
                     }
                 };
 
-                // Fetch logs for range
-                match client
+                // Fetch logs for range via Gateway
+                match gateway
                     .fetch_logs(from_block, to_block, &[target_contract])
                     .await
                 {
@@ -408,7 +497,7 @@ async fn run_processor(
                             from_block,
                             to_block,
                             error = %e,
-                            "Failed to fetch logs from RPC, requeueing"
+                            "Failed to fetch logs from RPC Gateway, requeueing"
                         );
                         let _ = queue.nack(&handle, true).await;
                         tokio::time::sleep(Duration::from_millis(500)).await;

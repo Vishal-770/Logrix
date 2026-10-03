@@ -17,6 +17,7 @@ logrix-queue-rabbitmq = { workspace = true }
 logrix-chain-evm = { workspace = true }
 logrix-api = { workspace = true }
 logrix-queue-sqs = { workspace = true }
+logrix-rpc-gateway = { workspace = true }
 
 clap = { workspace = true }
 tokio = { workspace = true }

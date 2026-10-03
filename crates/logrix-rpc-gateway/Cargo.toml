@@ -1,0 +1,24 @@
+[package]
+name = "logrix-rpc-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+logrix-core.workspace = true
+logrix-resilience.workspace = true
+logrix-chain-evm.workspace = true
+
+alloy-primitives.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+logrix-testkit.workspace = true

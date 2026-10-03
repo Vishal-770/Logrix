@@ -60,16 +60,22 @@
 
 ---
 
-### Part 2: RPC Gateway & Backfill Engine
+### Part 2: RPC Gateway & Backfill Engine - [COMPLETED]
 - **Objective:** Multi-provider RPC gateway, CU cost budgeting, adaptive range sizing, and bulk data streaming.
-- **Granular Steps:**
-  1. Implement provider pool with health checks, failover, and provider profile loading (`presets/providers/`).
-  2. Implement Compute Unit (CU) budget tracking and `logrix backfill --dry-run` cost estimator.
-  3. Implement adaptive chunking: halving ranges on `429` or range limit errors, gradual expansion on sparse blocks.
-  4. Implement optional fast-path bulk stream connector (SQD Portal / HyperSync).
+- **Completed Components:**
+  1. `crates/logrix-rpc-gateway`: Dedicated workspace crate with SRP isolation:
+     - `budget.rs`: Method-weighted Compute Unit (CU) ledger (`eth_getLogs`=75, `eth_getBlock`=20, `eth_blockNumber`=10) with atomic counters and automated backfill pausing on budget exhaustion.
+     - `singleflight.rs`: Concurrent request deduplication merging duplicate queries into a single network execution via broadcast channels.
+     - `provider.rs`: Managed provider state with moving average latency tracking, circuit breakers, and exponential cooldown half-open probes.
+     - `pool.rs`: Multi-provider router with latency-weighted priority fallback.
+     - `bulk.rs`: Fast-path bulk streaming connector for SQD Network / HyperSync archives.
+     - `gateway.rs`: Central `RpcGateway` implementing `ChainPort` with transparent failover and automatic metrics recording.
+  2. `crates/logrix-cli`:
+     - Added `logrix backfill --dry-run` pre-flight cost estimator (reporting block counts, chunks, CUs, USD costs, and estimated duration).
+     - Wired `RpcGateway` into all pipeline modes (`ingester`, `processor`, `all-in-one`) with support for `--rpc-fallback-urls` and `--cu-budget`.
 - **Custom Tests:**
-  - Fake-RPC fault-injection test: simulate 429s, timeouts, and range errors to verify automatic window halving and provider switching.
-  - Cost estimator accuracy verification test.
+  - `gateway_tests.rs`: Provider pool routing, circuit breaker trip and transparent failover, CU budget exhaustion check, and single-flight concurrent request deduplication.
+  - 29 total unit & integration tests passing across all workspace crates.
 - **Git Commit:** `feat(rpc): cost-aware gateway, adaptive chunking, and bulk stream fast-path`
 
 ---

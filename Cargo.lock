@@ -3373,6 +3373,7 @@ dependencies = [
  "logrix-queue-rabbitmq",
  "logrix-queue-sqs",
  "logrix-resilience",
+ "logrix-rpc-gateway",
  "logrix-store-postgres",
  "serde",
  "serde_json",
@@ -3437,6 +3438,24 @@ dependencies = [
  "logrix-core",
  "rand 0.8.8",
  "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "logrix-rpc-gateway"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "async-trait",
+ "logrix-chain-evm",
+ "logrix-core",
+ "logrix-resilience",
+ "logrix-testkit",
+ "reqwest",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
