@@ -62,21 +62,33 @@
 
 ### Part 2: RPC Gateway & Backfill Engine - [COMPLETED]
 - **Objective:** Multi-provider RPC gateway, CU cost budgeting, adaptive range sizing, and bulk data streaming.
-- **Completed Components:**
+- **Completed Components & Technical Implementation:**
   1. `crates/logrix-rpc-gateway`: Dedicated workspace crate with SRP isolation:
-     - `budget.rs`: Method-weighted Compute Unit (CU) ledger (`eth_getLogs`=75, `eth_getBlock`=20, `eth_blockNumber`=10) with atomic counters and automated backfill pausing on budget exhaustion.
-     - `singleflight.rs`: Concurrent request deduplication merging duplicate queries into a single network execution via broadcast channels.
-     - `provider.rs`: Managed provider state with moving average latency tracking, circuit breakers, and exponential cooldown half-open probes.
-     - `pool.rs`: Multi-provider router with latency-weighted priority fallback.
-     - `bulk.rs`: Fast-path bulk streaming connector for SQD Network / HyperSync archives.
-     - `gateway.rs`: Central `RpcGateway` implementing `ChainPort` with transparent failover and automatic metrics recording.
+     - `budget.rs`: Method-weighted Compute Unit (CU) ledger (`eth_getLogs`=75, `eth_getBlock`=20, `eth_blockNumber`=10) with atomic counters (`AtomicU64`) and automated backfill pausing on budget exhaustion while leaving the GraphQL query API intact. Includes real-time cost estimation ($1.00 / 1M CU).
+     - `singleflight.rs`: Concurrent in-flight request deduplication merging duplicate queries across workers into a single network execution via `tokio::sync::broadcast` channels.
+     - `provider.rs`: Managed provider state with rolling latency moving average (`avg_latency_ms`), per-provider circuit breakers, and exponential cooldown recovery probes (`10s -> 20s -> 40s -> 120s`). Enhanced with **Decorrelated Full Jitter** bounded in `[base/2, base]` to eliminate thundering herd recovery storms.
+     - `pool.rs`: Multi-provider router with latency-weighted priority fallback. Includes `select_provider_excluding(&tried_names)` to guarantee no failed node is repeatedly queried during single-request failover retries.
+     - `bulk.rs`: Fast-path bulk streaming connector for SQD Network / HyperSync archives (50,000+ blocks/sec at zero CU cost) with transparent fallback to JSON-RPC.
+     - `gateway.rs`: Central `RpcGateway` implementing `ChainPort` with transparent failover, automatic metrics recording, and fallback error propagation.
   2. `crates/logrix-cli`:
      - Added `logrix backfill --dry-run` pre-flight cost estimator (reporting block counts, chunks, CUs, USD costs, and estimated duration).
      - Wired `RpcGateway` into all pipeline modes (`ingester`, `processor`, `all-in-one`) with support for `--rpc-fallback-urls` and `--cu-budget`.
-- **Custom Tests:**
-  - `gateway_tests.rs`: Provider pool routing, circuit breaker trip and transparent failover, CU budget exhaustion check, and single-flight concurrent request deduplication.
-  - 29 total unit & integration tests passing across all workspace crates.
-- **Git Commit:** `feat(rpc): cost-aware gateway, adaptive chunking, and bulk stream fast-path`
+  3. `crates/logrix-resilience`:
+     - Dual-layer jitter protection: In-flight retry jitter (`RetryPolicy`) and Decorrelated Full Jitter for circuit breaker cooldowns (`cooldown_duration`).
+- **Custom Automated Tests (100% Passing):**
+  - `gateway_tests.rs`:
+    1. `test_provider_pool_routing_and_priority`: Priority-tier routing and circuit breaker failover.
+    2. `test_cu_budget_enforcement`: Method-weighted CU accumulation and threshold exhaustion check.
+    3. `test_singleflight_concurrent_dedup`: 8 concurrent tasks dispatched, exactly 1 network execution performed.
+    4. `test_gateway_fault_tolerance_automatic_failover_and_recovery`: Simulates HTTP 429 on primary, transparent failover to secondary, circuit tripping, and recovery jitter bounds.
+    5. `test_gateway_all_providers_failing_error_propagation`: Verifies proper `ErrorClass::Transient` propagation when entire pool fails.
+    6. `test_gateway_budget_exhaustion_blocks_further_network_calls`: Proves budget exhaustion immediately rejects calls without hitting downstream providers (network closure invocation counter = 0).
+    7. `test_provider_latency_moving_average_and_jitter`: Mathematical verification of exponential moving average (`(old*4 + new)/5`) and decorrelated jitter random distribution within `[base/2, base]`.
+  - **33 total unit & integration tests passing across all workspace crates.**
+- **Git Commits:**
+  - `4aebdac`: `feat(rpc): cost-aware gateway, adaptive chunking, and bulk stream fast-path`
+  - `093228d`: `feat(resilience): add decorrelated full-jitter to provider recovery cooldown`
+  - `63a5d1d`: `test(gateway): add comprehensive fault-tolerance, failover recovery, and jitter tests`
 
 ---
 
