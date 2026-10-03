@@ -1,0 +1,26 @@
+{{- if and .Values.webhook.enabled .Values.webhook.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "logrix.fullname" . }}-webhook-autoscaler
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "logrix.fullname" . }}-webhook
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: {{ .Values.webhook.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.webhook.autoscaling.maxReplicas }}
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: "logrix.blocks.webhook"
+        mode: QueueLength
+        value: {{ .Values.webhook.autoscaling.targetQueueDepth | quote }}
+        host: {{ .Values.config.rabbitmqUrl | quote }}
+{{- end }}

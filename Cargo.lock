@@ -3789,6 +3789,7 @@ dependencies = [
  "futures",
  "logrix-core",
  "logrix-store-postgres",
+ "logrix-webhook",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3797,6 +3798,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3851,8 +3853,10 @@ dependencies = [
  "logrix-resilience",
  "logrix-rpc-gateway",
  "logrix-store-postgres",
+ "logrix-webhook",
  "serde",
  "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4004,6 +4008,29 @@ dependencies = [
  "logrix-handlers",
  "logrix-reconciler",
  "logrix-resilience",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "logrix-webhook"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hex",
+ "hmac 0.12.1",
+ "logrix-core",
+ "logrix-resilience",
+ "logrix-testkit",
+ "rand 0.8.8",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "uuid",

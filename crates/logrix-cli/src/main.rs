@@ -154,6 +154,14 @@ struct Cli {
     /// Pod or instance identity used in the Kubernetes Lease holderIdentity
     #[arg(long, env = "POD_NAME", default_value = "local-instance")]
     pod_name: String,
+
+    /// Opt-in flag to enable outgoing webhook dispatching and worker loop
+    #[arg(long, env = "ENABLE_WEBHOOKS", default_value_t = false)]
+    enable_webhooks: bool,
+
+    /// Webhook signing secret used for default HMAC signature header
+    #[arg(long, env = "WEBHOOK_SECRET", default_value = "")]
+    webhook_secret: String,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -164,6 +172,8 @@ enum Commands {
     Ingester,
     /// Run the queue consumer, event decoder, and PostgreSQL committer
     Processor,
+    /// Run the dedicated standalone webhook notification worker
+    WebhookDispatcher,
     /// Run historical backfill or perform pre-flight cost estimation
     Backfill {
         #[arg(long)]
@@ -287,8 +297,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 webhook_url: cli.webhook_url.clone(),
                 reconciler_interval_secs: cli.reconciler_interval_secs,
                 manifest_path: cli.manifest_path.clone(),
+                enable_webhooks: cli.enable_webhooks,
             };
             run_processor(config, gateway, queue).await?;
+        }
+        Commands::WebhookDispatcher => {
+            let queue = create_queue_adapter(&cli).await?;
+            run_webhook_dispatcher(&cli, queue).await?;
         }
         Commands::Backfill {
             from_block,
@@ -398,6 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 webhook_url: cli.webhook_url.clone(),
                 reconciler_interval_secs: cli.reconciler_interval_secs,
                 manifest_path: cli.manifest_path.clone(),
+                enable_webhooks: cli.enable_webhooks,
             };
             let processor_handle = tokio::spawn(async move {
                 if let Err(e) = run_processor(proc_config, processor_gw, processor_queue).await {
@@ -553,6 +569,7 @@ pub struct ProcessorConfig {
     pub webhook_url: Option<String>,
     pub reconciler_interval_secs: u64,
     pub manifest_path: Option<String>,
+    pub enable_webhooks: bool,
 }
 
 async fn run_processor(
@@ -600,10 +617,15 @@ async fn run_processor(
         reconciler.run_loop().await;
     });
 
-    // Spawn background webhook notification loop
-    tokio::spawn(async move {
-        webhook_dispatcher.run_loop().await;
-    });
+    // Spawn background webhook notification loop if enabled (opt-in)
+    if config.enable_webhooks {
+        info!("Spawning background WebhookDispatcher consumer loop (opted-in)");
+        tokio::spawn(async move {
+            webhook_dispatcher.run_loop().await;
+        });
+    } else {
+        info!("Webhook processing in Processor is disabled (opt-in via --enable-webhooks or run standalone webhook-dispatcher)");
+    }
 
     // Set up shutdown signal listener for graceful drain
     let mut shutdown_signal = std::pin::pin!(async {
@@ -934,5 +956,27 @@ async fn run_processor(
             }
         }
     }
+    Ok(())
+}
+
+async fn run_webhook_dispatcher(
+    cli: &Cli,
+    queue: Arc<dyn QueuePort>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting dedicated Logrix Webhook Dispatcher service");
+    let pool = sqlx::PgPool::connect(&cli.database_url).await.ok();
+    let store = pool.map(logrix_webhook::WebhookStore::new);
+    let secret = if cli.webhook_secret.is_empty() {
+        logrix_webhook::generate_secret()
+    } else {
+        cli.webhook_secret.clone()
+    };
+    let dispatcher = logrix_webhook::WebhookDispatcherService::new(
+        queue,
+        store,
+        cli.webhook_url.clone(),
+        secret,
+    );
+    dispatcher.run_loop().await;
     Ok(())
 }

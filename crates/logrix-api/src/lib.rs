@@ -7,6 +7,7 @@ pub mod dynamic_schema;
 pub mod filter_input;
 pub mod list_resolver;
 pub mod query_builder;
+pub mod routes;
 pub mod schema;
 pub mod schema_parser;
 pub mod server;

@@ -14,6 +14,7 @@ members = [
     "crates/logrix-reconciler",
     "crates/logrix-handlers",
     "crates/logrix-blob-s3",
+    "crates/logrix-webhook",
 ]
 
 [workspace.package]
@@ -82,3 +83,4 @@ logrix-rpc-gateway = { path = "crates/logrix-rpc-gateway" }
 logrix-reconciler = { path = "crates/logrix-reconciler" }
 logrix-handlers = { path = "crates/logrix-handlers" }
 logrix-blob-s3 = { path = "crates/logrix-blob-s3" }
+logrix-webhook = { path = "crates/logrix-webhook" }

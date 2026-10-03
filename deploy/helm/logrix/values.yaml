@@ -115,3 +115,19 @@ rbac:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+webhook:
+  enabled: false
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 0
+    maxReplicas: 10
+    targetQueueDepth: 50
