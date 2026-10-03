@@ -127,11 +127,16 @@ pub async fn start_api_server_with_schema(
             create_dynamic_router(dynamic_schema)
         } else {
             info!("Schema path provided does not exist; using default core schema");
-            create_router(build_schema(store))
+            create_router(build_schema(store.clone()))
         }
     } else {
-        create_router(build_schema(store))
+        create_router(build_schema(store.clone()))
     };
+
+    let webhook_state = crate::routes::WebhookApiState {
+        store: logrix_webhook::WebhookStore::new(store.pool().clone()),
+    };
+    let app = app.merge(crate::routes::webhook_routes(webhook_state));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await

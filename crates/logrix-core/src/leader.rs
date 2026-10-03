@@ -44,7 +44,7 @@ impl LeaderElectionPort for LocalLeaderElector {
 pub struct LeaseSpec {
     #[serde(rename = "holderIdentity", skip_serializing_if = "Option::is_none")]
     pub holder_identity: Option<String>,
-    #[serde(rename = "leaseDurationSeconds", default = "default_duration")]
+    #[serde(rename = "leaseDurationSeconds", default = "default_lease_duration")]
     pub lease_duration_seconds: i32,
     #[serde(rename = "acquireTime", skip_serializing_if = "Option::is_none")]
     pub acquire_time: Option<String>,
@@ -52,9 +52,7 @@ pub struct LeaseSpec {
     pub renew_time: Option<String>,
 }
 
-fn default_duration() -> i32 {
-    15
-}
+fn default_lease_duration() -> i32 { 15 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeaseObject {
@@ -94,17 +92,10 @@ impl KubernetesLeaseElector {
         let host = std::env::var("KUBERNETES_SERVICE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
         let port = std::env::var("KUBERNETES_SERVICE_PORT").unwrap_or_else(|_| "443".into());
         let default_url = format!("https://{host}:{port}");
-
         let resolved_token = token
             .or_else(|| std::env::var("KUBERNETES_BEARER_TOKEN").ok())
-            .or_else(|| {
-                std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/token").ok()
-            });
-
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap_or_default();
+            .or_else(|| std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/token").ok());
+        let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build().unwrap_or_default();
 
         Self {
             client,

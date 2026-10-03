@@ -21,6 +21,7 @@ logrix-rpc-gateway = { workspace = true }
 logrix-reconciler = { workspace = true }
 logrix-handlers = { workspace = true }
 logrix-webhook = { workspace = true }
+logrix-blob-s3 = { workspace = true }
 sqlx = { workspace = true }
 
 clap = { workspace = true }

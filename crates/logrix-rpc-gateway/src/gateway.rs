@@ -46,19 +46,11 @@ impl RpcGateway {
     }
 
     /// Associated Chain ID.
-    pub fn chain_id(&self) -> ChainId {
-        self.chain_id
-    }
-
+    pub fn chain_id(&self) -> ChainId { self.chain_id }
     /// Access budget tracker.
-    pub fn budget(&self) -> &CuBudgetTracker {
-        &self.budget
-    }
-
+    pub fn budget(&self) -> &CuBudgetTracker { &self.budget }
     /// Access provider pool.
-    pub fn pool(&self) -> &ProviderPool {
-        &self.pool
-    }
+    pub fn pool(&self) -> &ProviderPool { &self.pool }
 
     /// Execute a fallible operation across providers in the pool.
     /// Automatically trips circuit breakers on errors, records latencies on success,
