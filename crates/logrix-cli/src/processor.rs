@@ -2,12 +2,12 @@ use alloy_primitives::Address;
 use logrix_blob_s3::{S3BlobStore, S3Config};
 use logrix_core::{
     domain::{BlockRangeJob, ChainId, MessageHandle, QueueMessage, QueueType},
-    ports::ChainPort,
-    ports::QueuePort,
+    ports::{ChainPort, QueuePort},
 };
 use logrix_handlers::UserLogicEngine;
-use logrix_reconciler::{ContinuityStatus, GapReconciler, ReorgDetector, ReorgHandler, WebhookDispatcher};
+use logrix_reconciler::{ContinuityStatus, GapReconciler, ReorgDetector, ReorgHandler};
 use logrix_store_postgres::PostgresStore;
+use logrix_webhook::{generate_secret, WebhookDispatcherService, WebhookStore};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -21,6 +21,7 @@ pub struct ProcessorConfig {
     pub target_contract: Address,
     pub ring_buffer_depth: usize,
     pub webhook_url: Option<String>,
+    pub webhook_secret: String,
     pub reconciler_interval_secs: u64,
     pub manifest_path: Option<String>,
     pub enable_webhooks: bool,
@@ -57,7 +58,14 @@ pub async fn run_processor(
     let detector = ReorgDetector::new(config.chain_id, gateway.clone(), config.ring_buffer_depth);
     let handler = ReorgHandler::new(config.chain_id, store.clone(), queue.clone(), detector.clone());
     let reconciler = GapReconciler::new(config.chain_id, store.clone(), queue.clone(), gateway.clone(), Duration::from_secs(config.reconciler_interval_secs));
-    let webhook_dispatcher = WebhookDispatcher::new(queue.clone(), config.webhook_url.clone());
+    tokio::spawn(async move { reconciler.run_loop().await; });
+
+    if config.enable_webhooks {
+        let wh_store = WebhookStore::new(store.pool().clone());
+        let secret = if config.webhook_secret.is_empty() { generate_secret() } else { config.webhook_secret.clone() };
+        let wh_dispatcher = WebhookDispatcherService::new(queue.clone(), Some(wh_store), config.webhook_url.clone(), secret);
+        tokio::spawn(async move { wh_dispatcher.run_loop().await; });
+    }
 
     let engine_opt = if let Some(ref path) = config.manifest_path {
         let manifest = logrix_handlers::Manifest::from_file(path)?;
@@ -71,11 +79,6 @@ pub async fn run_processor(
     } else {
         None
     };
-
-    tokio::spawn(async move { reconciler.run_loop().await; });
-    if config.enable_webhooks {
-        tokio::spawn(async move { webhook_dispatcher.run_loop().await; });
-    }
 
     let ctx = ProcessorContext {
         config: &config,

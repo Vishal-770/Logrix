@@ -100,6 +100,7 @@ fn build_processor_config(cli: &Cli, chain_id: ChainId, target_contract: Address
         reconciler_interval_secs: cli.reconciler_interval_secs,
         manifest_path: cli.manifest_path.clone(),
         enable_webhooks: cli.enable_webhooks,
+        webhook_secret: cli.webhook_secret.clone(),
         s3_bucket: cli.s3_bucket.clone(),
         s3_endpoint: cli.s3_endpoint.clone(),
         s3_prefix: cli.s3_prefix.clone(),
