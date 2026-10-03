@@ -74,6 +74,61 @@ export function handleTransfer(event: EventLog): void {
 "#
 }
 
+pub fn package_json_template(name: &str) -> String {
+    format!(
+        r#"{{
+  "name": "{name}-handlers",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {{
+    "build": "asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime"
+  }},
+  "devDependencies": {{
+    "assemblyscript": "^0.27.29"
+  }}
+}}
+"#
+    )
+}
+
+pub fn tsconfig_template() -> &'static str {
+    r#"{
+  "extends": "assemblyscript/std/assembly.json",
+  "include": [
+    "./handlers/**/*.ts"
+  ]
+}
+"#
+}
+
+pub fn sdk_types_template() -> &'static str {
+    r#"// @logrix/sdk WebAssembly Host Interface
+export class EventLog {
+  address: string = "";
+  block_number: u64 = 0;
+  block_hash: string = "";
+  transaction_hash: string = "";
+  log_index: u32 = 0;
+  block_timestamp: u64 = 0;
+  topics: Array<string> = [];
+  data: string = "";
+}
+
+@external("env", "logrix_emit")
+declare function host_emit(ptr: usize, len: usize): void;
+
+@external("env", "logrix_db_get")
+declare function host_db_get(ptr: usize, len: usize): usize;
+
+@external("env", "logrix_db_set")
+declare function host_db_set(k_ptr: usize, k_len: usize, v_ptr: usize, v_len: usize): void;
+
+export function logrix_emit(entityType: string, jsonPayload: string): void {
+  // Stub for local build check
+}
+"#
+}
+
 pub fn readme_startup_steps(is_docker: bool, is_aws: bool) -> &'static str {
     if is_docker {
         "### 1. Start Local Infrastructure\n```bash\ndocker compose up -d\n```\n\n### 2. Run Indexer\n```bash\nlogrix all-in-one\n```"

@@ -26,9 +26,18 @@ data:
   {{- if .Values.config.webhookUrl }}
   WEBHOOK_URL: {{ .Values.config.webhookUrl | quote }}
   {{- end }}
-  {{- if .Values.config.manifestPath }}
-  MANIFEST_PATH: {{ .Values.config.manifestPath | quote }}
+  {{- if or .Values.config.manifestPath .Values.config.manifestContent }}
+  MANIFEST_PATH: {{ default "/etc/logrix/manifest.yaml" .Values.config.manifestPath | quote }}
   {{- end }}
-  {{- if .Values.config.schemaPath }}
-  SCHEMA_PATH: {{ .Values.config.schemaPath | quote }}
+  {{- if or .Values.config.schemaPath .Values.config.schemaContent }}
+  SCHEMA_PATH: {{ default "/etc/logrix/schema.graphql" .Values.config.schemaPath | quote }}
   {{- end }}
+  {{- if .Values.config.manifestContent }}
+  manifest.yaml: |
+{{ .Values.config.manifestContent | indent 4 }}
+  {{- end }}
+  {{- if .Values.config.schemaContent }}
+  schema.graphql: |
+{{ .Values.config.schemaContent | indent 4 }}
+  {{- end }}
+

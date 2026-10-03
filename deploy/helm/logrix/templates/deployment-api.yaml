@@ -45,6 +45,26 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
+          {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
+          volumeMounts:
+            - name: logrix-config-volume
+              mountPath: /etc/logrix
+          {{- end }}
+      {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
+      volumes:
+        - name: logrix-config-volume
+          configMap:
+            name: {{ include "logrix.fullname" . }}-config
+            items:
+              {{- if .Values.config.manifestContent }}
+              - key: manifest.yaml
+                path: manifest.yaml
+              {{- end }}
+              {{- if .Values.config.schemaContent }}
+              - key: schema.graphql
+                path: schema.graphql
+              {{- end }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

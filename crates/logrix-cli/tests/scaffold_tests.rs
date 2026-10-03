@@ -61,6 +61,9 @@ fn test_scaffold_aws_profile_and_wasm() {
     scaffold_project(&cfg).expect("scaffold failed");
 
     assert!(project_dir.join("handlers/mapping.ts").exists());
+    assert!(project_dir.join("handlers/types.ts").exists());
+    assert!(project_dir.join("package.json").exists());
+    assert!(project_dir.join("tsconfig.json").exists());
     let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
     assert!(env_content.contains("QUEUE_DRIVER=sqs"));
     assert!(env_content.contains("CHAIN_ID=1"));

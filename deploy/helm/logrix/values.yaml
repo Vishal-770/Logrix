@@ -28,6 +28,12 @@ config:
   ringBufferDepth: 128
   manifestPath: ""
   schemaPath: ""
+  # Inline manifest.yaml content for pure Kubernetes / zero-code deployments
+  manifestContent: ""
+  # Inline schema.graphql content for dynamic entities
+  schemaContent: ""
+  # Base64 encoded WebAssembly binary (optional for WASM logic handlers)
+  wasmBase64: ""
 
 ingester:
   enabled: true

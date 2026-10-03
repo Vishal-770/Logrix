@@ -1,5 +1,6 @@
 use crate::scaffold_templates::{
-    docker_compose_template, readme_startup_steps, schema_graphql_template, ts_handler_template,
+    docker_compose_template, package_json_template, readme_startup_steps, schema_graphql_template,
+    sdk_types_template, ts_handler_template, tsconfig_template,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,6 +48,12 @@ pub fn scaffold_project(cfg: &ScaffoldConfig) -> Result<(), Box<dyn std::error::
         let handlers_dir = cfg.target_dir.join("handlers");
         fs::create_dir_all(&handlers_dir)?;
         fs::write(handlers_dir.join("mapping.ts"), ts_handler_template())?;
+        fs::write(handlers_dir.join("types.ts"), sdk_types_template())?;
+        fs::write(
+            cfg.target_dir.join("package.json"),
+            package_json_template(&cfg.name),
+        )?;
+        fs::write(cfg.target_dir.join("tsconfig.json"), tsconfig_template())?;
     }
 
     Ok(())
