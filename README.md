@@ -1,95 +1,229 @@
 # Logrix
 
-> **High-performance, modular, self-hostable blockchain indexer built in Rust.**  
-> Point it at an EVM RPC, define your contracts and events, and sync a queryable database in seconds.
+> **High-performance, self-hosted, Kubernetes-native blockchain indexer built in Rust.**  
+> Point it at any EVM RPC, define your smart contracts, and sync a real-time queryable database in seconds.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
-[![Architecture](https://img.shields.io/badge/architecture-Modular%20Ports%20%26%20Adapters-green.svg)](#architecture)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/Vishal-770/Logrix/ci.yml?branch=main&label=CI)](https://github.com/Vishal-770/Logrix/actions)
+[![Docker](https://img.shields.io/badge/Docker-GHCR-blue?logo=docker)](https://github.com/Vishal-770/Logrix/pkgs/container/logrix)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20OCI-326ce5?logo=kubernetes)](https://github.com/Vishal-770/Logrix/pkgs/container/charts%2Flogrix)
 
 ---
 
-## The Vision: Zero-Friction Local DX to Infinite Cloud Scale
+## Why Logrix?
 
-Most blockchain indexers force an uncomfortable choice:
-1. **Lightweight dev tools** that are easy to run locally on a laptop, but fall apart under heavy historical backfills or production multi-chain loads.
-2. **Enterprise indexing infra** that requires running 10 microservices, Kafka, Redis, and Postgres before you can test a single event locally.
+Most blockchain indexers force you into expensive proprietary cloud subscriptions with vendor lock-in, or crash when network reorgs and RPC rate-limits occur.
 
-**Logrix eliminates this tradeoff.**
+**Logrix is engineered for 100% data sovereignty, cost control, and high-throughput production:**
 
-- **Kubernetes-Native Everywhere (Local to Cloud):** Logrix is fundamentally a Kubernetes-backed indexer. Locally, `logrix dev` spins up and connects to a local Kubernetes environment (via `kind` or existing k8s context). In production, it deploys via Helm to EKS, GKE, or AKS.
-- **Identical Pod Workloads in All Environments:** Every role runs as a dedicated Kubernetes pod:
-  - `logrix-listener`: Stateful singleton pod per chain with Kubernetes Lease leader election.
-  - `logrix-decoder-live`: Low-latency live block decoders.
-  - `logrix-decoder-backfill`: Event-driven backfill decoders autoscaled from 0 to 50 via KEDA.
-  - `logrix-webhook-worker`: Outgoing webhook delivery pods.
-  - `logrix-api`: Dynamic GraphQL server pods autoscaled via HPA.
+- ⚡ **Blazing Fast Ingestion:** Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/second**.
+- 🛡️ **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the winning block immediately, and self-heals gaps.
+- 💰 **RPC Billing Protection:** Multi-provider failover pool with per-provider circuit breakers, decorrelated jitter, and a built-in Compute Unit (CU) ledger that pauses backfills before exceeding your monthly budget.
+- 📦 **Dual Storage Tiering:** Hot GraphQL entities in PostgreSQL; raw full block envelopes compressed with **`zstd`** into cold AWS S3/MinIO buckets, slashing cloud database storage bills by up to 85%.
+- 📡 **Production Webhooks:** Cryptographically signed (`HMAC-SHA256`) outgoing notifications with timestamp replay defense and dead-letter queue (DLQ) retries.
+- ☸️ **Kubernetes & Cloud Native:** Microservice architecture with active-passive Ingester leader election (Kubernetes Leases) and event-driven auto-scaling via **KEDA** (1 to 50+ worker pods).
 
-```text
-Local Kubernetes (kind / k8s context)          Production Kubernetes (EKS / GKE / AKS)
-┌──────────────────────────────────────┐      ┌──────────────────────────────────────┐
-│  $ logrix dev (Local K8s namespace)  │      │  Production Helm + KEDA + Karpenter  │
-│  • logrix-listener pod (Lease leader)│      │  • logrix-listener (HA active/standby│
-│  • logrix-decoder-live pod           │ ───► │  • logrix-decoder-backfill (0 to 50) │
-│  • logrix-decoder-backfill pod (KEDA)│      │  • logrix-api (HPA scaled)           │
-│  • logrix-api pod (GraphQL :4000)    │      │  • External AWS SQS / RDS Aurora     │
-│  • Local Postgres + RabbitMQ pods    │      │  • Ingress + NetworkPolicies + IRSA  │
-└──────────────────────────────────────┘      └──────────────────────────────────────┘
+---
+
+## Architecture Overview
+
+```
+                      EVM Blockchain (Ethereum, Arbitrum, Base, Polygon)
+                                       │
+                                       ▼
+                       ┌───────────────────────────────┐
+                       │      Logrix RPC Gateway       │
+                       │  • Multi-Provider Failover    │
+                       │  • CU Budget Ledger ($)       │
+                       │  • Singleflight Dedup         │
+                       └───────────────┬───────────────┘
+                                       │
+                                       ▼
+                         Logrix Ingester (Leader Pod)
+                                       │
+                                       ▼
+                     Message Queue (RabbitMQ / AWS SQS)
+                                       │
+                      ┌────────────────┼────────────────┐
+                      ▼                                 ▼
+           Logrix Processor (KEDA)             Webhook Dispatcher
+           • Reorg Auto-Rollback               • HMAC-SHA256 Signed
+           • TypeScript / WASM Handlers        • Exponential Retries
+           • Self-Healing Gap Reconciler       • Dead-Letter Queue
+                      │
+           ┌──────────┴──────────┐
+           ▼                     ▼
+     PostgreSQL               AWS S3
+     (Hot Query Tier)     (Cold zstd Blobs)
+           │
+           ▼
+     GraphQL API Server
+     • Sub-10ms Queries
+     • Live WebSockets
+     • GraphiQL Studio (:4000)
 ```
 
 ---
 
-## Key Pillars
+## Quickstart (Get Running in 60 Seconds)
 
-1. **Every Piece is Swappable (Ports & Adapters):**
-   - **Queues:** SQS, RabbitMQ, Redis (BullMQ), Memory, or gRPC plugin.
-   - **Databases:** Postgres, SQLite, or plugin (ClickHouse, DuckDB).
-   - **Blob Stores:** AWS S3, MinIO, Local Disk, or plugin.
-   - **Indexing Logic:** Declarative YAML, WASM (Rust/Go/Zig), TypeScript, or remote gRPC services.
-2. **Cost-Aware RPC Gateway:**
-   - Single gateway component managing provider pools (Alchemy, Infura, QuickNode, own nodes).
-   - Budget tracking in native Compute Units (CU), adaptive range sizing, and rate limit defense.
-   - Dry-run cost estimator (`logrix backfill --dry-run`) before launching multi-million block syncs.
-3. **Bulletproof Resilience & Self-Healing:**
-   - Unified error classifier (Transient, RateLimited, Shrinkable, Permanent, Integrity, Fatal).
-   - Adaptive AIMD backpressure: slow consumers slow producers automatically.
-   - Continuous self-healing reconciler that audits checkpoint continuity and refills missing gaps.
-   - Reorg-safe: automatic rollback from fork point and webhook `event.reverted` notifications.
-4. **Targeted Kubernetes Autoscaling:**
-   - KEDA for queue-driven workers (scale-to-zero for backfill).
-   - Built-in HPA for stateless GraphQL API instances.
-   - Karpenter provisioning Spot nodes for heavy backfills, slashing cloud compute costs by 70–80%.
-   - Budget-capped controller signal (`logrix_desired_replicas`) preventing clusters from scaling into a database outage.
+### 1. Initialize Your Project
 
----
-
-## Documentation Index
-
-Explore the complete architecture and operational specifications:
-
-| Document | Purpose |
-| :--- | :--- |
-| **[`PROJECT_PLAN.md`](PROJECT_PLAN.md)** | **Master Architectural Plan:** Complete v6 specification, design decisions (D1–D28), 10-phase roadmap, and future-feature register. |
-| **[`KUBERNETES_PLAN.md`](KUBERNETES_PLAN.md)** | **Production Kubernetes Architecture:** In-depth guide on KEDA, HPA, Karpenter, Workload manifests, IRSA security, and cloud separation. |
-| **[`docs/01-architecture.md`](docs/01-architecture.md)** | Pipeline anatomy (Source ➔ Filter ➔ Decode ➔ Handle ➔ Sinks), traits, and extension model (WASM & gRPC). |
-| **[`docs/02-rpc-gateway.md`](docs/02-rpc-gateway.md)** | RPC gateway internals, provider profiles, adaptive chunking, and CU cost management. |
-| **[`docs/03-resilience-reorgs.md`](docs/03-resilience-reorgs.md)** | Failure taxonomy, backpressure mechanics, leader election, and the self-healing reconciler. |
-| **[`docs/04-developer-experience.md`](docs/04-developer-experience.md)** | Local quickstart, CLI commands, YAML declarative mapping, and WASM/TypeScript handler authoring. |
-| **[`docs/05-open-source-strategy.md`](docs/05-open-source-strategy.md)** | Open source pitfalls, competitive moat, community plugins, and distribution model. |
-
----
-
-## 60-Second Quickstart (Local Dev Mode)
+Scaffold a complete, tailored indexer workspace using the interactive CLI wizard:
 
 ```bash
-# 1. Install Logrix CLI
-curl -fsSL https://get.logrix.dev | sh
+logrix init my-indexer
+```
 
-# 2. Initialize a new indexer project from template
-logrix init my-indexer --template erc20
+The wizard prompts you for:
+1. **Infrastructure Profile**:
+   - **Local Docker** (PostgreSQL 16, RabbitMQ with Web UI, MinIO S3)
+   - **AWS Cloud-Native** (Automated Terraform for Aurora, SQS, S3, EKS)
+   - **Custom BYO** (Bring your own existing database and queue)
+2. **Target Network**: Arbitrum One, Ethereum, Base, Polygon, Arbitrum Sepolia, or Custom RPC.
+3. **Smart Contract Address & Events**: Enter contract address and start block.
+4. **Custom Logic**: No-Code Declarative YAML or Full-Code TypeScript/WASM.
+
+---
+
+### 2. Run Locally (Docker)
+
+```bash
 cd my-indexer
 
-# 3. Start indexing locally (in-memory queue + SQLite + dynamic GraphQL)
-logrix dev
+# 1. Start local infrastructure with persistent disk volumes
+docker compose up -d
+
+# 2. Run the indexer
+logrix all-in-one
 ```
-Open `http://localhost:4000/graphql` to query live and historical indexed data immediately.
+
+That's it! Logrix automatically runs migrations, connects to the chain, starts indexing, and launches the API.
+
+---
+
+### 3. Query Data via GraphQL & Studio
+
+Open **[http://localhost:4000/](http://localhost:4000/)** in your browser to launch the embedded **GraphiQL Studio**:
+
+```graphql
+query {
+  transfers(first: 10, orderBy: BLOCK_NUMBER_DESC) {
+    nodes {
+      id
+      blockNumber
+      fromAddress
+      toAddress
+      amount
+      transactionHash
+    }
+  }
+}
+```
+
+#### Real-Time WebSocket Subscriptions
+Listen to new on-chain events live in your frontend:
+
+```graphql
+subscription {
+  newTransfer {
+    blockNumber
+    fromAddress
+    toAddress
+    amount
+  }
+}
+```
+
+---
+
+## Live Monitoring & Observability
+
+### Terminal Status Monitor (TUI)
+Check real-time sync progress, queue depths, RPC budgets, and reorg history directly in your terminal:
+
+```bash
+logrix status --watch
+```
+
+```text
+┌───────────────────────── LOGRIX STATUS MONITOR ────────────────────────┐
+│ Status: HEALTHY                     Version: 0.1.0                     │
+├────────────────────────────────────────────────────────────────────────┤
+│ 🔗 Blockchain Progress:                                                │
+│    Latest Indexed Block: 22150418                                      │
+│    Latest Block Hash:    0x7b2f48...3e91a0                             │
+│                                                                        │
+│ 📊 Stored Data & Events:                                               │
+│    Total Event Logs:     1842910                                       │
+│    Dynamic Entities:     1420                                          │
+│                                                                        │
+│ 🛡️ Reorg & Self-Healing:                                               │
+│    Reverted Events:      0                                             │
+│    Health State:         [CONTINUOUS / ZERO GAPS]                      │
+│                                                                        │
+│ 📡 Webhook Engine:                                                     │
+│    Active Endpoints:     3                                             │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Prometheus Metrics for Grafana
+The GraphQL API server exposes Prometheus metrics at **`http://localhost:4000/metrics`**:
+- `logrix_head_lag_blocks`
+- `logrix_events_indexed_total`
+- `logrix_queue_depth{queue="live|backfill|webhook|dlq"}`
+- `logrix_rpc_cu_consumed_total`
+- `logrix_reorg_detected_total`
+
+---
+
+## Production Deployment (Kubernetes & AWS)
+
+Logrix packages production-ready container images and Helm charts directly on GitHub Container Registry (GHCR).
+
+### Option A: Deploy via Helm (Kubernetes)
+
+Install directly from the OCI registry in one command:
+
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  --set config.chainId=42161 \
+  --set config.contractAddress="0xaf88d065e77c8cC2239327C5EDb3A432268e5831" \
+  --set config.rpcUrl="https://arb1.arbitrum.io/rpc" \
+  --set config.databaseUrl="postgres://user:pass@aurora-pg.rds.amazonaws.com/indexer" \
+  --set config.queueDriver="sqs" \
+  --set config.enableWebhooks=true
+```
+
+### Option B: Deploy to AWS via Terraform
+
+Provision production-grade AWS infrastructure (Aurora Serverless v2 PostgreSQL, Amazon SQS with DLQ, Amazon S3 with lifecycle transitions, and EKS with IRSA keyless IAM authentication):
+
+```bash
+cd deploy/terraform/aws
+terraform init
+terraform apply
+```
+
+---
+
+## CLI Reference
+
+| Command | Description |
+| :--- | :--- |
+| `logrix init [NAME]` | Interactive project scaffolding wizard (Local Docker, AWS, or BYO). |
+| `logrix all-in-one` | Runs ingester, processor, and GraphQL API concurrently in a single process. |
+| `logrix ingester` | Runs standalone head-block listener with Kubernetes Lease leader election. |
+| `logrix processor` | Runs worker processing jobs from queue with reorg auto-healing. |
+| `logrix api` | Runs standalone GraphQL API server with GraphiQL IDE and live subscriptions. |
+| `logrix webhook-dispatcher`| Runs standalone outgoing HTTP webhook delivery worker. |
+| `logrix backfill` | Executes historical range sync with `--dry-run` CU cost estimation. |
+| `logrix status` | Live terminal dashboard displaying sync lag, queue depth, and health metrics. |
+| `logrix migrate` | Executes PostgreSQL database migrations. |
+
+---
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
