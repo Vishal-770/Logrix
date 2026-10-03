@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+pub use crate::commands::Commands;
+use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -156,28 +157,4 @@ pub struct Cli {
     /// Optional S3 key prefix for archived blobs
     #[arg(long, env = "S3_PREFIX")]
     pub s3_prefix: Option<String>,
-}
-
-#[derive(Subcommand, Debug, Clone)]
-pub enum Commands {
-    Migrate,
-    Ingester,
-    Processor,
-    WebhookDispatcher,
-    Backfill {
-        #[arg(long)]
-        from_block: u64,
-        #[arg(long)]
-        to_block: u64,
-        #[arg(long, default_value_t = false)]
-        dry_run: bool,
-    },
-    Api {
-        #[arg(long, env = "PORT", default_value_t = 4000)]
-        port: u16,
-    },
-    AllInOne {
-        #[arg(long, env = "PORT", default_value_t = 4000)]
-        port: u16,
-    },
 }

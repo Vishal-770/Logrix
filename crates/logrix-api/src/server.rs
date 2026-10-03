@@ -40,6 +40,22 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
+async fn prometheus_metrics() -> impl IntoResponse {
+    let body = "# HELP logrix_api_health API server health status\n\
+# TYPE logrix_api_health gauge\n\
+logrix_api_health 1\n\
+# HELP logrix_api_version Build version info\n\
+# TYPE logrix_api_version info\n\
+logrix_api_version{version=\"0.1.0\"} 1\n";
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        body,
+    )
+}
+
 /// Create router for static LogrixSchema.
 pub fn create_router(schema: LogrixSchema) -> Router {
     Router::new()
@@ -48,6 +64,7 @@ pub fn create_router(schema: LogrixSchema) -> Router {
         .route("/graphql", post(graphql_handler))
         .route("/healthz", get(health_check))
         .route("/readyz", get(health_check))
+        .route("/metrics", get(prometheus_metrics))
         .layer(Extension(schema))
 }
 
@@ -59,6 +76,7 @@ pub fn create_dynamic_router(schema: async_graphql::dynamic::Schema) -> Router {
         .route("/graphql", post(dynamic_graphql_handler))
         .route("/healthz", get(health_check))
         .route("/readyz", get(health_check))
+        .route("/metrics", get(prometheus_metrics))
         .layer(Extension(schema))
 }
 

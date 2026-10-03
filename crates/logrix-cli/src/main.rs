@@ -1,11 +1,16 @@
 pub mod all_in_one;
 pub mod args;
 pub mod backfill;
+pub mod commands;
 pub mod factory;
 pub mod handlers;
 pub mod indexer;
 pub mod ingester;
+pub mod init;
 pub mod processor;
+pub mod scaffold;
+pub mod scaffold_templates;
+pub mod status_tui;
 pub mod webhook_runner;
 
 use alloy_primitives::Address;
@@ -44,6 +49,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Valid target contract address");
 
     match cli.command {
+        Commands::Init {
+            name,
+            profile,
+            network,
+            contract,
+            start_block,
+            logic,
+            non_interactive,
+        } => {
+            init::run_init(init::InitOptions {
+                name,
+                profile,
+                network,
+                contract_address: contract,
+                start_block,
+                logic,
+                non_interactive,
+            })?;
+        }
+        Commands::Status { watch } => {
+            status_tui::run_status(&cli.database_url, watch).await?;
+        }
         Commands::Migrate => {
             info!("Connecting to PostgreSQL and running migrations...");
             let store = PostgresStore::connect(&cli.database_url, "default").await?;
