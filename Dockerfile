@@ -1,5 +1,5 @@
 # Stage 1: Cargo Chef Base
-FROM rust:1.85-bookworm AS chef
+FROM rust:bookworm AS chef
 RUN cargo install cargo-chef --version 0.1.71 --locked
 WORKDIR /app
 
