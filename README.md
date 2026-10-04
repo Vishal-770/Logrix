@@ -8,7 +8,7 @@
 [![CI Status](https://img.shields.io/github/actions/workflow/status/Vishal-770/Logrix/ci.yml?branch=main&label=CI)](https://github.com/Vishal-770/Logrix/actions)
 [![Docker](https://img.shields.io/badge/Docker-GHCR-blue?logo=docker)](https://github.com/Vishal-770/Logrix/pkgs/container/logrix)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20OCI-326ce5?logo=kubernetes)](https://github.com/Vishal-770/Logrix/pkgs/container/charts%2Flogrix)
-[![npm](https://img.shields.io/npm/v/logrix-sdk?color=red&logo=npm)](https://www.npmjs.com/package/logrix-sdk)
+[![npm](https://img.shields.io/npm/v/@logrix/sdk?color=red&logo=npm)](https://www.npmjs.com/package/@logrix/sdk)
 
 ---
 
@@ -18,7 +18,7 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 
 **Logrix is engineered for 100% data sovereignty, cost control, and high-throughput production:**
 
-- **Custom Event Logic with TypeScript:** Write custom business logic and state transformations using [`logrix-sdk`](packages/logrix-sdk) (compiled to sandboxed WebAssembly) or zero-code Declarative YAML.
+- **Custom Event Logic with TypeScript:** Write custom business logic and state transformations using [`@logrix/sdk`](packages/logrix-sdk) (compiled to sandboxed WebAssembly) or zero-code Declarative YAML.
 - **Zero-Dependency Kubernetes Deployment:** Mount custom WASM binaries and GraphQL schemas directly into standard pods via Kubernetes Secrets. No custom Docker builds or S3 buckets required.
 - **High-Throughput Ingestion:** Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/second**.
 - **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the canonical winning block immediately, and self-heals gaps.
@@ -51,7 +51,7 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
                       ▼                                 ▼
            Logrix Processor (KEDA)             Webhook Dispatcher
            • Reorg Auto-Rollback               • HMAC-SHA256 Signed
-           • logrix-sdk WASM Handlers          • Exponential Retries
+           • @logrix/sdk WASM Handlers         • Exponential Retries
            • Self-Healing Gap Reconciler       • Dead-Letter Queue
                       │
            ┌──────────┴──────────┐
@@ -68,61 +68,40 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 
 ---
 
-## 1. Writing Custom Event Logic (`logrix-sdk`)
+## 1. Writing Custom Event Logic (`@logrix/sdk`)
 
-Install the official SDK in your project:
-
+### Scaffold a New Indexer Project
 ```bash
-npm install logrix-sdk
-npm install --save-dev assemblyscript
+npx @logrix/sdk init my-indexer
+cd my-indexer
+npm install
 ```
 
-### Define Your Schema (`schema.graphql`)
-
-```graphql
-type Transfer @entity {
-  id: ID!
-  blockNumber: BigInt!
-  fromAddress: String! @index
-  toAddress: String! @index
-  amount: BigInt!
-  transactionHash: String!
-  timestamp: BigInt!
-}
+### Generate Strongly Typed Bindings
+```bash
+npm run codegen
 ```
 
-### Write Your Handler (`handlers/mapping.ts`)
-
+### Write Handler (`handlers/mapping.ts`)
 ```typescript
-import { EventLog, logrix_db_get, logrix_db_set, logrix_emit } from "logrix-sdk";
+import { TransferEvent } from "./generated/events";
+import { TransferEntity } from "./generated/schema";
 
-export function handleTransfer(event: EventLog): void {
-  let sender = event.topics[1];
-  let recipient = event.topics[2];
-  let amount = event.data;
-
-  // 1. Maintain cross-block entity state
-  let currentBalance = logrix_db_get(sender);
-  let newBalance = updateBalance(currentBalance, amount);
-  logrix_db_set(sender, newBalance);
-
-  // 2. Emit entity for dynamic GraphQL queries
-  logrix_emit("Transfer", JSON.stringify({
-    id: `${event.transaction_hash}-${event.log_index}`,
-    blockNumber: event.block_number,
-    fromAddress: sender,
-    toAddress: recipient,
-    amount: amount,
-    transactionHash: event.transaction_hash,
-    timestamp: event.block_timestamp
-  }));
+export function handleTransfer(event: TransferEvent): void {
+  let entity = new TransferEntity(event.transactionHash + "-" + event.logIndex.toString());
+  entity.blockNumber = event.blockNumber;
+  entity.fromAddress = event.params.from;
+  entity.toAddress = event.params.to;
+  entity.amount = event.params.value;
+  entity.transactionHash = event.transactionHash;
+  entity.timestamp = event.blockTimestamp;
+  entity.save();
 }
 ```
 
 ### Compile to WebAssembly
-
 ```bash
-npx asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime
+npm run build
 ```
 
 ---

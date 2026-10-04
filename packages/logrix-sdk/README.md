@@ -1,81 +1,81 @@
-# logrix-sdk
+# @logrix/sdk
 
-> Official TypeScript & AssemblyScript SDK for the [Logrix](https://github.com/Vishal-770/Logrix) blockchain indexer.
+Official TypeScript and AssemblyScript SDK for Logrix blockchain indexers.
 
-Define custom, type-safe blockchain event mappings with sub-millisecond execution inside the Logrix WebAssembly sandbox.
+Scaffold custom blockchain indexer projects, generate strongly typed event and GraphQL entity bindings, compile WebAssembly handlers, and deploy to Kubernetes with Helm.
 
 ---
 
-## Installation
+## Quickstart
+
+### 1. Scaffold a New Project
+Initialize a complete project interactively:
 
 ```bash
-npm install logrix-sdk
-npm install --save-dev assemblyscript
+npx @logrix/sdk init my-indexer
 ```
+
+Follow the prompts to choose your network (Ethereum, Arbitrum, Base, Polygon), smart contract address, and starting block.
+
+This scaffolds:
+- `manifest.yaml`: Indexer configuration and target contract event subscriptions.
+- `schema.graphql`: Entity definitions exposed via GraphQL.
+- `abis/<ContractName>.json`: ABI definitions.
+- `handlers/mapping.ts`: Strongly typed AssemblyScript event mapping logic.
+- `values-local.yaml`: Ready-to-use Helm configuration for local Minikube / Kind / K3s clusters.
+- `values-aws.yaml`: Ready-to-use Helm configuration for production AWS EKS clusters.
 
 ---
 
-## Writing Event Handlers
+### 2. Code Generation
 
-Create your mapping logic in TypeScript (compiled to WebAssembly via AssemblyScript):
-
-```typescript
-import { EventLog, logrix_db_get, logrix_db_set, logrix_emit } from "logrix-sdk";
-
-export function handleTransfer(event: EventLog): void {
-  let sender = event.topics[1];
-  let recipient = event.topics[2];
-  let amount = event.data;
-
-  // 1. Read existing state across blocks
-  let currentBalance = logrix_db_get(sender);
-
-  // 2. Perform custom calculation & update state
-  let newBalance = updateBalance(currentBalance, amount);
-  logrix_db_set(sender, newBalance);
-
-  // 3. Emit structured entity for GraphQL queries
-  logrix_emit("Transfer", JSON.stringify({
-    id: `${event.transaction_hash}-${event.log_index}`,
-    blockNumber: event.block_number,
-    fromAddress: sender,
-    toAddress: recipient,
-    amount: amount,
-    transactionHash: event.transaction_hash,
-    timestamp: event.block_timestamp
-  }));
-}
-```
-
----
-
-## Compiling to WebAssembly
-
-Compile your handlers to WebAssembly:
+Generate strongly typed event classes and GraphQL entity models:
 
 ```bash
-npx asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime
+npm run codegen
 ```
+
+Generated code in `handlers/generated/`:
+- `events.ts`: Strongly typed event classes with `.params` parsed from ABI.
+- `schema.ts`: Strongly typed entity classes with `.save()` method emitting entities to the Logrix engine.
 
 ---
 
-## Deploying to Kubernetes
+### 3. Build WebAssembly Handlers
 
-Once compiled, deploy to your Kubernetes cluster directly using the official Logrix OCI Helm chart:
+Compile your mapping logic into sandboxed WebAssembly:
 
-### Option A: Local Kubernetes (Minikube / Kind / K3s)
-Zero cloud infrastructure needed. The chart automatically runs in-cluster PostgreSQL 16 and RabbitMQ:
+```bash
+npm run build
+```
+
+This generates `handlers/mapping.wasm`.
+
+---
+
+## Deploy to Kubernetes
+
+Deploy your indexer manually with Helm using the scaffolded profiles:
+
+### Local Kubernetes (Minikube / Kind / K3s)
+Zero cloud infrastructure needed. Runs in-cluster PostgreSQL 16 and RabbitMQ:
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  --set localDev.enabled=true \
+  -f values-local.yaml \
   --set-file config.manifestContent=manifest.yaml \
   --set-file config.schemaContent=schema.graphql \
   --set-file config.wasmBinary=handlers/mapping.wasm
 ```
 
-### Option B: Production AWS EKS
-Supply your AWS RDS Aurora PostgreSQL and SQS endpoints via `values-aws.yaml` (or `--set` flags):
+Port forward to open the GraphQL Playground:
+```bash
+kubectl port-forward svc/my-indexer-logrix-api 4000:4000
+```
+Open `http://localhost:4000/`.
+
+### Production AWS EKS
+Uses AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3:
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
@@ -87,22 +87,16 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 
 ---
 
-## API Reference
-
-### `EventLog`
-- `address: string` - Target contract address
-- `block_number: u64` - Block height
-- `block_hash: string` - Block hash
-- `transaction_hash: string` - Transaction hash
-- `log_index: u32` - Index of the log within the transaction
-- `block_timestamp: u64` - Unix block timestamp
-- `topics: Array<string>` - Indexed event topics (`topics[0]` is event signature)
-- `data: string` - Unindexed ABI-encoded data payload
+## SDK API Reference
 
 ### Host Functions
-- `logrix_emit(entityType: string, jsonPayload: string): void` - Persists entity to PostgreSQL and exposes via GraphQL.
-- `logrix_db_get(key: string): string` - Reads key from persistent state store.
-- `logrix_db_set(key: string, value: string): void` - Stores key-value pair across blocks.
+- `logrix_emit(entityType: string, jsonPayload: string): void`: Persists entity to PostgreSQL and exposes via dynamic GraphQL query engine.
+- `logrix_db_get(key: string): string`: Reads persisted key-value state across blocks.
+- `logrix_db_set(key: string, value: string): void`: Writes key-value state across blocks.
+- `logrix_log(level: i32, message: string): void`: Emits diagnostic log message (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR).
+
+### Data Structures
+- `EventLog`: Raw blockchain event log payload with topics, data, block number, timestamp, and transaction hash.
 
 ---
 
