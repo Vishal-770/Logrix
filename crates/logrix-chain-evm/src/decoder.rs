@@ -1,13 +1,26 @@
-use alloy_primitives::{b256, Address, B256, U256};
+use alloy_dyn_abi::{DynSolValue, EventExt};
+use alloy_json_abi::{Event, JsonAbi};
+use alloy_primitives::{b256, B256};
 use chrono::Utc;
 use logrix_core::domain::EventLog;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-/// Canonical keccak256 hash of `Transfer(address,address,uint256)`
 pub const ERC20_TRANSFER_TOPIC: B256 =
     b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
-/// Decoded ERC-20 transfer event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecodedEvent {
+    pub event_name: String,
+    pub contract_address: String,
+    pub block_number: u64,
+    pub block_hash: String,
+    pub tx_hash: String,
+    pub log_index: u64,
+    pub params: HashMap<String, serde_json::Value>,
+    pub timestamp: chrono::DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecodedTransfer {
     pub chain_id: u64,
@@ -22,37 +35,153 @@ pub struct DecodedTransfer {
     pub timestamp: chrono::DateTime<Utc>,
 }
 
-/// Decode an EVM EventLog into a DecodedTransfer if it matches ERC-20 Transfer signature.
-pub fn decode_erc20_transfer(chain_id: u64, log: &EventLog) -> Option<DecodedTransfer> {
-    if log.topics.len() < 3 || log.topics[0] != ERC20_TRANSFER_TOPIC {
-        return None;
+#[derive(Debug, Clone, Default)]
+pub struct AbiEventDecoder {
+    events: HashMap<B256, Event>,
+}
+
+impl AbiEventDecoder {
+    pub fn new() -> Self {
+        Self {
+            events: HashMap::new(),
+        }
     }
 
-    // topics[1] contains indexed 'from' address in lower 20 bytes
-    let from_bytes: &[u8; 32] = log.topics[1].as_ref();
-    let from_addr = Address::from_slice(&from_bytes[12..32]);
+    pub fn standard_erc20() -> Self {
+        let mut decoder = Self::new();
+        let _ = decoder.add_event_signature(
+            "Transfer(address indexed from, address indexed to, uint256 value)",
+        );
+        let _ = decoder.add_event_signature(
+            "Approval(address indexed owner, address indexed spender, uint256 value)",
+        );
+        decoder
+    }
 
-    // topics[2] contains indexed 'to' address in lower 20 bytes
-    let to_bytes: &[u8; 32] = log.topics[2].as_ref();
-    let to_addr = Address::from_slice(&to_bytes[12..32]);
+    pub fn add_abi_json(&mut self, abi_json: &str) -> Result<usize, String> {
+        let abi: JsonAbi = serde_json::from_str(abi_json)
+            .map_err(|e| format!("Invalid contract ABI JSON: {e}"))?;
+        let mut count = 0;
+        for (_name, event_list) in abi.events {
+            for event in event_list {
+                let selector = event.selector();
+                self.events.insert(selector, event);
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 
-    // data contains non-indexed 'value' uint256
-    let amount_u256 = if log.data.len() >= 32 {
-        U256::from_be_slice(&log.data[0..32])
-    } else {
-        U256::ZERO
-    };
+    pub fn add_event_signature(&mut self, sig: &str) -> Result<B256, String> {
+        let raw = sig.trim();
+        let formatted = if raw.starts_with("event ") {
+            raw.to_string()
+        } else {
+            format!("event {raw}")
+        };
+        let event: Event = formatted
+            .parse()
+            .map_err(|e| format!("Invalid event signature: {e}"))?;
+        let selector = event.selector();
+        self.events.insert(selector, event);
+        Ok(selector)
+    }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    pub fn decode_log(&self, log: &EventLog) -> Option<DecodedEvent> {
+        let topic0 = log.topics.first()?;
+        let event = self.events.get(topic0)?;
+
+        let decoded = event
+            .decode_log_parts(log.topics.clone(), &log.data, false)
+            .ok()?;
+        let mut params = HashMap::new();
+
+        let indexed_inputs: Vec<_> = event.inputs.iter().filter(|i| i.indexed).collect();
+        for (i, input) in indexed_inputs.iter().enumerate() {
+            if let Some(val) = decoded.indexed.get(i) {
+                let key = if input.name.is_empty() {
+                    format!("param_{i}")
+                } else {
+                    input.name.clone()
+                };
+                params.insert(key, dyn_sol_to_json(val));
+            }
+        }
+
+        let body_inputs: Vec<_> = event.inputs.iter().filter(|i| !i.indexed).collect();
+        for (i, input) in body_inputs.iter().enumerate() {
+            if let Some(val) = decoded.body.get(i) {
+                let key = if input.name.is_empty() {
+                    format!("param_{}", indexed_inputs.len() + i)
+                } else {
+                    input.name.clone()
+                };
+                params.insert(key, dyn_sol_to_json(val));
+            }
+        }
+
+        Some(DecodedEvent {
+            event_name: event.name.clone(),
+            contract_address: format!("{:#x}", log.address),
+            block_number: log.block_number,
+            block_hash: format!("{:#x}", log.block_hash),
+            tx_hash: format!("{:#x}", log.tx_hash),
+            log_index: log.log_index,
+            params,
+            timestamp: Utc::now(),
+        })
+    }
+}
+
+pub fn decode_erc20_transfer(chain_id: u64, log: &EventLog) -> Option<DecodedTransfer> {
+    let decoder = AbiEventDecoder::standard_erc20();
+    let decoded = decoder.decode_log(log)?;
+    if decoded.event_name != "Transfer" {
+        return None;
+    }
+    let from = decoded.params.get("from")?.as_str()?.to_string();
+    let to = decoded.params.get("to")?.as_str()?.to_string();
+    let amount = decoded.params.get("value")?.as_str()?.to_string();
 
     Some(DecodedTransfer {
         chain_id,
-        block_number: log.block_number,
-        block_hash: format!("{:#x}", log.block_hash),
-        tx_hash: format!("{:#x}", log.tx_hash),
-        log_index: log.log_index,
-        contract_address: format!("{:#x}", log.address),
-        from_address: format!("{:#x}", from_addr),
-        to_address: format!("{:#x}", to_addr),
-        amount: amount_u256.to_string(),
-        timestamp: Utc::now(),
+        block_number: decoded.block_number,
+        block_hash: decoded.block_hash,
+        tx_hash: decoded.tx_hash,
+        log_index: decoded.log_index,
+        contract_address: decoded.contract_address,
+        from_address: from,
+        to_address: to,
+        amount,
+        timestamp: decoded.timestamp,
     })
+}
+
+fn dyn_sol_to_json(val: &DynSolValue) -> serde_json::Value {
+    match val {
+        DynSolValue::Address(addr) => serde_json::json!(format!("{:#x}", addr)),
+        DynSolValue::Bool(b) => serde_json::json!(b),
+        DynSolValue::Int(i, _) => serde_json::json!(i.to_string()),
+        DynSolValue::Uint(u, _) => serde_json::json!(u.to_string()),
+        DynSolValue::FixedBytes(bytes, _) => serde_json::json!(format!("{:#x}", bytes)),
+        DynSolValue::Bytes(b) => {
+            serde_json::json!(format!("0x{}", alloy_primitives::hex::encode(b)))
+        }
+        DynSolValue::String(s) => serde_json::json!(s),
+        DynSolValue::Array(arr) | DynSolValue::FixedArray(arr) => {
+            serde_json::json!(arr.iter().map(dyn_sol_to_json).collect::<Vec<_>>())
+        }
+        DynSolValue::Tuple(tup) => {
+            serde_json::json!(tup.iter().map(dyn_sol_to_json).collect::<Vec<_>>())
+        }
+        _ => serde_json::Value::Null,
+    }
 }

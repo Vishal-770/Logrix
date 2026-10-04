@@ -1,13 +1,12 @@
 use alloy_primitives::B256;
 use logrix_blob_s3::{compress_zstd, S3BlobStore};
-use logrix_chain_evm::decode_erc20_transfer;
 use logrix_core::{
     domain::{BlockEnvelope, Checkpoint, EventLog},
     error::LogrixResult,
     ports::{BlobPort, StorePort},
 };
 use logrix_handlers::UserLogicEngine;
-use logrix_store_postgres::{EntityInsert, PostgresStore, TokenTransfer};
+use logrix_store_postgres::{EntityInsert, PostgresStore};
 use tracing::{debug, error};
 
 pub async fn index_envelope(
@@ -17,24 +16,6 @@ pub async fn index_envelope(
     envelope: &BlockEnvelope,
     engine_opt: Option<&UserLogicEngine>,
 ) -> LogrixResult<()> {
-    let mut transfers = Vec::new();
-    for log in &envelope.logs {
-        if let Some(decoded) = decode_erc20_transfer(chain_id_u64, log) {
-            transfers.push(TokenTransfer {
-                chain_id: decoded.chain_id,
-                block_number: decoded.block_number,
-                block_hash: decoded.block_hash,
-                tx_hash: decoded.tx_hash,
-                log_index: decoded.log_index,
-                contract_address: decoded.contract_address,
-                from_address: decoded.from_address,
-                to_address: decoded.to_address,
-                amount: decoded.amount,
-                timestamp: decoded.timestamp,
-            });
-        }
-    }
-
     let checkpoint = Checkpoint::new(
         envelope.chain_id,
         envelope.block_number,
@@ -44,12 +25,6 @@ pub async fn index_envelope(
     store
         .write_events_and_checkpoint(&envelope.logs, &checkpoint)
         .await?;
-
-    if !transfers.is_empty() {
-        if let Err(e) = store.save_transfers_batch(&transfers).await {
-            error!(error = %e, "Failed to save token transfers");
-        }
-    }
 
     if let Some(engine) = engine_opt {
         process_entities(store, engine, chain_id_u64, &envelope.logs).await;
@@ -77,32 +52,8 @@ pub async fn index_logs_batch(
     logs: &[EventLog],
     engine_opt: Option<&UserLogicEngine>,
 ) -> LogrixResult<()> {
-    let mut transfers = Vec::new();
-    for log in logs {
-        if let Some(decoded) = decode_erc20_transfer(chain_id.as_u64(), log) {
-            transfers.push(TokenTransfer {
-                chain_id: decoded.chain_id,
-                block_number: decoded.block_number,
-                block_hash: decoded.block_hash,
-                tx_hash: decoded.tx_hash,
-                log_index: decoded.log_index,
-                contract_address: decoded.contract_address,
-                from_address: decoded.from_address,
-                to_address: decoded.to_address,
-                amount: decoded.amount,
-                timestamp: decoded.timestamp,
-            });
-        }
-    }
-
     let checkpoint = Checkpoint::new(chain_id, to_block, B256::ZERO, true);
     store.write_events_and_checkpoint(logs, &checkpoint).await?;
-
-    if !transfers.is_empty() {
-        if let Err(e) = store.save_transfers_batch(&transfers).await {
-            error!(error = %e, "Failed to save token transfers");
-        }
-    }
 
     if let Some(engine) = engine_opt {
         process_entities(store, engine, chain_id.as_u64(), logs).await;

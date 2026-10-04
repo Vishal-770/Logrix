@@ -3822,6 +3822,7 @@ name = "logrix-chain-evm"
 version = "0.1.0"
 dependencies = [
  "alloy-dyn-abi",
+ "alloy-json-abi",
  "alloy-primitives",
  "async-trait",
  "chrono",

@@ -10,4 +10,6 @@ pub mod decoder;
 
 pub use chunker::AdaptiveChunker;
 pub use client::EvmChainClient;
-pub use decoder::{decode_erc20_transfer, DecodedTransfer, ERC20_TRANSFER_TOPIC};
+pub use decoder::{
+    decode_erc20_transfer, AbiEventDecoder, DecodedEvent, DecodedTransfer, ERC20_TRANSFER_TOPIC,
+};

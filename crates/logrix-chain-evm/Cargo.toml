@@ -11,6 +11,7 @@ logrix-resilience = { workspace = true }
 
 alloy-primitives = { workspace = true }
 alloy-dyn-abi = { workspace = true }
+alloy-json-abi = { workspace = true }
 
 reqwest = { workspace = true }
 tokio = { workspace = true }
