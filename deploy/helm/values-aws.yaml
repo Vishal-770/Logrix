@@ -3,8 +3,10 @@
 
 image:
   repository: ghcr.io/vishal-770/logrix
-  tag: "latest"
-  pullPolicy: Always
+  # Recommended: Pin to exact SemVer release or Git SHA for immutable production rollouts
+  # When using ArgoCD Image Updater or Flux, this tag is updated automatically upon new releases
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
 
 localDev:
   enabled: false
