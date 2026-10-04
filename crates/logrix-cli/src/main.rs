@@ -2,6 +2,7 @@ pub mod all_in_one;
 pub mod args;
 pub mod backfill;
 pub mod commands;
+pub mod deploy;
 pub mod factory;
 pub mod handlers;
 pub mod indexer;
@@ -142,6 +143,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::AllInOne { port } => {
             run_all_in_one(cli, chain_id, target_contract, port).await?;
+        }
+        Commands::Deploy { local, aws } => {
+            deploy::run_deploy(local, aws)?;
         }
     }
 

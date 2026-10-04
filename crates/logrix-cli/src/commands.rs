@@ -51,4 +51,13 @@ pub enum Commands {
         #[arg(long, env = "PORT", default_value_t = 4000)]
         port: u16,
     },
+    /// 1-Click deployment for Local Docker or AWS EKS with auto-compiled WASM handlers
+    Deploy {
+        /// Deploy to local Docker environment (PostgreSQL, RabbitMQ, and indexer engine)
+        #[arg(long)]
+        local: bool,
+        /// Deploy to AWS production environment (Terraform + EKS Helm)
+        #[arg(long)]
+        aws: bool,
+    },
 }

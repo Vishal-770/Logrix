@@ -77,11 +77,15 @@ export function handleTransfer(event: EventLog): void {
 pub fn package_json_template(name: &str) -> String {
     format!(
         r#"{{
-  "name": "{name}-handlers",
+  "name": "{name}-indexer",
   "version": "0.1.0",
   "private": true,
   "scripts": {{
-    "build": "asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime"
+    "build": "asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime",
+    "deploy": "logrix deploy"
+  }},
+  "dependencies": {{
+    "@logrix/sdk": "^0.1.0"
   }},
   "devDependencies": {{
     "assemblyscript": "^0.27.29"
@@ -131,9 +135,9 @@ export function logrix_emit(entityType: string, jsonPayload: string): void {
 
 pub fn readme_startup_steps(is_docker: bool, is_aws: bool) -> &'static str {
     if is_docker {
-        "### 1. Start Local Infrastructure\n```bash\ndocker compose up -d\n```\n\n### 2. Run Indexer\n```bash\nlogrix all-in-one\n```"
+        "### 1-Click Local Deploy\n```bash\nlogrix deploy --local\n```\nThis automatically compiles your TypeScript handlers and starts PostgreSQL, RabbitMQ, and the indexer."
     } else if is_aws {
-        "### 1. Deploy AWS Infrastructure\n```bash\ncd infra/terraform && terraform apply\n```\n\n### 2. Deploy to EKS via Helm\n```bash\nhelm install my-indexer oci://ghcr.io/vishal-770/charts/logrix -f values-aws.yaml\n```"
+        "### 1-Click AWS Production Deploy\n```bash\nlogrix deploy --aws\n```\nThis guides you through provisioning Aurora PostgreSQL, Amazon SQS, and deploying the Logrix Helm chart to AWS EKS."
     } else {
         "### 1. Configure .env credentials\nEdit `.env` to supply your target connection strings.\n\n### 2. Run Indexer\n```bash\nlogrix all-in-one\n```"
     }

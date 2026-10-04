@@ -60,19 +60,15 @@ pub fn run_init(opts: InitOptions) -> Result<(), Box<dyn std::error::Error>> {
     match profile {
         InfraProfile::LocalDocker => {
             println!("  cd {name}");
-            println!("  docker compose up -d   # Start Postgres, RabbitMQ & MinIO");
-            println!("  logrix all-in-one       # Run your indexer!");
+            println!("  logrix deploy --local  # 1-Click build & spin up local Docker + indexer");
         }
         InfraProfile::AwsTerraform => {
             println!("  cd {name}");
-            println!("  cd infra/terraform && terraform apply   # Provision AWS Aurora, SQS, S3");
-            println!(
-                "  helm install {name} oci://ghcr.io/vishal-770/charts/logrix -f values-aws.yaml"
-            );
+            println!("  logrix deploy --aws    # 1-Click guided deployment to AWS EKS");
         }
         InfraProfile::CustomByo => {
             println!("  cd {name}");
-            println!("  # Edit .env with your database and queue credentials");
+            println!("  # Edit .env with your custom database and queue credentials");
             println!("  logrix all-in-one");
         }
     }
