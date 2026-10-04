@@ -1,7 +1,7 @@
 # Logrix
 
 > **High-performance, self-hosted, Kubernetes-native blockchain indexer built in Rust.**  
-> Point it at any EVM RPC, write custom event logic in TypeScript (`logrix-sdk`) or declarative YAML, and run production Kubernetes clusters in seconds.
+> Write custom event indexing logic in TypeScript with [`logrix-sdk`](packages/logrix-sdk) and deploy production indexer clusters to Local Kubernetes or AWS EKS in seconds.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
@@ -18,13 +18,13 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 
 **Logrix is engineered for 100% data sovereignty, cost control, and high-throughput production:**
 
+- **Custom Event Logic with TypeScript:** Write custom business logic and state transformations using [`logrix-sdk`](packages/logrix-sdk) (compiled to sandboxed WebAssembly) or zero-code Declarative YAML.
+- **Zero-Dependency Kubernetes Deployment:** Mount custom WASM binaries and GraphQL schemas directly into standard pods via Kubernetes Secrets. No custom Docker builds or S3 buckets required.
 - **High-Throughput Ingestion:** Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/second**.
-- **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the winning block immediately, and self-heals gaps.
+- **Zero Silent Data Loss (Reorg Safe):** In-memory parent-hash rolling buffer detects forks, executes atomic database rollbacks (`is_reverted = TRUE`), indexes the canonical winning block immediately, and self-heals gaps.
 - **RPC Billing Protection:** Multi-provider failover pool with per-provider circuit breakers, decorrelated jitter, and a built-in Compute Unit (CU) ledger that pauses backfills before exceeding your monthly budget.
-- **Custom Event Logic:** Write business logic in TypeScript using [`logrix-sdk`](packages/logrix-sdk) (compiled to WASM) or pure zero-code Declarative YAML.
-- **Zero-Dependency Kubernetes Deployment:** Deploy custom WebAssembly handlers and schemas directly via native Kubernetes Secrets without requiring cloud S3 buckets.
-- **Production Webhooks:** Cryptographically signed (`HMAC-SHA256`) outgoing notifications with timestamp replay defense and dead-letter queue (DLQ) retries.
-- **Kubernetes Native (Local & AWS):** Active-passive Ingester leader election (Kubernetes Leases) and event-driven worker autoscaling via **KEDA** (1 to 50+ pods).
+- **Dual Storage Tiering:** Hot GraphQL entities in PostgreSQL; raw full block envelopes compressed with **`zstd`** into cold AWS S3/MinIO buckets, slashing cloud database storage bills by up to 85%.
+- **Kubernetes Native (Local & AWS):** Microservice architecture with active-passive Ingester leader election (Kubernetes Leases) and event-driven worker autoscaling via **KEDA** (1 to 50+ pods).
 
 ---
 
@@ -68,16 +68,32 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 
 ---
 
-## Custom Event Logic with `logrix-sdk`
+## 1. Writing Custom Event Logic (`logrix-sdk`)
 
-Create your custom event mapping logic using the official TypeScript/AssemblyScript SDK:
+Install the official SDK in your project:
 
 ```bash
 npm install logrix-sdk
+npm install --save-dev assemblyscript
 ```
 
+### Define Your Schema (`schema.graphql`)
+
+```graphql
+type Transfer @entity {
+  id: ID!
+  blockNumber: BigInt!
+  fromAddress: String! @index
+  toAddress: String! @index
+  amount: BigInt!
+  transactionHash: String!
+  timestamp: BigInt!
+}
+```
+
+### Write Your Handler (`handlers/mapping.ts`)
+
 ```typescript
-// handlers/mapping.ts
 import { EventLog, logrix_db_get, logrix_db_set, logrix_emit } from "logrix-sdk";
 
 export function handleTransfer(event: EventLog): void {
@@ -97,25 +113,27 @@ export function handleTransfer(event: EventLog): void {
     fromAddress: sender,
     toAddress: recipient,
     amount: amount,
+    transactionHash: event.transaction_hash,
     timestamp: event.block_timestamp
   }));
 }
 ```
 
-Compile handler to WebAssembly:
+### Compile to WebAssembly
+
 ```bash
 npx asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime
 ```
 
 ---
 
-## Production Kubernetes Deployments
+## 2. Kubernetes Deployments
 
 Logrix publishes pre-built container images and Helm charts directly on GitHub Container Registry (GHCR).
 
-### 1. Local Kubernetes Deployment (Minikube / Kind / K3s)
+### Option A: Local Kubernetes Deployment (Minikube / Kind / K3s)
 
-Run a complete, self-contained indexer cluster with built-in PostgreSQL 16 and RabbitMQ:
+Deploy a complete, self-contained indexer cluster with built-in in-cluster PostgreSQL 16 and RabbitMQ:
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
@@ -133,9 +151,9 @@ Visit **[http://localhost:4000/](http://localhost:4000/)** in your browser.
 
 ---
 
-### 2. Production AWS EKS Deployment
+### Option B: Production AWS EKS Deployment
 
-Deploy to AWS EKS with Aurora Serverless v2 PostgreSQL, Amazon SQS, and KEDA autoscaling:
+Deploy to AWS EKS with Aurora Serverless v2 PostgreSQL, Amazon SQS, Amazon S3, and KEDA autoscaling.
 
 #### Step 1: Provision Infrastructure with Terraform
 ```bash
@@ -144,7 +162,7 @@ terraform init
 terraform apply
 ```
 
-#### Step 2: Deploy Helm Chart
+#### Step 2: Deploy Helm Chart to EKS
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
   -f deploy/helm/values-aws.yaml \
@@ -155,7 +173,7 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 
 ---
 
-### 3. Bring Your Own Infrastructure (Custom BYO)
+### Option C: Bring Your Own Infrastructure (Custom BYO)
 
 Supply your existing database and queue credentials directly in `deploy/helm/values.yaml` or via an existing Kubernetes Secret:
 
@@ -169,37 +187,21 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 
 ---
 
-## Live Monitoring & Observability
+## 3. Live Monitoring & Observability
 
 ### Terminal Status Monitor (TUI)
+Check sync progress, queue depth, and reorg history directly in your terminal:
 ```bash
 logrix status --watch
 ```
 
-### Prometheus Metrics
-Prometheus endpoint available at **`http://localhost:4000/metrics`**:
+### Prometheus Metrics for Grafana
+The GraphQL API server exposes Prometheus metrics at **`http://localhost:4000/metrics`**:
 - `logrix_head_lag_blocks`
 - `logrix_events_indexed_total`
 - `logrix_queue_depth{queue="live|backfill|webhook|dlq"}`
 - `logrix_rpc_cu_consumed_total`
 - `logrix_reorg_detected_total`
-
----
-
-## CLI Reference
-
-| Command | Description |
-| :--- | :--- |
-| `logrix init [NAME]` | Interactive project scaffolding wizard (Local K8s, AWS, or BYO). |
-| `logrix deploy` | 1-Click build & deployment orchestrator for Local and AWS environments. |
-| `logrix all-in-one` | Runs ingester, processor, and GraphQL API concurrently in a single process. |
-| `logrix ingester` | Runs standalone head-block listener with Kubernetes Lease leader election. |
-| `logrix processor` | Runs worker processing jobs from queue with reorg auto-healing. |
-| `logrix api` | Runs standalone GraphQL API server with GraphiQL IDE and live subscriptions. |
-| `logrix webhook-dispatcher` | Runs standalone outgoing HTTP webhook delivery worker. |
-| `logrix backfill` | Executes historical range sync with `--dry-run` CU cost estimation. |
-| `logrix status` | Live terminal dashboard displaying sync lag, queue depth, and health metrics. |
-| `logrix migrate` | Executes PostgreSQL database migrations. |
 
 ---
 
