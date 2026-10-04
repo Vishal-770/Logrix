@@ -1,5 +1,5 @@
 {
-  "name": "@logrix/sdk",
+  "name": "logrix-sdk",
   "version": "0.1.0",
   "description": "Official TypeScript & AssemblyScript SDK for Logrix blockchain indexers",
   "main": "src/index.ts",

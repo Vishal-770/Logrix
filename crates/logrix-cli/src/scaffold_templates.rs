@@ -58,7 +58,7 @@ pub fn schema_graphql_template() -> &'static str {
 }
 
 pub fn ts_handler_template() -> &'static str {
-    r#"import { EventLog, logrix_db_get, logrix_db_set, logrix_emit } from "@logrix/sdk";
+    r#"import { EventLog, logrix_db_get, logrix_db_set, logrix_emit } from "logrix-sdk";
 
 export function handleTransfer(event: EventLog): void {
   logrix_emit("Transfer", {
@@ -85,7 +85,7 @@ pub fn package_json_template(name: &str) -> String {
     "deploy": "logrix deploy"
   }},
   "dependencies": {{
-    "@logrix/sdk": "^0.1.0"
+    "logrix-sdk": "^0.1.0"
   }},
   "devDependencies": {{
     "assemblyscript": "^0.27.29"
