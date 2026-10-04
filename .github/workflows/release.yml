@@ -90,5 +90,6 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: "${CHART_VERSION}"/" deploy/helm/logrix/Chart.yaml
 
           helm package deploy/helm/logrix --destination ./packaged-chart
+          PKG_NAME=$(ls ./packaged-chart/logrix-*.tgz | head -n 1)
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm push "${PKG_NAME}" oci://${{ env.REGISTRY }}/${OWNER_LOWER}/charts

@@ -32,7 +32,9 @@ config:
   manifestContent: ""
   # Inline schema.graphql content for dynamic entities
   schemaContent: ""
-  # Base64 encoded WebAssembly binary (Method 2 for zero-dependency WASM logic handlers)
+  # Raw WebAssembly binary content (passed directly via --set-file config.wasmBinary=handlers/mapping.wasm)
+  wasmBinary: ""
+  # Or pre-encoded base64 WebAssembly string
   wasmBase64: ""
   # Optional existing Kubernetes secret name providing DATABASE_URL and RABBITMQ_URL
   existingSecret: ""

@@ -43,7 +43,7 @@ spec:
             - name: logrix-config-volume
               mountPath: /etc/logrix
             {{- end }}
-            {{- if .Values.config.wasmBase64 }}
+            {{- if or .Values.config.wasmBinary .Values.config.wasmBase64 }}
             - name: logrix-wasm-volume
               mountPath: /etc/logrix/handlers
             {{- end }}
@@ -62,7 +62,7 @@ spec:
                 path: schema.graphql
               {{- end }}
         {{- end }}
-        {{- if .Values.config.wasmBase64 }}
+        {{- if or .Values.config.wasmBinary .Values.config.wasmBase64 }}
         - name: logrix-wasm-volume
           secret:
             secretName: {{ include "logrix.fullname" . }}-wasm
