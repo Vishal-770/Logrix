@@ -44,6 +44,19 @@ pub fn scaffold_project(cfg: &ScaffoldConfig) -> Result<(), Box<dyn std::error::
         fs::write(dc, docker_compose_template())?;
     }
 
+    fs::write(
+        cfg.target_dir.join("values-local.yaml"),
+        crate::scaffold_helm::values_local_template(cfg),
+    )?;
+
+    if cfg.profile == InfraProfile::AwsTerraform {
+        fs::write(
+            cfg.target_dir.join("values-aws.yaml"),
+            crate::scaffold_helm::values_aws_template(cfg),
+        )?;
+        crate::scaffold_terraform::write_terraform_files(cfg)?;
+    }
+
     if cfg.logic == LogicStrategy::TypeScriptWasm {
         let handlers_dir = cfg.target_dir.join("handlers");
         fs::create_dir_all(&handlers_dir)?;

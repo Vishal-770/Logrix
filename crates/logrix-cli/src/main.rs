@@ -10,7 +10,9 @@ pub mod ingester;
 pub mod init;
 pub mod processor;
 pub mod scaffold;
+pub mod scaffold_helm;
 pub mod scaffold_templates;
+pub mod scaffold_terraform;
 pub mod status_tui;
 pub mod webhook_runner;
 

@@ -61,17 +61,27 @@ npx asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime
 
 ## Deploying to Kubernetes
 
-Once compiled, deploy to your Kubernetes cluster in one command:
+Once compiled, deploy to your Kubernetes cluster directly using the official Logrix OCI Helm chart:
+
+### Option A: Local Kubernetes (Minikube / Kind / K3s)
+Zero cloud infrastructure needed. The chart automatically runs in-cluster PostgreSQL 16 and RabbitMQ:
 
 ```bash
-# Local Kubernetes (Minikube / Kind / K3s)
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/helm/values-local.yaml \
+  --set localDev.enabled=true \
+  --set-file config.manifestContent=manifest.yaml \
+  --set-file config.schemaContent=schema.graphql \
   --set-file config.wasmBinary=handlers/mapping.wasm
+```
 
-# Production AWS EKS
+### Option B: Production AWS EKS
+Supply your AWS RDS Aurora PostgreSQL and SQS endpoints via `values-aws.yaml` (or `--set` flags):
+
+```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/helm/values-aws.yaml \
+  -f values-aws.yaml \
+  --set-file config.manifestContent=manifest.yaml \
+  --set-file config.schemaContent=schema.graphql \
   --set-file config.wasmBinary=handlers/mapping.wasm
 ```
 

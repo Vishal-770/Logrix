@@ -82,7 +82,9 @@ pub fn package_json_template(name: &str) -> String {
   "private": true,
   "scripts": {{
     "build": "asc handlers/mapping.ts -o handlers/mapping.wasm --optimize --exportRuntime",
-    "deploy": "logrix deploy"
+    "test": "asc handlers/mapping.ts --noEmit",
+    "deploy:local": "helm install {name}-indexer oci://ghcr.io/vishal-770/charts/logrix -f values-local.yaml --set-file config.manifestContent=manifest.yaml --set-file config.schemaContent=schema.graphql --set-file config.wasmBinary=handlers/mapping.wasm",
+    "deploy:aws": "helm install {name}-indexer oci://ghcr.io/vishal-770/charts/logrix -f values-aws.yaml --set-file config.manifestContent=manifest.yaml --set-file config.schemaContent=schema.graphql --set-file config.wasmBinary=handlers/mapping.wasm"
   }},
   "dependencies": {{
     "logrix-sdk": "^0.1.0"
@@ -135,9 +137,9 @@ export function logrix_emit(entityType: string, jsonPayload: string): void {
 
 pub fn readme_startup_steps(is_docker: bool, is_aws: bool) -> &'static str {
     if is_docker {
-        "### 1-Click Local Deploy\n```bash\nlogrix deploy --local\n```\nThis automatically compiles your TypeScript handlers and starts PostgreSQL, RabbitMQ, and the indexer."
+        "### 1. Build WebAssembly Handlers\n```bash\nnpm run build\n```\n\n### 2. Deploy to Local Kubernetes\n```bash\nnpm run deploy:local\n```\nOr with Docker Compose:\n```bash\ndocker compose up -d\n```"
     } else if is_aws {
-        "### 1-Click AWS Production Deploy\n```bash\nlogrix deploy --aws\n```\nThis guides you through provisioning Aurora PostgreSQL, Amazon SQS, and deploying the Logrix Helm chart to AWS EKS."
+        "### 1. Provision AWS Backing Infrastructure\n```bash\ncd infra/terraform\nterraform init\nterraform apply\n```\n\n### 2. Configure values-aws.yaml\nUpdate `values-aws.yaml` with the Terraform outputs for SQS and S3.\n\n### 3. Deploy to AWS EKS\n```bash\nnpm run build\nnpm run deploy:aws\n```"
     } else {
         "### 1. Configure .env credentials\nEdit `.env` to supply your target connection strings.\n\n### 2. Run Indexer\n```bash\nlogrix all-in-one\n```"
     }

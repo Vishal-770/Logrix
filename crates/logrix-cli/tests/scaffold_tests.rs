@@ -30,6 +30,7 @@ fn test_scaffold_local_docker_profile() {
     assert!(project_dir.join("manifest.yaml").exists());
     assert!(project_dir.join("schema.graphql").exists());
     assert!(project_dir.join("docker-compose.yml").exists());
+    assert!(project_dir.join("values-local.yaml").exists());
     assert!(project_dir.join(".env").exists());
     assert!(project_dir.join("README.md").exists());
 
@@ -64,6 +65,10 @@ fn test_scaffold_aws_profile_and_wasm() {
     assert!(project_dir.join("handlers/types.ts").exists());
     assert!(project_dir.join("package.json").exists());
     assert!(project_dir.join("tsconfig.json").exists());
+    assert!(project_dir.join("values-aws.yaml").exists());
+    assert!(project_dir.join("infra/terraform/main.tf").exists());
+    assert!(project_dir.join("infra/terraform/variables.tf").exists());
+    assert!(project_dir.join("infra/terraform/outputs.tf").exists());
     let env_content = fs::read_to_string(project_dir.join(".env")).unwrap();
     assert!(env_content.contains("QUEUE_DRIVER=sqs"));
     assert!(env_content.contains("CHAIN_ID=1"));
