@@ -1,0 +1,63 @@
+# Local Kubernetes Profile (Minikube / Kind / K3s)
+# 1-click deployment with built-in PostgreSQL and RabbitMQ
+
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+localDev:
+  enabled: true
+
+config:
+  chainId: 421614
+  contractAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+  rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc"
+  queueDriver: "rabbitmq"
+  rabbitmqUrl: "amqp://logrix:logrixpassword@logrix-rabbitmq:5672/%2f"
+  databaseUrl: "postgres://logrix:logrixpassword@logrix-postgres:5432/logrix"
+  reconcilerIntervalSecs: 15
+  ringBufferDepth: 64
+
+  # Declarative YAML for pure K8s zero-code indexing
+  manifestContent: |
+    version: "0.1.0"
+    network:
+      chain_id: 421614
+      rpc_url: "https://sepolia-rollup.arbitrum.io/rpc"
+    contracts:
+      - name: "TokenContract"
+        address: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+        start_block: 0
+        events:
+          - name: "Transfer"
+            signature: "Transfer(address,address,uint256)"
+
+  schemaContent: |
+    type Transfer @entity {
+      id: ID!
+      blockNumber: BigInt!
+      fromAddress: String! @index
+      toAddress: String! @index
+      amount: BigInt!
+      transactionHash: String!
+      timestamp: BigInt!
+    }
+
+ingester:
+  replicas: 1
+  leaderElection:
+    enabled: false
+
+processor:
+  replicas: 1
+  keda:
+    enabled: false
+
+api:
+  replicas: 1
+  hpa:
+    enabled: false
+  service:
+    type: NodePort
+    port: 4000

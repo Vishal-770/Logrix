@@ -27,6 +27,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "logrix.fullname" . }}-config
+            {{- if .Values.config.existingSecret }}
+            - secretRef:
+                name: {{ .Values.config.existingSecret }}
+            {{- end }}
           env:
             - name: POD_NAME
               valueFrom:

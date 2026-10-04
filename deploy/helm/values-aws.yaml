@@ -1,0 +1,103 @@
+# Production AWS EKS Profile
+# Provisions on AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3
+
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: "latest"
+  pullPolicy: Always
+
+localDev:
+  enabled: false
+
+config:
+  chainId: 42161
+  contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+  rpcUrl: "https://arb1.arbitrum.io/rpc"
+  queueDriver: "sqs"
+  reconcilerIntervalSecs: 30
+  ringBufferDepth: 256
+  # Production DB credentials injected from Kubernetes Secret (managed by AWS Secrets Manager or External Secrets)
+  existingSecret: "logrix-aws-secrets"
+
+  # Base64 encoded WebAssembly binary (Method 2: Zero-dependency custom TypeScript logic)
+  # Populate with: cat handlers/mapping.wasm | base64 -w 0
+  wasmBase64: ""
+
+  manifestContent: |
+    version: "0.1.0"
+    network:
+      chain_id: 42161
+      rpc_url: "https://arb1.arbitrum.io/rpc"
+    contracts:
+      - name: "USDCToken"
+        address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+        start_block: 220000000
+        wasm_handler: "/etc/logrix/handlers/mapping.wasm"
+        events:
+          - name: "Transfer"
+            signature: "Transfer(address,address,uint256)"
+
+  schemaContent: |
+    type Transfer @entity {
+      id: ID!
+      blockNumber: BigInt!
+      fromAddress: String! @index
+      toAddress: String! @index
+      amount: BigInt!
+      transactionHash: String!
+      timestamp: BigInt!
+    }
+
+serviceAccount:
+  create: true
+  name: "logrix-sa"
+  annotations:
+    # AWS IAM Roles for Service Accounts (IRSA)
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-processor-role"
+
+ingester:
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: "logrix-ingester-lease"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+processor:
+  replicas: 2
+  keda:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 50
+    queueType: sqs
+    targetQueueDepth: 100
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+api:
+  replicas: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 75
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    port: 4000

@@ -28,19 +28,27 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "logrix.fullname" . }}-config
+            {{- if .Values.config.existingSecret }}
+            - secretRef:
+                name: {{ .Values.config.existingSecret }}
+            {{- end }}
           lifecycle:
             preStop:
               exec:
                 command: ["/bin/sh", "-c", "sleep 5"]
           resources:
             {{- toYaml .Values.processor.resources | nindent 12 }}
-          {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
           volumeMounts:
+            {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
             - name: logrix-config-volume
               mountPath: /etc/logrix
-          {{- end }}
-      {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
+            {{- end }}
+            {{- if .Values.config.wasmBase64 }}
+            - name: logrix-wasm-volume
+              mountPath: /etc/logrix/handlers
+            {{- end }}
       volumes:
+        {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
         - name: logrix-config-volume
           configMap:
             name: {{ include "logrix.fullname" . }}-config
@@ -53,5 +61,13 @@ spec:
               - key: schema.graphql
                 path: schema.graphql
               {{- end }}
-      {{- end }}
+        {{- end }}
+        {{- if .Values.config.wasmBase64 }}
+        - name: logrix-wasm-volume
+          secret:
+            secretName: {{ include "logrix.fullname" . }}-wasm
+            items:
+              - key: mapping.wasm
+                path: mapping.wasm
+        {{- end }}
 {{- end }}

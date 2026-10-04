@@ -32,8 +32,19 @@ config:
   manifestContent: ""
   # Inline schema.graphql content for dynamic entities
   schemaContent: ""
-  # Base64 encoded WebAssembly binary (optional for WASM logic handlers)
+  # Base64 encoded WebAssembly binary (Method 2 for zero-dependency WASM logic handlers)
   wasmBase64: ""
+  # Optional existing Kubernetes secret name providing DATABASE_URL and RABBITMQ_URL
+  existingSecret: ""
+
+# Built-in lightweight local development infrastructure (PostgreSQL & RabbitMQ)
+# Enable this for instant 1-click local testing on Minikube / Kind / K3s
+localDev:
+  enabled: false
+  postgres:
+    storage: 1Gi
+  rabbitmq:
+    storage: 1Gi
 
 ingester:
   enabled: true
