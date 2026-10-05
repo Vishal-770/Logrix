@@ -1,28 +1,34 @@
 {
   "name": "@logrix/sdk",
   "version": "0.1.0",
-  "description": "Official TypeScript & AssemblyScript SDK for Logrix blockchain indexers",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "ascMain": "src/index.ts",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
+  "description": "Official CLI and AssemblyScript runtime library for Logrix blockchain indexers",
+  "main": "index.ts",
   "bin": {
-    "logrix": "bin/cli.js"
+    "logrix": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
+    "prepublishOnly": "npm run build"
   },
   "files": [
-    "bin",
-    "src",
+    "dist",
+    "src/runtime",
     "index.ts",
-    "README.md",
-    "package.json",
-    "tsconfig.json"
+    "tsconfig.as.json",
+    "README.md"
   ],
+  "dependencies": {
+    "@inquirer/prompts": "^5.3.8",
+    "commander": "^12.1.0",
+    "yaml": "^2.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.5"
+  },
+  "peerDependencies": {
+    "assemblyscript": "^0.27.0"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -38,8 +44,5 @@
     "assemblyscript",
     "wasm",
     "graphql"
-  ],
-  "peerDependencies": {
-    "assemblyscript": "^0.27.0"
-  }
+  ]
 }

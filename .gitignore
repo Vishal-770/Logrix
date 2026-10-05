@@ -33,3 +33,4 @@ scratch/
 crash.log
 crash.*.log
 .terraform.lock.hcl
+node_modules/
