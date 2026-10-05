@@ -2,9 +2,7 @@ use crate::filter_input::{build_filter_input, map_type_ref};
 use crate::list_resolver::build_entity_list_field;
 use crate::schema_types::{EntityDef, SchemaDefinition};
 use crate::subscriptions::{build_subscription_type, SubscriptionBroadcaster};
-use async_graphql::dynamic::{
-    Field, FieldFuture, FieldValue, InputValue, Object, Schema, TypeRef,
-};
+use async_graphql::dynamic::{Field, FieldFuture, FieldValue, InputValue, Object, Schema, TypeRef};
 use logrix_store_postgres::PostgresStore;
 use std::sync::Arc;
 

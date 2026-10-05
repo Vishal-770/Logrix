@@ -103,9 +103,7 @@ async fn process_entities(
                 for key in &removed_keys {
                     // Key format: "EntityType:id"
                     if let Some((entity_type, entity_id)) = key.split_once(':') {
-                        if let Err(e) = store
-                            .delete_entity(chain_id, entity_type, entity_id)
-                            .await
+                        if let Err(e) = store.delete_entity(chain_id, entity_type, entity_id).await
                         {
                             error!(error = %e, key, "Failed to soft-delete entity");
                         }

@@ -55,8 +55,7 @@ impl SchemaDefinition {
                     for field_node in obj_type.fields {
                         let field = field_node.node;
                         let field_name = field.name.node.to_string();
-                        let (field_type, is_nullable, is_list) =
-                            parse_graphql_type(&field.ty.node);
+                        let (field_type, is_nullable, is_list) = parse_graphql_type(&field.ty.node);
 
                         let derived_from = field.directives.iter().find_map(|d| {
                             if d.node.name.node.as_str() == "derivedFrom" {

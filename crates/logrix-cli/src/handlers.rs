@@ -12,11 +12,7 @@ pub async fn handle_live_block(
     handle: &MessageHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addrs = target_addresses(ctx);
-    let Ok(Some(env)) = ctx
-        .gateway
-        .fetch_block_envelope(block_num, &addrs)
-        .await
-    else {
+    let Ok(Some(env)) = ctx.gateway.fetch_block_envelope(block_num, &addrs).await else {
         let _ = ctx.queue.nack(handle, true).await;
         tokio::time::sleep(Duration::from_millis(500)).await;
         return Ok(());
@@ -176,7 +172,12 @@ pub async fn handle_backfill_range(
 
 fn target_addresses(ctx: &ProcessorContext<'_>) -> Vec<alloy_primitives::Address> {
     if let Some(engine) = ctx.engine {
-        let addrs: Vec<_> = engine.manifest().contracts.iter().map(|c| c.address).collect();
+        let addrs: Vec<_> = engine
+            .manifest()
+            .contracts
+            .iter()
+            .map(|c| c.address)
+            .collect();
         if !addrs.is_empty() {
             return addrs;
         }

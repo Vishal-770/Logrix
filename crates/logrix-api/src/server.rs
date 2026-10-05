@@ -84,10 +84,7 @@ pub fn create_dynamic_router(
 
     // Wire WebSocket subscriptions when a broadcaster is present
     if broadcaster.is_some() {
-        router = router.route_service(
-            "/ws",
-            GraphQLSubscription::new(schema.clone()),
-        );
+        router = router.route_service("/ws", GraphQLSubscription::new(schema.clone()));
     }
 
     router.layer(Extension(schema))
