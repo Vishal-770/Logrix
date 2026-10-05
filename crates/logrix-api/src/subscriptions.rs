@@ -1,3 +1,7 @@
+use crate::schema_types::SchemaDefinition;
+use async_graphql::dynamic::{
+    FieldValue, InputValue, Subscription, SubscriptionField, SubscriptionFieldFuture, TypeRef,
+};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
@@ -30,29 +34,24 @@ impl Default for SubscriptionBroadcaster {
 }
 
 impl SubscriptionBroadcaster {
-    /// Create new broadcaster with specified buffer capacity.
     pub fn new(capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
         Self { sender }
     }
 
-    /// Broadcast an entity mutation event to all active subscribers.
     pub fn broadcast(&self, event: EntityMutationEvent) {
         let _ = self.sender.send(event);
     }
 
-    /// Subscribe to entity mutation stream.
     pub fn subscribe(&self) -> broadcast::Receiver<EntityMutationEvent> {
         self.sender.subscribe()
     }
 
-    /// Create an async stream of events for GraphQL subscriptions.
     pub fn event_stream(&self) -> impl Stream<Item = EntityMutationEvent> {
         use futures::StreamExt;
         BroadcastStream::new(self.subscribe()).filter_map(|res| async move { res.ok() })
     }
 
-    /// Spawn a background task listening to PostgreSQL pg_notify channel.
     pub fn start_postgres_listener(self: Arc<Self>, pool: PgPool) {
         tokio::spawn(async move {
             info!("Starting PostgreSQL LISTEN background task on channel 'logrix_entity_mutations'...");
@@ -84,4 +83,54 @@ impl SubscriptionBroadcaster {
             }
         });
     }
+}
+
+/// Build the Subscription root with one field per entity type.
+pub fn build_subscription_type(
+    schema_def: &SchemaDefinition,
+    broadcaster: Arc<SubscriptionBroadcaster>,
+) -> Subscription {
+    let mut subscription = Subscription::new("Subscription");
+
+    for entity in &schema_def.entities {
+        let entity_name = entity.name.clone();
+        let entity_name_for_create = entity_name.clone();
+        let bc = broadcaster.clone();
+
+        let field_name = format!(
+            "on{}",
+            entity_name
+                .chars()
+                .enumerate()
+                .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
+                .collect::<String>()
+        );
+
+        let sub_field = SubscriptionField::new(
+            field_name,
+            TypeRef::named(&entity_name_for_create),
+            move |_ctx| {
+                let bc = bc.clone();
+                let filter_type = entity_name.clone();
+                SubscriptionFieldFuture::new(async move {
+                    use futures::StreamExt;
+                    let stream = bc
+                        .event_stream()
+                        .filter(move |ev| {
+                            let matches = ev.entity_type == filter_type;
+                            async move { matches }
+                        })
+                        .map(|ev| -> async_graphql::Result<FieldValue> {
+                            Ok(FieldValue::owned_any(ev.data))
+                        });
+                    Ok(stream)
+                })
+            },
+        )
+        .argument(InputValue::new("chainId", TypeRef::named(TypeRef::INT)));
+
+        subscription = subscription.field(sub_field);
+    }
+
+    subscription
 }

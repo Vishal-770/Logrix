@@ -1,5 +1,6 @@
+pub use crate::schema_types::{DerivedFrom, EntityDef, FieldDef, FieldType, SchemaDefinition};
 use async_graphql_parser::types::{BaseType, ServiceDocument, Type, TypeDefinition, TypeKind};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::Path;
 use thiserror::Error;
 
@@ -13,61 +14,6 @@ pub enum SchemaParserError {
     Yaml(#[from] serde_yaml::Error),
     #[error("Unsupported schema file format: {0}")]
     UnsupportedFormat(String),
-}
-
-/// Supported scalar and reference types for entity fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldType {
-    Id,
-    String,
-    Int,
-    BigInt,
-    Boolean,
-    Bytes,
-    Float,
-    Custom(String),
-}
-
-/// Relationship metadata parsed from @derivedFrom directive.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DerivedFrom {
-    /// The entity type this field is derived from.
-    pub entity: String,
-    /// The field on the related entity that holds the foreign key.
-    pub field: String,
-}
-
-/// Single field definition within an entity.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldDef {
-    pub name: String,
-    pub field_type: FieldType,
-    pub is_nullable: bool,
-    pub is_list: bool,
-    /// If Some, this is a virtual reverse-lookup field and must NOT be saved.
-    pub derived_from: Option<DerivedFrom>,
-    /// If true, an SQL index should be created for this column.
-    pub indexed: bool,
-}
-
-/// Entity definition containing typed fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EntityDef {
-    pub name: String,
-    pub fields: Vec<FieldDef>,
-}
-
-impl EntityDef {
-    /// Returns only the storable (non-derived) fields.
-    pub fn storable_fields(&self) -> impl Iterator<Item = &FieldDef> {
-        self.fields.iter().filter(|f| f.derived_from.is_none())
-    }
-}
-
-/// Collection of user entities defining an indexer schema.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SchemaDefinition {
-    pub entities: Vec<EntityDef>,
 }
 
 impl SchemaDefinition {
@@ -100,7 +46,6 @@ impl SchemaDefinition {
                 let type_def: TypeDefinition = type_node.node;
                 let type_name = type_def.name.node.to_string();
 
-                // Skip root operation types
                 if matches!(type_name.as_str(), "Query" | "Mutation" | "Subscription") {
                     continue;
                 }
@@ -113,12 +58,10 @@ impl SchemaDefinition {
                         let (field_type, is_nullable, is_list) =
                             parse_graphql_type(&field.ty.node);
 
-                        // Parse @derivedFrom(field: "...") directive
                         let derived_from = field.directives.iter().find_map(|d| {
                             if d.node.name.node.as_str() == "derivedFrom" {
                                 let fk_field = d.node.arguments.iter().find_map(|(k, v)| {
                                     if k.node.as_str() == "field" {
-                                        // ConstValue::String via Display
                                         let raw = v.node.to_string();
                                         let s = raw.trim_matches('"').to_string();
                                         if !s.is_empty() {
@@ -127,7 +70,6 @@ impl SchemaDefinition {
                                     }
                                     None
                                 })?;
-                                // The related entity is the field's base type name
                                 let related_entity = match &field.ty.node.base {
                                     BaseType::Named(n) => n.to_string(),
                                     BaseType::List(inner) => match &inner.base {
@@ -144,7 +86,6 @@ impl SchemaDefinition {
                             }
                         });
 
-                        // Parse @index directive (presence is sufficient)
                         let indexed = field
                             .directives
                             .iter()
@@ -170,7 +111,7 @@ impl SchemaDefinition {
         Ok(SchemaDefinition { entities })
     }
 
-    /// Parse YAML format (no directive support -- directives are GraphQL-only).
+    /// Parse YAML format.
     pub fn from_yaml(yaml_str: &str) -> Result<Self, SchemaParserError> {
         #[derive(Deserialize)]
         struct YamlField {
