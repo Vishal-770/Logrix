@@ -75,7 +75,7 @@ function buildCommand() {
                 // fallback to opts.entry
             }
         }
-        // Locate asc — prefer local node_modules, fall back to global
+        // Locate asc: prefer local node_modules, fall back to global
         let ascBin = path.join(projectDir, "node_modules", ".bin", "asc");
         if (!fs.existsSync(ascBin)) {
             ascBin = "asc"; // global

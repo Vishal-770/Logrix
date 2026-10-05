@@ -62,7 +62,7 @@ type Approval @entity {
 `;
 }
 function mappingTemplate(contractName) {
-    return `import { EventLog, log, BigInt, allocate } from "@logrix/sdk";
+    return `import { EventLog, log, BigInt, Address, allocate } from "@logrix/sdk";
 import { TransferEvent, ApprovalEvent } from "./generated/events";
 import { Transfer, Approval } from "./generated/schema";
 
@@ -98,8 +98,8 @@ function handleTransfer(raw: string): i32 {
   logObj.block_timestamp = u64(parseInt(extractField(raw, "block_timestamp")) as i32);
 
   const event = new TransferEvent(logObj);
-  event.params.from = extractField(raw, "from");
-  event.params.to = extractField(raw, "to");
+  event.params.from = Address.fromString(extractField(raw, "from"));
+  event.params.to = Address.fromString(extractField(raw, "to"));
   event.params.value = BigInt.fromString(extractField(raw, "value"));
 
   const entityId = event.transactionHash + "-" + event.logIndex.toString();
@@ -109,8 +109,8 @@ function handleTransfer(raw: string): i32 {
   }
 
   entity.blockNumber = event.blockNumber;
-  entity.fromAddress = event.params.from;
-  entity.toAddress = event.params.to;
+  entity.fromAddress = event.params.from.toHexString();
+  entity.toAddress = event.params.to.toHexString();
   entity.amount = event.params.value;
   entity.transactionHash = event.transactionHash;
   entity.timestamp = event.blockTimestamp;
@@ -127,8 +127,8 @@ function handleApproval(raw: string): i32 {
   logObj.block_timestamp = u64(parseInt(extractField(raw, "block_timestamp")) as i32);
 
   const event = new ApprovalEvent(logObj);
-  event.params.owner = extractField(raw, "owner");
-  event.params.spender = extractField(raw, "spender");
+  event.params.owner = Address.fromString(extractField(raw, "owner"));
+  event.params.spender = Address.fromString(extractField(raw, "spender"));
   event.params.value = BigInt.fromString(extractField(raw, "value"));
 
   const entityId = event.transactionHash + "-" + event.logIndex.toString();
@@ -138,8 +138,8 @@ function handleApproval(raw: string): i32 {
   }
 
   entity.blockNumber = event.blockNumber;
-  entity.ownerAddress = event.params.owner;
-  entity.spenderAddress = event.params.spender;
+  entity.ownerAddress = event.params.owner.toHexString();
+  entity.spenderAddress = event.params.spender.toHexString();
   entity.amount = event.params.value;
   entity.transactionHash = event.transactionHash;
   entity.timestamp = event.blockTimestamp;

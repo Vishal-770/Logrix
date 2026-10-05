@@ -1,5 +1,5 @@
 // AssemblyScript runtime library for Logrix blockchain indexers.
-// Import this in your handler files: import { store, log, BigInt, Address, ... } from "@logrix/sdk"
+// Import this in your handler files: import { store, log, BigInt, Address, Bytes, ... } from "@logrix/sdk"
 
 // ---------------------------------------------------------------------------
 // Host function declarations
@@ -150,7 +150,13 @@ export class Address {
   private _val: string;
 
   constructor(hex: string) {
-    this._val = hex.toLowerCase();
+    let clean = hex.trim().toLowerCase();
+    if (clean.startsWith("0x")) clean = clean.slice(2);
+    // If 32-byte topic (64 chars), take the last 40 chars for EVM 20-byte address
+    if (clean.length == 64) {
+      clean = clean.slice(24);
+    }
+    this._val = "0x" + clean;
   }
 
   static fromString(hex: string): Address {
@@ -178,7 +184,9 @@ export class Bytes {
   private _hex: string;
 
   constructor(hex: string) {
-    this._hex = hex.startsWith("0x") ? hex : "0x" + hex;
+    let clean = hex.trim().toLowerCase();
+    if (clean.startsWith("0x")) clean = clean.slice(2);
+    this._hex = "0x" + clean;
   }
 
   static fromHexString(hex: string): Bytes {
@@ -204,7 +212,7 @@ export class Bytes {
 }
 
 // ---------------------------------------------------------------------------
-// Arbitrary-Precision BigInt Type (EVM 256-bit safe)
+// Arbitrary-Precision BigInt Type (Supports Hex & Decimal, EVM 256-bit safe)
 // ---------------------------------------------------------------------------
 
 export class BigInt {
@@ -213,6 +221,12 @@ export class BigInt {
   constructor(val: string) {
     let clean = val.trim();
     if (clean.length == 0) clean = "0";
+
+    // Handle Hex values (e.g. from RPC event logs or ABI words)
+    if (clean.startsWith("0x") || clean.startsWith("0X")) {
+      clean = hexToDecimal(clean.slice(2));
+    }
+
     this._raw = clean;
   }
 
@@ -276,10 +290,8 @@ export class BigInt {
     let b = other._raw;
     let cmp = compareDecimalStrings(a, b);
     if (cmp == 0) return BigInt.zero();
-    if (cmp < 0) {
-      // Return 0 for underflow safeguard or negative string if needed
-      return BigInt.zero();
-    }
+    if (cmp < 0) return BigInt.zero();
+
     let i = a.length - 1;
     let j = b.length - 1;
     let borrow = 0;
@@ -378,6 +390,46 @@ function compareDecimalStrings(a: string, b: string): i32 {
   return 0;
 }
 
+function hexToDecimal(hex: string): string {
+  if (hex.length == 0) return "0";
+  let dec = "0";
+
+  for (let i = 0; i < hex.length; i++) {
+    let c = hex.charCodeAt(i);
+    let digit = 0;
+    if (c >= 48 && c <= 57) {
+      digit = c - 48; // 0-9
+    } else if (c >= 97 && c <= 102) {
+      digit = c - 97 + 10; // a-f
+    } else if (c >= 65 && c <= 70) {
+      digit = c - 65 + 10; // A-F
+    } else {
+      continue;
+    }
+
+    // dec = dec * 16 + digit
+    let carry = digit;
+    let nextDec = "";
+    for (let j = dec.length - 1; j >= 0; j--) {
+      let prod = (dec.charCodeAt(j) - 48) * 16 + carry;
+      nextDec = (prod % 10).toString() + nextDec;
+      carry = prod / 10;
+    }
+    while (carry > 0) {
+      nextDec = (carry % 10).toString() + nextDec;
+      carry = carry / 10;
+    }
+    dec = nextDec.length > 0 ? nextDec : "0";
+  }
+
+  // Remove leading zeros
+  let start = 0;
+  while (start < dec.length - 1 && dec.charAt(start) == "0") {
+    start++;
+  }
+  return dec.slice(start);
+}
+
 // ---------------------------------------------------------------------------
 // JSON Parsing Helper for Entity.load()
 // ---------------------------------------------------------------------------
@@ -387,21 +439,47 @@ export function extractJsonField(json: string, key: string): string {
   const idx = json.indexOf(needle);
   if (idx == -1) return "";
   let start = idx + needle.length;
-  while (start < json.length && json.charAt(start) == " ") start++;
+  while (
+    start < json.length &&
+    (json.charAt(start) == " " ||
+      json.charAt(start) == "\t" ||
+      json.charAt(start) == "\n" ||
+      json.charAt(start) == "\r")
+  ) {
+    start++;
+  }
   if (start >= json.length) return "";
   const ch = json.charAt(start);
   if (ch == '"') {
     start++;
-    const end = json.indexOf('"', start);
-    if (end == -1) return "";
+    let end = start;
+    while (end < json.length) {
+      if (json.charAt(end) == '"' && json.charAt(end - 1) != "\\") {
+        break;
+      }
+      end++;
+    }
+    if (end >= json.length) return "";
     return json.slice(start, end);
   } else {
     let end = start;
     while (end < json.length) {
       const c = json.charCodeAt(end);
-      if (c == 44 || c == 125 || c == 93 || c == 32 || c == 10 || c == 13) break;
+      if (
+        c == 44 ||
+        c == 125 ||
+        c == 93 ||
+        c == 32 ||
+        c == 10 ||
+        c == 13 ||
+        c == 9
+      ) {
+        break;
+      }
       end++;
     }
-    return json.slice(start, end).trim();
+    const val = json.slice(start, end).trim();
+    if (val == "null") return "";
+    return val;
   }
 }
