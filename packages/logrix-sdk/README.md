@@ -15,6 +15,7 @@ npm install
 npm run codegen
 npm run validate
 npm run build
+npm test
 ```
 
 ---
@@ -26,12 +27,12 @@ npm run build
 Scaffolds a new indexer project. Run interactively or pass flags for CI/CD automation.
 
 Options:
-- `-y, --yes` — non-interactive mode using sensible defaults
-- `--network <name>` — network preset (`arbitrum-one`, `ethereum`, `base`, `polygon`, `sepolia`)
-- `--rpc <url>` — custom RPC endpoint
-- `--contract-name <name>` — contract name
-- `--address <address>` — target contract 0x address
-- `--start-block <block>` — initial indexing block
+- `-y, --yes` -- non-interactive mode using sensible defaults
+- `--network <name>` -- network preset (`arbitrum-one`, `ethereum`, `base`, `polygon`, `sepolia`)
+- `--rpc <url>` -- custom RPC endpoint
+- `--contract-name <name>` -- contract name
+- `--address <address>` -- target contract 0x address
+- `--start-block <block>` -- initial indexing block
 
 Creates:
 ```
@@ -55,11 +56,24 @@ my-indexer/
 Adds an additional smart contract to an existing `logrix.yaml` project for multi-contract indexing.
 
 ```bash
+# Add with manual ABI path
 npx logrix add contract SecondaryToken \
   --address 0x1111111111111111111111111111111111111111 \
   --abi ./my-abis/SecondaryToken.json \
   --start-block 1000000
+
+# Add with automatic ABI fetch from Etherscan / Sourcify
+npx logrix add contract DaiToken \
+  --address 0x6b175474e89094c44da98b954eedeac495271d0f \
+  --fetch-abi
 ```
+
+Options:
+- `--address <address>` -- contract address
+- `--abi <path>` -- path to local ABI JSON
+- `--fetch-abi` -- auto-fetch verified contract ABI from Etherscan / Sourcify
+- `--etherscan-key <key>` -- optional Etherscan API key for rate limits
+- `--start-block <block>` -- initial indexing block
 
 ---
 
@@ -82,8 +96,8 @@ npx logrix codegen
 ```
 
 Outputs:
-- `src/generated/events.ts` — typed event and parameter classes (namespaced per contract)
-- `src/generated/schema.ts` — entity classes with static `.load(id)`, `.remove(id)`, and `.save()`
+- `src/generated/events.ts` -- typed event and parameter classes (namespaced per contract), multi-contract address constants, and router helpers
+- `src/generated/schema.ts` -- entity classes with static `.load(id)`, `.remove(id)`, and `.save()`, handling `@derivedFrom` relationships
 
 ---
 
@@ -96,9 +110,41 @@ npx logrix build
 ```
 
 Options:
-- `--entry <file>` — handler entry point (default: `src/mapping.ts`)
-- `--out <file>` — output WASM binary path (default: `build/mapping.wasm`)
-- `--debug` — compile without optimizations for debugging
+- `--entry <file>` -- handler entry point (default: `src/mapping.ts`)
+- `--out <file>` -- output WASM binary path (default: `build/mapping.wasm`)
+- `--debug` -- compile without optimizations for debugging
+
+---
+
+### `logrix export-values`
+
+Reads `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm` to produce a ready-to-deploy `indexer-values.yaml` for Helm.
+
+```bash
+npx logrix export-values
+```
+
+Options:
+- `--out <file>` -- output values file (default: `indexer-values.yaml`)
+- `--chain-id <id>` -- override chain ID
+- `--rpc <url>` -- override RPC URL
+
+Deploy directly to Kubernetes:
+```bash
+helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
+  -f cluster-infra.yaml \
+  -f indexer-values.yaml
+```
+
+---
+
+### `logrix test`
+
+Runs local test validation across configuration, code generation, and WASM compilation, and executes any unit tests in `tests/`.
+
+```bash
+npx logrix test
+```
 
 ---
 
@@ -110,13 +156,15 @@ Imported via `import { ... } from "@logrix/sdk"` in AssemblyScript handlers:
 |--------|-------------|
 | `store.get(entity, id)` | Load raw entity JSON string from persistent store |
 | `store.set(entity, id, data)` | Write entity to persistent store and stage for DB |
-| `store.remove(entity, id)` | Mark entity as deleted and stage removal |
+| `store.remove(entity, id)` | Mark entity as deleted and stage soft-delete |
 | `Entity.load(id)` | Auto-generated on each `@entity` class; loads existing entity or returns `null` |
 | `Entity.remove(id)` | Auto-generated on each `@entity` class; removes entity by ID |
 | `entity.save()` | Saves and persists entity state |
 | `BigInt` | EVM 256-bit safe arithmetic: `.plus()`, `.minus()`, `.times()`, `.div()`, `.equals()`, `.gt()`, `.lt()` |
 | `Address` | Address wrapper: `.fromString()`, `.toHexString()`, `.equals()` |
-| `Bytes` | Hex byte wrapper: `.fromHexString()`, `.toHexString()`, `.length` |
+| `Bytes` | Hex byte wrapper: `.fromHexString()`, `.fromUTF8()`, `.toHexString()`, `.toByteArray()`, `.length` |
+| `crypto.keccak256(data)` | Computes standard EVM Keccak-256 hash |
+| `formatUnits(val, decimals)` | Formats raw BigInt value into human-readable decimal string (default: 18) |
 | `log` | Structured logging: `log.info()`, `log.warning()`, `log.error()`, `log.debug()` |
 | `allocate(size)` | Guest memory allocator (must be re-exported by `mapping.ts`) |
 
@@ -125,7 +173,7 @@ Imported via `import { ... } from "@logrix/sdk"` in AssemblyScript handlers:
 ## Writing Handlers (`src/mapping.ts`)
 
 ```typescript
-import { EventLog, log, BigInt, allocate } from "@logrix/sdk";
+import { EventLog, log, BigInt, Address, crypto, formatUnits, allocate } from "@logrix/sdk";
 import { TransferEvent } from "./generated/events";
 import { Transfer } from "./generated/schema";
 
@@ -155,8 +203,8 @@ function handleTransfer(raw: string): i32 {
     entity = new Transfer(entityId);
   }
 
-  entity.fromAddress = event.params.from;
-  entity.toAddress = event.params.to;
+  entity.fromAddress = event.params.from.toHexString();
+  entity.toAddress = event.params.to.toHexString();
   entity.amount = event.params.value; // Typed BigInt
   entity.save();
 
@@ -169,8 +217,15 @@ function handleTransfer(raw: string): i32 {
 
 ## Deployment
 
-Deploy your compiled indexer on AWS or local Kubernetes:
-- `logrix.yaml` contains all parameters for the Helm deployment
-- `build/mapping.wasm` provides the compiled logic
+1. Use `@logrix/sdk` to build and export your indexer:
+   ```bash
+   logrix codegen && logrix build && logrix export-values
+   ```
+2. Deploy via Helm to your Kubernetes cluster:
+   ```bash
+   helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
+     -f cluster-infra.yaml \
+     -f indexer-values.yaml
+   ```
 
-Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for automated deployment instructions.
+Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for full Helm deployment options.

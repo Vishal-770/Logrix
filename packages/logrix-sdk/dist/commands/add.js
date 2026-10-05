@@ -40,6 +40,49 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const yaml_1 = require("yaml");
 const templates_1 = require("../templates");
+/**
+ * Fetch ABI from Etherscan (mainnet) or Sourcify as fallback.
+ * Returns the parsed ABI array, or null if both fail.
+ */
+async function fetchAbi(address, etherscanKey) {
+    const addr = address.toLowerCase();
+    // Try Etherscan first if API key provided
+    if (etherscanKey) {
+        try {
+            const url = `https://api.etherscan.io/api?module=contract&action=getabi&address=${addr}&apikey=${etherscanKey}`;
+            const resp = await fetch(url);
+            const json = await resp.json();
+            if (json.status === "1" && json.result) {
+                const parsed = JSON.parse(json.result);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    console.log(`  Fetched ABI from Etherscan for ${address}`);
+                    return parsed;
+                }
+            }
+        }
+        catch {
+            // fall through
+        }
+    }
+    // Try Sourcify (no key required)
+    try {
+        // Sourcify returns verified contracts at chainId 1 (mainnet)
+        const url = `https://repo.sourcify.dev/contracts/full_match/1/${addr}/metadata.json`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+            const json = await resp.json();
+            const abi = json?.output?.abi;
+            if (Array.isArray(abi) && abi.length > 0) {
+                console.log(`  Fetched ABI from Sourcify for ${address}`);
+                return abi;
+            }
+        }
+    }
+    catch {
+        // fall through
+    }
+    return null;
+}
 function addCommand() {
     const cmd = new commander_1.Command("add");
     cmd
@@ -48,6 +91,8 @@ function addCommand() {
         .argument("[name]", "Name of the component")
         .option("--address <address>", "Contract address")
         .option("--abi <path>", "Path to ABI JSON file")
+        .option("--fetch-abi", "Auto-fetch ABI from Etherscan / Sourcify")
+        .option("--etherscan-key <key>", "Etherscan API key for ABI fetch (optional)")
         .option("--start-block <block>", "Starting block number", "0")
         .action(async (type, nameArg, opts) => {
         const projectDir = process.cwd();
@@ -78,7 +123,8 @@ function addCommand() {
                 contractName = await (0, prompts_1.input)({
                     message: "Smart Contract Name:",
                     default: "SecondaryContract",
-                    validate: (v) => /^[A-Za-z][A-Za-z0-9]*$/.test(v.trim()) || "Must be alphanumeric, starting with a letter",
+                    validate: (v) => /^[A-Za-z][A-Za-z0-9]*$/.test(v.trim()) ||
+                        "Must be alphanumeric, starting with a letter",
                 });
             }
             else {
@@ -117,11 +163,12 @@ function addCommand() {
             });
         }
         const startBlock = parseInt(startBlockStr.trim(), 10);
-        // 4. Resolve ABI file
+        // 4. Resolve ABI
         const abisDir = path.join(projectDir, "abis");
         fs.mkdirSync(abisDir, { recursive: true });
         const targetAbiFile = path.join(abisDir, `${contractName}.json`);
         if (opts.abi) {
+            // Explicit local file
             const sourceAbi = path.resolve(projectDir, opts.abi);
             if (!fs.existsSync(sourceAbi)) {
                 console.error(`Error: Specified ABI file not found: ${opts.abi}`);
@@ -130,11 +177,25 @@ function addCommand() {
             fs.copyFileSync(sourceAbi, targetAbiFile);
             console.log(`  Copied ABI from ${opts.abi} to abis/${contractName}.json`);
         }
+        else if (opts.fetchAbi) {
+            // Auto-fetch from Etherscan / Sourcify
+            console.log(`  Fetching ABI for ${contractAddress} ...`);
+            const abi = await fetchAbi(contractAddress, opts.etherscanKey);
+            if (abi) {
+                fs.writeFileSync(targetAbiFile, JSON.stringify(abi, null, 2));
+                console.log(`  Saved fetched ABI to abis/${contractName}.json`);
+            }
+            else {
+                console.warn(`  Warning: Could not fetch ABI for ${contractAddress}. Using ERC-20 placeholder.`);
+                fs.writeFileSync(targetAbiFile, JSON.stringify(templates_1.ERC20_ABI, null, 2));
+            }
+        }
         else if (!fs.existsSync(targetAbiFile)) {
+            // Default placeholder
             fs.writeFileSync(targetAbiFile, JSON.stringify(templates_1.ERC20_ABI, null, 2));
             console.log(`  Created default ERC-20 placeholder ABI at abis/${contractName}.json`);
         }
-        // 5. Append new dataSource
+        // 5. Append new dataSource to logrix.yaml
         const networkName = config.network?.name || "mainnet";
         const newDataSource = {
             kind: "ethereum/contract",
@@ -166,7 +227,7 @@ function addCommand() {
         fs.writeFileSync(configPath, (0, yaml_1.stringify)(config, { indent: 2 }));
         console.log(`\nSuccessfully added contract '${contractName}' to logrix.yaml!`);
         console.log("Next steps:");
-        console.log(`  1. Place your real ABI at: abis/${contractName}.json`);
+        console.log(`  1. Review / replace ABI at: abis/${contractName}.json`);
         console.log("  2. Run: logrix codegen");
         console.log("  3. Run: logrix build\n");
     });

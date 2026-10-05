@@ -60,6 +60,22 @@ function generateEventsTs(dataSources, projectDir) {
         'import { EventLog, BigInt, Address, Bytes } from "@logrix/sdk";',
         "",
     ];
+    // Contract address constants for multi-contract indexers
+    lines.push("// ---------------------------------------------------------------------------");
+    lines.push("// Multi-Contract Address Constants");
+    lines.push("// ---------------------------------------------------------------------------");
+    for (const ds of dataSources) {
+        const constName = `${ds.name.toUpperCase()}_ADDRESS`;
+        const addr = ds.source?.address?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+        lines.push(`export const ${constName}: string = "${addr}";`);
+    }
+    lines.push("");
+    // Multi-contract event routing helper
+    lines.push("/** Helper to verify if an event belongs to a target contract address */");
+    lines.push("export function isFromContract(raw: EventLog, targetAddress: string): bool {");
+    lines.push("  return raw.address.toLowerCase() == targetAddress.toLowerCase();");
+    lines.push("}");
+    lines.push("");
     const seenEventNames = new Set();
     for (const ds of dataSources) {
         if (!ds.mapping || !ds.mapping.abis)
@@ -180,17 +196,27 @@ function generateEventsTs(dataSources, projectDir) {
 function parseSchemaFields(body) {
     const fields = [];
     for (const rawLine of body.split("\n")) {
-        const line = rawLine.replace(/@\w+(\([^)]*\))?/g, "").trim();
-        if (!line || line.startsWith("#"))
+        const trimmed = rawLine.trim();
+        if (!trimmed || trimmed.startsWith("#"))
             continue;
-        const colonIdx = line.indexOf(":");
+        // Detect @derivedFrom(field: "...")
+        const isDerived = trimmed.includes("@derivedFrom");
+        let derivedField;
+        if (isDerived) {
+            const match = /@derivedFrom\s*\(\s*field\s*:\s*["']([^"']+)["']\s*\)/.exec(trimmed);
+            if (match) {
+                derivedField = match[1];
+            }
+        }
+        const cleanLine = trimmed.replace(/@\w+(\([^)]*\))?/g, "").trim();
+        const colonIdx = cleanLine.indexOf(":");
         if (colonIdx === -1)
             continue;
-        const name = line.slice(0, colonIdx).trim();
-        const typePart = line.slice(colonIdx + 1).trim();
+        const name = cleanLine.slice(0, colonIdx).trim();
+        const typePart = cleanLine.slice(colonIdx + 1).trim();
         const required = typePart.endsWith("!");
         const type = typePart.replace("!", "").trim();
-        fields.push({ name, type, required });
+        fields.push({ name, type, required, isDerived, derivedField });
     }
     return fields;
 }
@@ -229,6 +255,10 @@ function generateSchemaTs(projectDir) {
             if (f.name === "id") {
                 lines.push("  id: string;");
             }
+            else if (f.isDerived) {
+                // Virtual reverse-lookup field; not stored directly in DB payload
+                lines.push(`  // @derivedFrom(field: "${f.derivedField || ""}") virtual relation`);
+            }
             else {
                 const asType = graphqlTypeToAs(f.type);
                 const defaultVal = asType === "string" ? '""'
@@ -250,7 +280,7 @@ function generateSchemaTs(projectDir) {
         lines.push(`    if (raw.length == 0) return null;`);
         lines.push(`    const entity = new ${entityName}(id);`);
         for (const f of fields) {
-            if (f.name === "id")
+            if (f.name === "id" || f.isDerived)
                 continue;
             const asType = graphqlTypeToAs(f.type);
             if (asType === "string") {
@@ -287,6 +317,8 @@ function generateSchemaTs(projectDir) {
         lines.push("  save(): void {");
         const jsonParts = [];
         for (const f of fields) {
+            if (f.isDerived)
+                continue; // Skip virtual reverse-lookup relations in database payload
             const asType = graphqlTypeToAs(f.type);
             if (asType === "BigInt" || asType === "string") {
                 jsonParts.push(`"\\"${f.name}\\":\\"" + this.${f.name}.toString() + "\\""`);
