@@ -44,5 +44,8 @@
     "assemblyscript",
     "wasm",
     "graphql"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

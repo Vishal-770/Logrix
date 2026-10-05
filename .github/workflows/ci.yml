@@ -117,3 +117,22 @@ jobs:
           terraform init -backend=false
           terraform validate
           echo "Terraform modules validated successfully."
+
+  sdk-check:
+    name: Build & Validate @logrix/sdk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build SDK and verify package
+        run: |
+          cd packages/logrix-sdk
+          npm install
+          npm run build
+          npm pack --dry-run

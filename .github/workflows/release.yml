@@ -93,3 +93,26 @@ jobs:
           PKG_NAME=$(ls ./packaged-chart/logrix-*.tgz | head -n 1)
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm push "${PKG_NAME}" oci://${{ env.REGISTRY }}/${OWNER_LOWER}/charts
+
+  publish-npm:
+    name: Build & Publish @logrix/sdk to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Build & Publish to npm
+        run: |
+          cd packages/logrix-sdk
+          npm install
+          npm run build
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
