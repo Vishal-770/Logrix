@@ -35,14 +35,31 @@ export function initCommand(): Command {
   cmd
     .description("Scaffold a new Logrix indexer project")
     .argument("[name]", "Project directory name")
-    .action(async (nameArg: string | undefined) => {
+    .option("-y, --yes", "Skip prompts and use defaults (non-interactive)")
+    .option("--network <network>", "Network preset name (e.g. arbitrum-one, ethereum, base)")
+    .option("--rpc <url>", "Custom RPC endpoint URL")
+    .option("--contract-name <name>", "Contract name")
+    .option("--address <address>", "Contract target address")
+    .option("--start-block <block>", "Starting block number")
+    .action(async (nameArg: string | undefined, opts: any) => {
       console.log("\nLogrix Project Initializer\n");
 
-      const projectName = await input({
-        message: "Project name:",
-        default: nameArg ?? "my-indexer",
-        validate: (v) => v.trim().length > 0 || "Name cannot be empty",
-      });
+      const isNonInteractive = opts.yes || !process.stdin.isTTY;
+
+      // Project Name
+      let projectName = nameArg || opts.name;
+      if (!projectName) {
+        if (isNonInteractive) {
+          projectName = "my-indexer";
+        } else {
+          projectName = await input({
+            message: "Project name:",
+            default: "my-indexer",
+            validate: (v) => v.trim().length > 0 || "Name cannot be empty",
+          });
+        }
+      }
+      projectName = projectName.trim();
 
       const targetDir = path.resolve(process.cwd(), projectName);
       if (fs.existsSync(targetDir)) {
@@ -50,55 +67,98 @@ export function initCommand(): Command {
         process.exit(1);
       }
 
-      const networkKey = await select<string>({
-        message: "Network:",
-        choices: Object.entries(NETWORKS).map(([key, net]) => ({
-          name: `${net.name} (chain ${net.chainId})`,
-          value: key,
-        })),
-        default: "arbitrum-one",
-      });
+      // Network selection
+      let networkKey = opts.network;
+      if (!networkKey || !NETWORKS[networkKey]) {
+        if (isNonInteractive) {
+          networkKey = "arbitrum-one";
+        } else {
+          networkKey = await select<string>({
+            message: "Network:",
+            choices: Object.entries(NETWORKS).map(([key, net]) => ({
+              name: `${net.name} (chain ${net.chainId})`,
+              value: key,
+            })),
+            default: "arbitrum-one",
+          });
+        }
+      }
 
-      const network = NETWORKS[networkKey];
+      const network = NETWORKS[networkKey] || NETWORKS["arbitrum-one"];
 
-      const rpcUrl = await input({
-        message: "RPC URL:",
-        default: network.rpcUrl,
-        validate: (v) => v.trim().length > 0 || "RPC URL cannot be empty",
-      });
+      // RPC URL
+      let rpcUrl = opts.rpc;
+      if (!rpcUrl) {
+        if (isNonInteractive) {
+          rpcUrl = network.rpcUrl;
+        } else {
+          rpcUrl = await input({
+            message: "RPC URL:",
+            default: network.rpcUrl,
+            validate: (v) => v.trim().length > 0 || "RPC URL cannot be empty",
+          });
+        }
+      }
+      rpcUrl = rpcUrl.trim();
 
-      const contractName = await input({
-        message: "Contract name (used for ABI file and YAML):",
-        default: "TokenContract",
-        validate: (v) =>
-          /^[A-Za-z][A-Za-z0-9]*$/.test(v.trim()) ||
-          "Must be alphanumeric, starting with a letter",
-      });
+      // Contract Name
+      let contractName = opts.contractName;
+      if (!contractName) {
+        if (isNonInteractive) {
+          contractName = "TokenContract";
+        } else {
+          contractName = await input({
+            message: "Contract name (used for ABI file and YAML):",
+            default: "TokenContract",
+            validate: (v) =>
+              /^[A-Za-z][A-Za-z0-9]*$/.test(v.trim()) ||
+              "Must be alphanumeric, starting with a letter",
+          });
+        }
+      }
+      contractName = contractName.trim();
 
-      const contractAddress = await input({
-        message: "Contract address:",
-        default: "0x0000000000000000000000000000000000000000",
-        validate: (v) =>
-          /^0x[0-9a-fA-F]{40}$/.test(v.trim()) || "Must be a valid 0x address",
-      });
+      // Contract Address
+      let contractAddress = opts.address;
+      if (!contractAddress) {
+        if (isNonInteractive) {
+          contractAddress = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
+        } else {
+          contractAddress = await input({
+            message: "Contract address:",
+            default: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            validate: (v) =>
+              /^0x[0-9a-fA-F]{40}$/.test(v.trim()) || "Must be a valid 0x address",
+          });
+        }
+      }
+      contractAddress = contractAddress.trim();
 
-      const startBlockStr = await input({
-        message: "Start block:",
-        default: "0",
-        validate: (v) => /^\d+$/.test(v.trim()) || "Must be a non-negative integer",
-      });
+      // Start Block
+      let startBlockStr = opts.startBlock;
+      if (!startBlockStr) {
+        if (isNonInteractive) {
+          startBlockStr = "0";
+        } else {
+          startBlockStr = await input({
+            message: "Start block:",
+            default: "0",
+            validate: (v) => /^\d+$/.test(v.trim()) || "Must be a non-negative integer",
+          });
+        }
+      }
 
       const answers: InitAnswers = {
         projectName,
         networkName: network.name,
         chainId: network.chainId,
-        rpcUrl: rpcUrl.trim(),
-        contractName: contractName.trim(),
-        contractAddress: contractAddress.trim(),
+        rpcUrl,
+        contractName,
+        contractAddress,
         startBlock: parseInt(startBlockStr.trim(), 10),
       };
 
-      console.log(`\nScaffolding in ./${projectName}/ ...\n`);
+      console.log(`Scaffolding in ./${projectName}/ ...\n`);
 
       // Directory structure
       fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
@@ -151,6 +211,7 @@ export function initCommand(): Command {
       console.log(`  cd ${projectName}`);
       console.log("  npm install");
       console.log("  npm run codegen");
+      console.log("  npm run validate");
       console.log("  npm run build\n");
     });
 
