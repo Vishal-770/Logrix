@@ -138,7 +138,7 @@ contracts:
     );
     assert_eq!(staging.get_state("counter").unwrap(), "1");
 
-    let (mutations, emitted) = engine.commit_staging(staging).await;
+    let (mutations, _removed, emitted) = engine.commit_staging(staging).await;
     assert_eq!(mutations.len(), 1);
     assert_eq!(emitted.len(), 1);
     assert_eq!(engine.get_state("counter").await.unwrap(), "1");

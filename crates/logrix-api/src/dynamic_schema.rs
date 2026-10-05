@@ -1,7 +1,11 @@
 use crate::filter_input::{build_filter_input, map_type_ref};
 use crate::list_resolver::build_entity_list_field;
 use crate::schema_parser::{EntityDef, SchemaDefinition};
-use async_graphql::dynamic::{Field, FieldFuture, FieldValue, InputValue, Object, Schema, TypeRef};
+use crate::subscriptions::SubscriptionBroadcaster;
+use async_graphql::dynamic::{
+    Field, FieldFuture, FieldValue, InputValue, Object, Schema, Subscription,
+    SubscriptionField, SubscriptionFieldFuture, TypeRef,
+};
 use logrix_store_postgres::PostgresStore;
 use std::sync::Arc;
 
@@ -14,17 +18,33 @@ impl DynamicSchemaEngine {
         schema_def: &SchemaDefinition,
         store: Arc<PostgresStore>,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
-        Self::build_with_limits(schema_def, store, 7, 200)
+        Self::build_with_config(schema_def, store, None, 7, 200)
     }
 
-    /// Build dynamic schema with custom query depth and complexity limits.
+    /// Build dynamic schema with custom query depth, complexity limits, and optional subscriptions.
     pub fn build_with_limits(
         schema_def: &SchemaDefinition,
         store: Arc<PostgresStore>,
         max_depth: usize,
         max_complexity: usize,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
-        let mut builder = Schema::build("Query", None, None);
+        Self::build_with_config(schema_def, store, None, max_depth, max_complexity)
+    }
+
+    /// Build dynamic schema with optional subscription broadcaster.
+    pub fn build_with_config(
+        schema_def: &SchemaDefinition,
+        store: Arc<PostgresStore>,
+        broadcaster: Option<Arc<SubscriptionBroadcaster>>,
+        max_depth: usize,
+        max_complexity: usize,
+    ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
+        let has_subscriptions = broadcaster.is_some();
+        let mut builder = if has_subscriptions {
+            Schema::build("Query", None, Some("Subscription"))
+        } else {
+            Schema::build("Query", None, None)
+        };
         let mut query = Object::new("Query");
 
         query = query.field(Field::new(
@@ -34,6 +54,7 @@ impl DynamicSchemaEngine {
         ));
 
         for entity in &schema_def.entities {
+            // Only register storable (non-derived) fields in the GraphQL object
             let entity_obj = build_entity_object(entity);
             let filter_input = build_filter_input(entity);
 
@@ -47,8 +68,15 @@ impl DynamicSchemaEngine {
             query = query.field(list_field);
         }
 
+        builder = builder.register(query);
+
+        // Wire subscriptions if broadcaster provided
+        if let Some(bc) = broadcaster {
+            let subscription = build_subscription_type(schema_def, bc);
+            builder = builder.register(subscription);
+        }
+
         builder
-            .register(query)
             .data(store)
             .limit_depth(max_depth)
             .limit_complexity(max_complexity)
@@ -68,6 +96,10 @@ fn build_entity_object(entity: &EntityDef) -> Object {
     }));
 
     for field in &entity.fields {
+        // Skip derived fields -- they are virtual reverse lookups, not stored columns
+        if field.derived_from.is_some() {
+            continue;
+        }
         if field.name == "id" {
             continue;
         }
@@ -138,4 +170,56 @@ fn build_single_entity_field(entity: &EntityDef, store: Arc<PostgresStore>) -> F
     })
     .argument(InputValue::new("id", TypeRef::named_nn(TypeRef::ID)))
     .argument(InputValue::new("chainId", TypeRef::named(TypeRef::INT)))
+}
+
+/// Build the Subscription root with one field per entity type.
+/// Each field streams EntityMutationEvents filtered to that entity type.
+fn build_subscription_type(
+    schema_def: &SchemaDefinition,
+    broadcaster: Arc<SubscriptionBroadcaster>,
+) -> Subscription {
+    let mut subscription = Subscription::new("Subscription");
+
+    for entity in &schema_def.entities {
+        let entity_name = entity.name.clone();
+        let entity_name_for_create = entity_name.clone();
+        let bc = broadcaster.clone();
+
+        // Field name: e.g. "transfer" -> "onTransfer"
+        let field_name = format!(
+            "on{}",
+            entity_name
+                .chars()
+                .enumerate()
+                .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
+                .collect::<String>()
+        );
+
+        let sub_field = SubscriptionField::new(
+            field_name,
+            TypeRef::named(&entity_name_for_create),
+            move |_ctx| {
+                let bc = bc.clone();
+                let filter_type = entity_name.clone();
+                SubscriptionFieldFuture::new(async move {
+                    use futures::StreamExt;
+                    let stream = bc
+                        .event_stream()
+                        .filter(move |ev| {
+                            let matches = ev.entity_type == filter_type;
+                            async move { matches }
+                        })
+                        .map(|ev| -> async_graphql::Result<FieldValue> {
+                            Ok(FieldValue::owned_any(ev.data))
+                        });
+                    Ok(stream)
+                })
+            },
+        )
+        .argument(InputValue::new("chainId", TypeRef::named(TypeRef::INT)));
+
+        subscription = subscription.field(sub_field);
+    }
+
+    subscription
 }

@@ -69,6 +69,7 @@ pub async fn run_all_in_one(
             store_api,
             schema_path_clone.as_deref(),
             Some(api_config),
+            None, // broadcaster -- wire SubscriptionBroadcaster here when subscriptions are needed
             addr,
         )
         .await

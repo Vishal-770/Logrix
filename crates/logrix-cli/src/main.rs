@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_limit: cli.graphql_max_limit,
                 query_timeout_secs: 5,
             };
-            start_api_server_with_schema(store, cli.schema_path.as_deref(), Some(api_config), addr)
+            start_api_server_with_schema(store, cli.schema_path.as_deref(), Some(api_config), None, addr)
                 .await?;
         }
         Commands::AllInOne { port } => {

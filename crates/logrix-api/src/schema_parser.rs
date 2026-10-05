@@ -28,6 +28,15 @@ pub enum FieldType {
     Custom(String),
 }
 
+/// Relationship metadata parsed from @derivedFrom directive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivedFrom {
+    /// The entity type this field is derived from.
+    pub entity: String,
+    /// The field on the related entity that holds the foreign key.
+    pub field: String,
+}
+
 /// Single field definition within an entity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldDef {
@@ -35,6 +44,10 @@ pub struct FieldDef {
     pub field_type: FieldType,
     pub is_nullable: bool,
     pub is_list: bool,
+    /// If Some, this is a virtual reverse-lookup field and must NOT be saved.
+    pub derived_from: Option<DerivedFrom>,
+    /// If true, an SQL index should be created for this column.
+    pub indexed: bool,
 }
 
 /// Entity definition containing typed fields.
@@ -42,6 +55,13 @@ pub struct FieldDef {
 pub struct EntityDef {
     pub name: String,
     pub fields: Vec<FieldDef>,
+}
+
+impl EntityDef {
+    /// Returns only the storable (non-derived) fields.
+    pub fn storable_fields(&self) -> impl Iterator<Item = &FieldDef> {
+        self.fields.iter().filter(|f| f.derived_from.is_none())
+    }
 }
 
 /// Collection of user entities defining an indexer schema.
@@ -80,7 +100,7 @@ impl SchemaDefinition {
                 let type_def: TypeDefinition = type_node.node;
                 let type_name = type_def.name.node.to_string();
 
-                // Skip root operations
+                // Skip root operation types
                 if matches!(type_name.as_str(), "Query" | "Mutation" | "Subscription") {
                     continue;
                 }
@@ -90,13 +110,53 @@ impl SchemaDefinition {
                     for field_node in obj_type.fields {
                         let field = field_node.node;
                         let field_name = field.name.node.to_string();
-                        let (field_type, is_nullable, is_list) = parse_graphql_type(&field.ty.node);
+                        let (field_type, is_nullable, is_list) =
+                            parse_graphql_type(&field.ty.node);
+
+                        // Parse @derivedFrom(field: "...") directive
+                        let derived_from = field.directives.iter().find_map(|d| {
+                            if d.node.name.node.as_str() == "derivedFrom" {
+                                let fk_field = d.node.arguments.iter().find_map(|(k, v)| {
+                                    if k.node.as_str() == "field" {
+                                        // ConstValue::String via Display
+                                        let raw = v.node.to_string();
+                                        let s = raw.trim_matches('"').to_string();
+                                        if !s.is_empty() {
+                                            return Some(s);
+                                        }
+                                    }
+                                    None
+                                })?;
+                                // The related entity is the field's base type name
+                                let related_entity = match &field.ty.node.base {
+                                    BaseType::Named(n) => n.to_string(),
+                                    BaseType::List(inner) => match &inner.base {
+                                        BaseType::Named(n) => n.to_string(),
+                                        _ => return None,
+                                    },
+                                };
+                                Some(DerivedFrom {
+                                    entity: related_entity,
+                                    field: fk_field,
+                                })
+                            } else {
+                                None
+                            }
+                        });
+
+                        // Parse @index directive (presence is sufficient)
+                        let indexed = field
+                            .directives
+                            .iter()
+                            .any(|d| d.node.name.node.as_str() == "index");
 
                         fields.push(FieldDef {
                             name: field_name,
                             field_type,
                             is_nullable,
                             is_list,
+                            derived_from,
+                            indexed,
                         });
                     }
                     entities.push(EntityDef {
@@ -110,7 +170,7 @@ impl SchemaDefinition {
         Ok(SchemaDefinition { entities })
     }
 
-    /// Parse YAML format.
+    /// Parse YAML format (no directive support -- directives are GraphQL-only).
     pub fn from_yaml(yaml_str: &str) -> Result<Self, SchemaParserError> {
         #[derive(Deserialize)]
         struct YamlField {
@@ -146,6 +206,8 @@ impl SchemaDefinition {
                             field_type: ft,
                             is_nullable: nullable,
                             is_list: list,
+                            derived_from: None,
+                            indexed: false,
                         }
                     })
                     .collect(),

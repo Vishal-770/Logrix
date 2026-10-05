@@ -123,6 +123,39 @@ impl PostgresStore {
         }))
     }
 
+    /// Soft-delete a single entity by marking it as reverted.
+    /// Used by Entity.remove() from the WASM handler -- key format is "EntityType:id".
+    pub async fn delete_entity(
+        &self,
+        chain_id: u64,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> LogrixResult<()> {
+        let now = chrono::Utc::now();
+        sqlx::query(
+            r#"
+            UPDATE logrix_entities
+            SET is_reverted = TRUE, reverted_at = $4
+            WHERE chain_id = $1 AND entity_type = $2 AND entity_id = $3 AND is_reverted = FALSE
+            "#,
+        )
+        .bind(chain_id as i64)
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(now)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::Database,
+                format!("Failed to soft-delete entity {entity_type}:{entity_id}: {e}"),
+            )
+        })?;
+
+        Ok(())
+    }
+
     /// Query dynamic entities matching custom SQL filter.
     pub async fn query_entities_raw(&self, query: &str) -> LogrixResult<Vec<DynamicEntityRecord>> {
         let rows = sqlx::query(query)

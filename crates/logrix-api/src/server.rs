@@ -1,8 +1,9 @@
 use crate::dynamic_schema::DynamicSchemaEngine;
 use crate::schema::{build_schema, LogrixSchema};
 use crate::schema_parser::SchemaDefinition;
+use crate::subscriptions::SubscriptionBroadcaster;
 use async_graphql::http::GraphiQLSource;
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
     response::{Html, IntoResponse},
@@ -68,16 +69,28 @@ pub fn create_router(schema: LogrixSchema) -> Router {
         .layer(Extension(schema))
 }
 
-/// Create router for dynamic async_graphql::dynamic::Schema.
-pub fn create_dynamic_router(schema: async_graphql::dynamic::Schema) -> Router {
-    Router::new()
+/// Create router for dynamic schema with optional WebSocket subscription endpoint.
+pub fn create_dynamic_router(
+    schema: async_graphql::dynamic::Schema,
+    broadcaster: Option<Arc<SubscriptionBroadcaster>>,
+) -> Router {
+    let mut router = Router::new()
         .route("/", get(graphiql))
         .route("/graphiql", get(graphiql))
         .route("/graphql", post(dynamic_graphql_handler))
         .route("/healthz", get(health_check))
         .route("/readyz", get(health_check))
-        .route("/metrics", get(prometheus_metrics))
-        .layer(Extension(schema))
+        .route("/metrics", get(prometheus_metrics));
+
+    // Wire WebSocket subscriptions when a broadcaster is present
+    if broadcaster.is_some() {
+        router = router.route_service(
+            "/ws",
+            GraphQLSubscription::new(schema.clone()),
+        );
+    }
+
+    router.layer(Extension(schema))
 }
 
 /// Configuration for the Logrix GraphQL API server and query guardrails.
@@ -107,14 +120,15 @@ pub async fn start_api_server(
     store: Arc<PostgresStore>,
     addr: SocketAddr,
 ) -> Result<(), std::io::Error> {
-    start_api_server_with_schema(store, None, None, addr).await
+    start_api_server_with_schema(store, None, None, None, addr).await
 }
 
-/// Start GraphQL API server with optional dynamic schema definition path and guardrail config.
+/// Start GraphQL API server with optional dynamic schema and subscription broadcaster.
 pub async fn start_api_server_with_schema(
     store: Arc<PostgresStore>,
     schema_path: Option<&str>,
     config: Option<ApiConfig>,
+    broadcaster: Option<Arc<SubscriptionBroadcaster>>,
     addr: SocketAddr,
 ) -> Result<(), std::io::Error> {
     let conf = config.unwrap_or_default();
@@ -124,6 +138,12 @@ pub async fn start_api_server_with_schema(
         max_complexity = conf.max_complexity,
         "Configured query guardrails"
     );
+    if broadcaster.is_some() {
+        info!(
+            "GraphQL subscriptions enabled via WebSocket at ws://{}/ws",
+            addr
+        );
+    }
     info!(
         "GraphiQL interactive UI available at http://{}/ and http://{}/graphiql",
         addr, addr
@@ -135,14 +155,15 @@ pub async fn start_api_server_with_schema(
             info!(path = path_str, "Loading dynamic GraphQL entity schema");
             let schema_def = SchemaDefinition::from_file(p)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-            let dynamic_schema = DynamicSchemaEngine::build_with_limits(
+            let dynamic_schema = DynamicSchemaEngine::build_with_config(
                 &schema_def,
                 store.clone(),
+                broadcaster.clone(),
                 conf.max_depth,
                 conf.max_complexity,
             )
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-            create_dynamic_router(dynamic_schema)
+            create_dynamic_router(dynamic_schema, broadcaster)
         } else {
             info!("Schema path provided does not exist; using default core schema");
             create_router(build_schema(store.clone()))

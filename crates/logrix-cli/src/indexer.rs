@@ -70,7 +70,9 @@ async fn process_entities(
 ) {
     for log in logs {
         if let Ok(staging) = engine.process_log(log).await {
-            let (mutations, emitted) = engine.commit_staging(staging).await;
+            let (mutations, removed_keys, emitted) = engine.commit_staging(staging).await;
+
+            // Persist emitted entity upserts
             if !emitted.is_empty() {
                 let inserts: Vec<EntityInsert> = emitted
                     .into_iter()
@@ -95,6 +97,23 @@ async fn process_entities(
                     error!(error = %e, "Failed to save dynamic schema entities");
                 }
             }
+
+            // Soft-delete entities staged for removal (Entity.remove())
+            if !removed_keys.is_empty() {
+                for key in &removed_keys {
+                    // Key format: "EntityType:id"
+                    if let Some((entity_type, entity_id)) = key.split_once(':') {
+                        if let Err(e) = store
+                            .delete_entity(chain_id, entity_type, entity_id)
+                            .await
+                        {
+                            error!(error = %e, key, "Failed to soft-delete entity");
+                        }
+                    }
+                }
+                debug!(removed = removed_keys.len(), "Processed entity removals");
+            }
+
             if !mutations.is_empty() {
                 debug!(
                     mutations = mutations.len(),

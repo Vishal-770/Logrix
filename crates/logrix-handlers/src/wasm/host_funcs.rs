@@ -43,7 +43,7 @@ fn write_memory_bytes(caller: &mut Caller<'_, HostState>, ptr: i32, bytes: &[u8]
 /// Register standard host functions into the Wasmtime Linker under both "logrix" and "env".
 pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), wasmtime::Error> {
     for namespace in &["logrix", "env"] {
-        // logrix_db_get(key_ptr, key_len, out_ptr, max_out_len) -> i32 (bytes written, or -1 if not found)
+        // logrix_db_get(key_ptr, key_len, out_ptr, max_out_len) -> i32 (bytes written, -1 not found, -2 buf too small)
         linker.func_wrap(
             namespace,
             "logrix_db_get",
@@ -72,7 +72,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), was
                             -2 // Output buffer too small
                         }
                     }
-                    None => -1, // Key not found
+                    None => -1, // Key not found in staging or base snapshot
                 }
             },
         )?;
@@ -97,6 +97,21 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), was
                 };
 
                 caller.data_mut().staging.set_state(key, val);
+                0
+            },
+        )?;
+
+        // logrix_db_remove(key_ptr, key_len) -> i32
+        // Stages a key removal; the engine propagates this as a soft-delete after commit.
+        linker.func_wrap(
+            namespace,
+            "logrix_db_remove",
+            |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+                let key = match read_memory_string(&mut caller, key_ptr, key_len) {
+                    Some(k) => k,
+                    None => return -1,
+                };
+                caller.data_mut().staging.remove_state(key);
                 0
             },
         )?;

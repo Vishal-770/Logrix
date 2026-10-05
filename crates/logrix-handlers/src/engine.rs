@@ -5,7 +5,7 @@ use crate::wasm::{WasmHandlerInstance, WasmRuntime};
 use alloy_primitives::Address;
 use logrix_core::domain::EventLog;
 use logrix_core::error::LogrixResult;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -89,6 +89,9 @@ impl UserLogicEngine {
             for (k, v) in guest_staging.state_entries() {
                 staging.set_state(k.clone(), v.clone());
             }
+            for key in guest_staging.removed_keys() {
+                staging.remove_state(key.clone());
+            }
             for entity in guest_staging.emitted_entities() {
                 staging.emit_entity(entity.entity_type.clone(), entity.payload.clone());
             }
@@ -98,18 +101,22 @@ impl UserLogicEngine {
     }
 
     /// Atomically commit all staged state changes into the persistent state store.
+    /// Returns (state_mutations, removed_keys, emitted_entities).
     pub async fn commit_staging(
         &self,
         mut staging: TransactionalStagingBuffer,
-    ) -> (HashMap<String, String>, Vec<EmittedEntity>) {
-        let (state_mutations, emitted) = staging.drain();
+    ) -> (HashMap<String, String>, HashSet<String>, Vec<EmittedEntity>) {
+        let (state_mutations, removed_keys, emitted) = staging.drain();
         {
             let mut store = self.state_store.write().await;
+            for key in &removed_keys {
+                store.remove(key);
+            }
             for (k, v) in &state_mutations {
                 store.insert(k.clone(), v.clone());
             }
         }
-        (state_mutations, emitted)
+        (state_mutations, removed_keys, emitted)
     }
 
     /// Query current value from the engine's state store.
