@@ -65,8 +65,17 @@ impl WebhookStore {
     /// Rotate secret for an existing endpoint.
     pub async fn rotate_secret(&self, id: Uuid, new_secret: &str) -> LogrixResult<bool> {
         let res = sqlx::query("UPDATE logrix_webhook_endpoints SET secret = $1 WHERE id = $2")
-            .bind(new_secret).bind(id).execute(&self.pool).await
-            .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Rotate failed: {e}")))?;
+            .bind(new_secret)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Database,
+                    format!("Rotate failed: {e}"),
+                )
+            })?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -79,8 +88,13 @@ impl WebhookStore {
         .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Fetch failed: {e}")))?;
 
         Ok(row.map(|r| WebhookEndpoint {
-            id: r.get("id"), url: r.get("url"), secret: r.get("secret"),
-            events: r.get("events"), is_active: r.get("is_active"), max_retries: 0, created_at: r.get("created_at"),
+            id: r.get("id"),
+            url: r.get("url"),
+            secret: r.get("secret"),
+            events: r.get("events"),
+            is_active: r.get("is_active"),
+            max_retries: 0,
+            created_at: r.get("created_at"),
         }))
     }
 
@@ -92,18 +106,34 @@ impl WebhookStore {
         .fetch_all(&self.pool).await
         .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("List failed: {e}")))?;
 
-        let endpoints = rows.into_iter().map(|r| WebhookEndpoint {
-            id: r.get("id"), url: r.get("url"), secret: r.get("secret"),
-            events: r.get("events"), is_active: r.get("is_active"), max_retries: 0, created_at: r.get("created_at"),
-        }).collect();
+        let endpoints = rows
+            .into_iter()
+            .map(|r| WebhookEndpoint {
+                id: r.get("id"),
+                url: r.get("url"),
+                secret: r.get("secret"),
+                events: r.get("events"),
+                is_active: r.get("is_active"),
+                max_retries: 0,
+                created_at: r.get("created_at"),
+            })
+            .collect();
         Ok(endpoints)
     }
 
     /// Delete a webhook endpoint by ID.
     pub async fn delete_endpoint(&self, id: Uuid) -> LogrixResult<bool> {
         let res = sqlx::query("DELETE FROM logrix_webhook_endpoints WHERE id = $1")
-            .bind(id).execute(&self.pool).await
-            .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Delete failed: {e}")))?;
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Database,
+                    format!("Delete failed: {e}"),
+                )
+            })?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -112,7 +142,10 @@ impl WebhookStore {
     }
 
     pub async fn list_deliveries(
-        &self, endpoint_id: Option<Uuid>, success: Option<bool>, limit: i64,
+        &self,
+        endpoint_id: Option<Uuid>,
+        success: Option<bool>,
+        limit: i64,
     ) -> LogrixResult<Vec<WebhookDelivery>> {
         DeliveryOps::list(&self.pool, endpoint_id, success, limit).await
     }

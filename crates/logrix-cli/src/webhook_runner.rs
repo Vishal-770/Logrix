@@ -33,10 +33,14 @@ pub async fn run_webhook_dispatcher(
 }
 
 async fn seed_manifest_webhooks(store: &logrix_webhook::WebhookStore, path: &str) {
-    let Ok(manifest) = Manifest::from_file(path) else { return; };
+    let Ok(manifest) = Manifest::from_file(path) else {
+        return;
+    };
     let existing = store.list_active_endpoints().await.unwrap_or_default();
     for hook in manifest.webhooks {
-        if existing.iter().any(|e| e.url == hook.url) { continue; }
+        if existing.iter().any(|e| e.url == hook.url) {
+            continue;
+        }
         let secret = hook.secret.unwrap_or_else(logrix_webhook::generate_secret);
         let retries = hook.max_retries.unwrap_or(0);
         let ep = WebhookEndpoint::with_retries(hook.url.clone(), secret, hook.events, retries);

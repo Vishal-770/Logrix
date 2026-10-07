@@ -68,10 +68,19 @@ impl WebhookDispatcherService {
                 for ep in endpoints {
                     if ep.events.is_empty() || ep.events.iter().any(|ev| ev == &event_type) {
                         dispatched_urls.insert(ep.url.clone());
-                        let attempts_to_run = if ep.max_retries > 0 { ep.max_retries + 1 } else { 1 };
+                        let attempts_to_run = if ep.max_retries > 0 {
+                            ep.max_retries + 1
+                        } else {
+                            1
+                        };
                         let res = self
                             .client
-                            .dispatch_with_retries(&ep.url, &ep.secret, &webhook_payload, attempts_to_run)
+                            .dispatch_with_retries(
+                                &ep.url,
+                                &ep.secret,
+                                &webhook_payload,
+                                attempts_to_run,
+                            )
                             .await;
 
                         let delivery = WebhookDelivery {

@@ -1,12 +1,32 @@
 use super::webhook_dto::*;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
 use logrix_core::domain::{WebhookDelivery, WebhookPayload};
 use logrix_webhook::{generate_secret, WebhookHttpClient};
+use std::collections::HashSet;
 use uuid::Uuid;
+
+pub fn validate_events(
+    events: &[String],
+    known: &HashSet<String>,
+) -> Result<(), (StatusCode, String)> {
+    if known.is_empty() {
+        return Ok(());
+    }
+    for ev in events {
+        if ev != "*" && !known.contains(ev) {
+            let valid: Vec<&str> = known.iter().map(|s| s.as_str()).collect();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Invalid event '{ev}'. Available: {}", valid.join(", ")),
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub async fn rotate_secret_handler(
     State(state): State<super::webhooks::WebhookApiState>,
@@ -20,7 +40,10 @@ pub async fn rotate_secret_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if rotated {
-        Ok(Json(RotateSecretResponse { id, secret: new_secret }))
+        Ok(Json(RotateSecretResponse {
+            id,
+            secret: new_secret,
+        }))
     } else {
         Err((StatusCode::NOT_FOUND, "Endpoint not found".into()))
     }
@@ -68,4 +91,17 @@ pub async fn test_webhook_handler(
         latency_ms: res.latency_ms,
         error_message: res.error_message,
     }))
+}
+
+pub async fn list_deliveries_handler(
+    State(state): State<super::webhooks::WebhookApiState>,
+    Query(params): Query<DeliveriesQuery>,
+) -> Result<Json<Vec<WebhookDelivery>>, (StatusCode, String)> {
+    let limit = params.limit.unwrap_or(50).min(100);
+    let deliveries = state
+        .store
+        .list_deliveries(params.endpoint_id, params.success, limit)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(deliveries))
 }
