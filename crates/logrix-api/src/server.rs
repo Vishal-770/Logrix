@@ -169,9 +169,13 @@ pub async fn start_api_server_with_schema(
         create_router(build_schema(store.clone()))
     };
 
-    let webhook_state = crate::routes::WebhookApiState {
-        store: logrix_webhook::WebhookStore::new(store.pool().clone()),
-    };
+    let mut known_events = std::collections::HashSet::new();
+    known_events.insert("reorg".to_string());
+    known_events.insert("checkpoint".to_string());
+    let webhook_state = crate::routes::WebhookApiState::new(
+        logrix_webhook::WebhookStore::new(store.pool().clone()),
+        known_events,
+    );
     let app = app.merge(crate::routes::webhook_routes(webhook_state));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

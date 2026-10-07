@@ -10,6 +10,18 @@ pub struct Manifest {
     pub schema_version: String,
     pub chain_id: u64,
     pub contracts: Vec<ContractManifest>,
+    #[serde(default)]
+    pub webhooks: Vec<ManifestWebhook>,
+}
+
+/// Declarative webhook subscription from manifest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManifestWebhook {
+    pub url: String,
+    #[serde(default)]
+    pub secret: Option<String>,
+    #[serde(default)]
+    pub events: Vec<String>,
 }
 
 impl Manifest {

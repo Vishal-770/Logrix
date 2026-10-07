@@ -9,6 +9,6 @@ pub mod wasm;
 
 pub use declarative::DeclarativeMapper;
 pub use engine::UserLogicEngine;
-pub use manifest::{ContractManifest, DeclarativeRule, Manifest};
+pub use manifest::{ContractManifest, DeclarativeRule, Manifest, ManifestWebhook};
 pub use staging::{EmittedEntity, TransactionalStagingBuffer};
 pub use wasm::{HostState, WasmHandlerInstance, WasmRuntime};

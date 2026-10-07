@@ -1,3 +1,4 @@
+use crate::deliveries::DeliveryOps;
 use logrix_core::{
     domain::{WebhookDelivery, WebhookEndpoint},
     error::{ErrorClass, ErrorSource, LogrixError, LogrixResult},
@@ -16,159 +17,97 @@ impl WebhookStore {
         Self { pool }
     }
 
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Insert a new webhook endpoint.
     pub async fn create_endpoint(&self, ep: &WebhookEndpoint) -> LogrixResult<()> {
         sqlx::query(
-            r#"
-            INSERT INTO logrix_webhook_endpoints (id, url, secret, events, is_active, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
+            "INSERT INTO logrix_webhook_endpoints (id, url, secret, events, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6)"
         )
-        .bind(ep.id)
-        .bind(&ep.url)
-        .bind(&ep.secret)
-        .bind(&ep.events)
-        .bind(ep.is_active)
-        .bind(ep.created_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Permanent,
-                ErrorSource::Database,
-                format!("Failed to insert webhook endpoint: {e}"),
-            )
-        })?;
-
+        .bind(ep.id).bind(&ep.url).bind(&ep.secret).bind(&ep.events).bind(ep.is_active).bind(ep.created_at)
+        .execute(&self.pool).await
+        .map_err(|e| LogrixError::new(ErrorClass::Permanent, ErrorSource::Database, format!("Failed to insert endpoint: {e}")))?;
         Ok(())
+    }
+
+    /// Update an existing webhook endpoint's URL, events filter, and active status.
+    pub async fn update_endpoint(
+        &self,
+        id: Uuid,
+        url: Option<&str>,
+        events: Option<&[String]>,
+        is_active: Option<bool>,
+    ) -> LogrixResult<Option<WebhookEndpoint>> {
+        let current = match self.get_endpoint(id).await? {
+            Some(ep) => ep,
+            None => return Ok(None),
+        };
+        let new_url = url.unwrap_or(&current.url);
+        let new_events = events.map(|ev| ev.to_vec()).unwrap_or(current.events);
+        let new_active = is_active.unwrap_or(current.is_active);
+
+        sqlx::query("UPDATE logrix_webhook_endpoints SET url = $1, events = $2, is_active = $3 WHERE id = $4")
+            .bind(new_url).bind(&new_events).bind(new_active).bind(id)
+            .execute(&self.pool).await
+            .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Update failed: {e}")))?;
+
+        self.get_endpoint(id).await
+    }
+
+    /// Rotate secret for an existing endpoint.
+    pub async fn rotate_secret(&self, id: Uuid, new_secret: &str) -> LogrixResult<bool> {
+        let res = sqlx::query("UPDATE logrix_webhook_endpoints SET secret = $1 WHERE id = $2")
+            .bind(new_secret).bind(id).execute(&self.pool).await
+            .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Rotate failed: {e}")))?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// Retrieve an endpoint by its unique identifier.
+    pub async fn get_endpoint(&self, id: Uuid) -> LogrixResult<Option<WebhookEndpoint>> {
+        let row = sqlx::query(
+            "SELECT id, url, secret, events, is_active, created_at FROM logrix_webhook_endpoints WHERE id = $1"
+        )
+        .bind(id).fetch_optional(&self.pool).await
+        .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Fetch failed: {e}")))?;
+
+        Ok(row.map(|r| WebhookEndpoint {
+            id: r.get("id"), url: r.get("url"), secret: r.get("secret"),
+            events: r.get("events"), is_active: r.get("is_active"), created_at: r.get("created_at"),
+        }))
     }
 
     /// Fetch all active webhook endpoints.
     pub async fn list_active_endpoints(&self) -> LogrixResult<Vec<WebhookEndpoint>> {
         let rows = sqlx::query(
-            r#"
-            SELECT id, url, secret, events, is_active, created_at
-            FROM logrix_webhook_endpoints
-            WHERE is_active = true
-            ORDER BY created_at DESC
-            "#,
+            "SELECT id, url, secret, events, is_active, created_at FROM logrix_webhook_endpoints WHERE is_active = true ORDER BY created_at DESC"
         )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Database,
-                format!("Failed to list webhook endpoints: {e}"),
-            )
-        })?;
+        .fetch_all(&self.pool).await
+        .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("List failed: {e}")))?;
 
-        let endpoints = rows
-            .into_iter()
-            .map(|r| WebhookEndpoint {
-                id: r.get("id"),
-                url: r.get("url"),
-                secret: r.get("secret"),
-                events: r.get("events"),
-                is_active: r.get("is_active"),
-                created_at: r.get("created_at"),
-            })
-            .collect();
-
+        let endpoints = rows.into_iter().map(|r| WebhookEndpoint {
+            id: r.get("id"), url: r.get("url"), secret: r.get("secret"),
+            events: r.get("events"), is_active: r.get("is_active"), created_at: r.get("created_at"),
+        }).collect();
         Ok(endpoints)
     }
 
     /// Delete a webhook endpoint by ID.
     pub async fn delete_endpoint(&self, id: Uuid) -> LogrixResult<bool> {
         let res = sqlx::query("DELETE FROM logrix_webhook_endpoints WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Database,
-                    format!("Failed to delete webhook endpoint: {e}"),
-                )
-            })?;
-
+            .bind(id).execute(&self.pool).await
+            .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Delete failed: {e}")))?;
         Ok(res.rows_affected() > 0)
     }
 
-    /// Record a webhook delivery attempt in the audit table.
     pub async fn record_delivery(&self, del: &WebhookDelivery) -> LogrixResult<()> {
-        let status_code = del.status_code.map(|s| s as i32);
-
-        sqlx::query(
-            r#"
-            INSERT INTO logrix_webhook_deliveries (
-                id, endpoint_id, event_type, payload, status_code, success, error_message, latency_ms, created_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            "#,
-        )
-        .bind(del.id)
-        .bind(del.endpoint_id)
-        .bind(&del.event_type)
-        .bind(&del.payload)
-        .bind(status_code)
-        .bind(del.success)
-        .bind(&del.error_message)
-        .bind(del.latency_ms as i64)
-        .bind(del.created_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Database,
-                format!("Failed to record webhook delivery: {e}"),
-            )
-        })?;
-
-        Ok(())
+        DeliveryOps::record(&self.pool, del).await
     }
 
-    /// List recent webhook deliveries for debugging.
-    pub async fn list_deliveries(&self, limit: i64) -> LogrixResult<Vec<WebhookDelivery>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, endpoint_id, event_type, payload, status_code, success, error_message, latency_ms, created_at
-            FROM logrix_webhook_deliveries
-            ORDER BY created_at DESC
-            LIMIT $1
-            "#,
-        )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Database,
-                format!("Failed to list webhook deliveries: {e}"),
-            )
-        })?;
-
-        let deliveries = rows
-            .into_iter()
-            .map(|r| {
-                let status_i32: Option<i32> = r.get("status_code");
-                let lat_i64: i64 = r.get("latency_ms");
-                WebhookDelivery {
-                    id: r.get("id"),
-                    endpoint_id: r.get("endpoint_id"),
-                    event_type: r.get("event_type"),
-                    payload: r.get("payload"),
-                    status_code: status_i32.map(|s| s as u16),
-                    success: r.get("success"),
-                    error_message: r.get("error_message"),
-                    latency_ms: lat_i64 as u64,
-                    created_at: r.get("created_at"),
-                }
-            })
-            .collect();
-
-        Ok(deliveries)
+    pub async fn list_deliveries(
+        &self, endpoint_id: Option<Uuid>, success: Option<bool>, limit: i64,
+    ) -> LogrixResult<Vec<WebhookDelivery>> {
+        DeliveryOps::list(&self.pool, endpoint_id, success, limit).await
     }
 }

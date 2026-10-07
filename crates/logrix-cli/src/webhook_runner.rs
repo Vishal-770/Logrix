@@ -1,5 +1,7 @@
 use crate::args::Cli;
+use logrix_core::domain::WebhookEndpoint;
 use logrix_core::ports::QueuePort;
+use logrix_handlers::Manifest;
 use std::sync::Arc;
 use tracing::info;
 
@@ -10,6 +12,11 @@ pub async fn run_webhook_dispatcher(
     info!("Starting dedicated Logrix Webhook Dispatcher service");
     let pool = sqlx::PgPool::connect(&cli.database_url).await.ok();
     let store = pool.map(logrix_webhook::WebhookStore::new);
+
+    if let (Some(store_ref), Some(ref path)) = (&store, &cli.manifest_path) {
+        seed_manifest_webhooks(store_ref, path).await;
+    }
+
     let secret = if cli.webhook_secret.is_empty() {
         logrix_webhook::generate_secret()
     } else {
@@ -23,4 +30,17 @@ pub async fn run_webhook_dispatcher(
     );
     dispatcher.run_loop().await;
     Ok(())
+}
+
+async fn seed_manifest_webhooks(store: &logrix_webhook::WebhookStore, path: &str) {
+    let Ok(manifest) = Manifest::from_file(path) else { return; };
+    let existing = store.list_active_endpoints().await.unwrap_or_default();
+    for hook in manifest.webhooks {
+        if existing.iter().any(|e| e.url == hook.url) { continue; }
+        let secret = hook.secret.unwrap_or_else(logrix_webhook::generate_secret);
+        let ep = WebhookEndpoint::new(hook.url.clone(), secret, hook.events);
+        if store.create_endpoint(&ep).await.is_ok() {
+            info!(url = %hook.url, "Seeded webhook endpoint from manifest");
+        }
+    }
 }
