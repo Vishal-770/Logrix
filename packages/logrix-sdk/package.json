@@ -1,6 +1,6 @@
 {
   "name": "@logrix/sdk",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Official CLI and AssemblyScript runtime library for Logrix blockchain indexers",
   "main": "index.ts",
   "bin": {
