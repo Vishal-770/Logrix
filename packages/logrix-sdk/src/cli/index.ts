@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name("logrix")
   .description("Developer CLI for Logrix blockchain indexers")
-  .version("0.3.1");
+  .version("0.3.2");
 
 program.addCommand(initCommand());
 program.addCommand(addCommand());
