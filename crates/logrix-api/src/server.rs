@@ -146,12 +146,19 @@ pub async fn start_api_server_with_schema(
         addr, addr
     );
 
+    let mut known_events = std::collections::HashSet::new();
+    known_events.insert("reorg".to_string());
+    known_events.insert("checkpoint".to_string());
+
     let app = if let Some(path_str) = schema_path {
         let p = Path::new(path_str);
         if p.exists() {
             info!(path = path_str, "Loading dynamic GraphQL entity schema");
             let schema_def = SchemaDefinition::from_file(p)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+            for entity in &schema_def.entities {
+                known_events.insert(entity.name.clone());
+            }
             let dynamic_schema = DynamicSchemaEngine::build_with_config(
                 &schema_def,
                 store.clone(),
@@ -169,9 +176,6 @@ pub async fn start_api_server_with_schema(
         create_router(build_schema(store.clone()))
     };
 
-    let mut known_events = std::collections::HashSet::new();
-    known_events.insert("reorg".to_string());
-    known_events.insert("checkpoint".to_string());
     let webhook_state = crate::routes::WebhookApiState::new(
         logrix_webhook::WebhookStore::new(store.pool().clone()),
         known_events,
