@@ -85,3 +85,9 @@ logrix-reconciler = { path = "crates/logrix-reconciler" }
 logrix-handlers = { path = "crates/logrix-handlers" }
 logrix-blob-s3 = { path = "crates/logrix-blob-s3" }
 logrix-webhook = { path = "crates/logrix-webhook" }
+
+[profile.dev]
+debug = 1
+
+[profile.test]
+debug = 1
