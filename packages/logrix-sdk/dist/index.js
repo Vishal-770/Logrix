@@ -9,6 +9,7 @@ const add_1 = require("./commands/add");
 const validate_1 = require("./commands/validate");
 const export_values_1 = require("./commands/export_values");
 const test_1 = require("./commands/test");
+const status_1 = require("./commands/status");
 const program = new commander_1.Command();
 program
     .name("logrix")
@@ -21,4 +22,5 @@ program.addCommand((0, validate_1.validateCommand)());
 program.addCommand((0, build_1.buildCommand)());
 program.addCommand((0, export_values_1.exportValuesCommand)());
 program.addCommand((0, test_1.testCommand)());
+program.addCommand((0, status_1.statusCommand)());
 program.parse(process.argv);

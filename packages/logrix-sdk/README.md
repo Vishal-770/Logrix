@@ -24,11 +24,11 @@ npm test
 
 ### `logrix init [name]`
 
-Scaffolds a new indexer project. Run interactively or pass flags for CI/CD automation.
+Scaffolds a new indexer project with built-in presets for 26+ popular mainnets and testnets. Run interactively or pass flags for CI/CD automation.
 
 Options:
 - `-y, --yes` -- non-interactive mode using sensible defaults
-- `--network <name>` -- network preset (`arbitrum-one`, `ethereum`, `base`, `polygon`, `sepolia`)
+- `--network <name>` -- network preset (`arbitrum-one`, `ethereum`, `base`, `optimism`, `polygon`, `bsc`, `avalanche`, `sepolia`, etc.)
 - `--rpc <url>` -- custom RPC endpoint
 - `--contract-name <name>` -- contract name
 - `--address <address>` -- target contract 0x address
@@ -51,6 +51,23 @@ my-indexer/
 
 ---
 
+### `logrix status`
+
+Checks live JSON-RPC connectivity, measures round-trip latency, verifies chain ID match, checks latest block height, and verifies that target smart contracts are deployed with on-chain bytecode.
+
+```bash
+npx logrix status
+```
+
+Output includes:
+- Network Name & Chain ID verification
+- RPC reachability and response latency (ms)
+- Latest chain block number
+- Contract deployment verification (`eth_getCode` bytecode inspection)
+- Sync scope and remaining block delta
+
+---
+
 ### `logrix add contract <name>`
 
 Adds an additional smart contract to an existing `logrix.yaml` project for multi-contract indexing.
@@ -62,7 +79,7 @@ npx logrix add contract SecondaryToken \
   --abi ./my-abis/SecondaryToken.json \
   --start-block 1000000
 
-# Add with automatic ABI fetch from Etherscan / Sourcify
+# Add with automatic ABI fetch from block explorers / Sourcify
 npx logrix add contract DaiToken \
   --address 0x6b175474e89094c44da98b954eedeac495271d0f \
   --fetch-abi
@@ -71,8 +88,8 @@ npx logrix add contract DaiToken \
 Options:
 - `--address <address>` -- contract address
 - `--abi <path>` -- path to local ABI JSON
-- `--fetch-abi` -- auto-fetch verified contract ABI from Etherscan / Sourcify
-- `--etherscan-key <key>` -- optional Etherscan API key for rate limits
+- `--fetch-abi` -- auto-fetch verified contract ABI from block explorers (Etherscan, Arbiscan, Basescan, Polygonscan, etc.) and Sourcify
+- `--etherscan-key <key>` -- optional block explorer API key for rate limits
 - `--start-block <block>` -- initial indexing block
 
 ---
@@ -96,7 +113,7 @@ npx logrix codegen
 ```
 
 Outputs:
-- `src/generated/events.ts` -- typed event and parameter classes (namespaced per contract), multi-contract address constants, and router helpers
+- `src/generated/events.ts` -- typed event and parameter classes (namespaced per contract), multi-contract address constants, router helpers, and dynamic ABI decoding (`string`, `bytes`)
 - `src/generated/schema.ts` -- entity classes with static `.load(id)`, `.remove(id)`, and `.save()`, handling `@derivedFrom` relationships
 
 ---
@@ -165,6 +182,9 @@ Imported via `import { ... } from "@logrix/sdk"` in AssemblyScript handlers:
 | `Bytes` | Hex byte wrapper: `.fromHexString()`, `.fromUTF8()`, `.toHexString()`, `.toByteArray()`, `.length` |
 | `crypto.keccak256(data)` | Computes standard EVM Keccak-256 hash |
 | `formatUnits(val, decimals)` | Formats raw BigInt value into human-readable decimal string (default: 18) |
+| `decodeDynamicString(data, idx)` | Decodes dynamic string parameter from raw ABI event data |
+| `decodeDynamicBytes(data, idx)` | Decodes dynamic bytes parameter from raw ABI event data |
+| `createMockEventLog(config)` | Creates mock EventLog instance for testing mapping logic |
 | `log` | Structured logging: `log.info()`, `log.warning()`, `log.error()`, `log.debug()` |
 | `allocate(size)` | Guest memory allocator (must be re-exported by `mapping.ts`) |
 

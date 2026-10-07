@@ -36,6 +36,14 @@ export function buildCommand(): Command {
         process.exit(1);
       }
 
+      // Check if generated bindings exist
+      const generatedSchema = path.join(projectDir, "src", "generated", "schema.ts");
+      const generatedEvents = path.join(projectDir, "src", "generated", "events.ts");
+      if (!fs.existsSync(generatedSchema) || !fs.existsSync(generatedEvents)) {
+        console.warn("Notice: Generated bindings (src/generated/) not found or incomplete.");
+        console.warn("Tip: Run `logrix codegen` before `logrix build` to generate typed classes.\n");
+      }
+
       // Ensure output directory exists
       fs.mkdirSync(path.dirname(outFile), { recursive: true });
 
@@ -66,7 +74,7 @@ export function buildCommand(): Command {
       }
 
       const optimizeFlag = opts.debug ? "" : "--optimize";
-      const cmd = [
+      const ascCmd = [
         ascBin,
         resolvedEntry,
         "--config", "tsconfig.json",
@@ -77,16 +85,20 @@ export function buildCommand(): Command {
         .filter(Boolean)
         .join(" ");
 
-      console.log(`Running: ${cmd}\n`);
+      console.log(`Running: ${ascCmd}\n`);
 
       try {
-        execSync(cmd, { cwd: projectDir, stdio: "inherit" });
+        execSync(ascCmd, { cwd: projectDir, stdio: "inherit" });
         const stat = fs.statSync(outFile);
         console.log(
           `\nBuild complete: ${path.relative(projectDir, outFile)} (${stat.size} bytes)`
         );
       } catch {
         console.error("\nBuild failed.");
+        console.error("Troubleshooting tips:");
+        console.error("  1. Verify AssemblyScript types in src/mapping.ts (e.g. use BigInt / Address / Bytes from @logrix/sdk)");
+        console.error("  2. Run `logrix codegen` to refresh generated bindings");
+        console.error("  3. Run `logrix validate` to check configuration syntax\n");
         process.exit(1);
       }
     });

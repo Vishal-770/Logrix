@@ -7,6 +7,7 @@ import { addCommand } from "./commands/add";
 import { validateCommand } from "./commands/validate";
 import { exportValuesCommand } from "./commands/export_values";
 import { testCommand } from "./commands/test";
+import { statusCommand } from "./commands/status";
 
 const program = new Command();
 
@@ -22,5 +23,6 @@ program.addCommand(validateCommand());
 program.addCommand(buildCommand());
 program.addCommand(exportValuesCommand());
 program.addCommand(testCommand());
+program.addCommand(statusCommand());
 
 program.parse(process.argv);
