@@ -72,15 +72,22 @@ impl PostgresStore {
                 )
             })?;
 
-        let payload = serde_json::json!({
-            "chain_id": chain_id,
-            "block_number": block_number,
-            "count": entities.len()
-        });
-        let _ = sqlx::query("SELECT pg_notify('logrix_entity_mutations', $1)")
-            .bind(payload.to_string())
-            .execute(self.pool())
-            .await;
+        for e in entities {
+            let payload = serde_json::json!({
+                "chain_id": chain_id,
+                "entity_type": e.entity_type,
+                "entity_id": e.entity_id,
+                "block_number": block_number,
+                "data": e.data
+            });
+            let payload_str = payload.to_string();
+            if payload_str.len() < 7900 {
+                let _ = sqlx::query("SELECT pg_notify('logrix_entity_mutations', $1)")
+                    .bind(payload_str)
+                    .execute(self.pool())
+                    .await;
+            }
+        }
 
         Ok(())
     }

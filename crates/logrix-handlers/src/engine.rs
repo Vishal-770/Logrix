@@ -124,4 +124,10 @@ impl UserLogicEngine {
         let store = self.state_store.read().await;
         store.get(key).cloned()
     }
+
+    /// Seed state store directly (used for pre-warming from Postgres on startup).
+    pub async fn seed_state(&self, key: String, value: String) {
+        let mut store = self.state_store.write().await;
+        store.insert(key, value);
+    }
 }

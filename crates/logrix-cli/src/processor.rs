@@ -123,6 +123,7 @@ pub async fn run_processor(
                 engine.load_wasm_handler_file(contract.address, wasm_path)?;
             }
         }
+        crate::warmup::prewarm_state_store(&store, &engine, config.chain_id.as_u64()).await;
         Some(engine)
     } else {
         None
@@ -143,14 +144,21 @@ pub async fn run_processor(
 }
 
 async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting processor consumer loop; listening for shutdown signals");
     loop {
-        let msg_res = match ctx.queue.consume(QueueType::Backfill).await? {
-            Some(h) => Some((QueueType::Backfill, h)),
-            None => ctx
-                .queue
-                .consume(QueueType::Live)
-                .await?
-                .map(|h| (QueueType::Live, h)),
+        let msg_res = tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutdown signal received; draining processor consumer loop");
+                break;
+            }
+            res = ctx.queue.consume(QueueType::Backfill) => match res? {
+                Some(h) => Some((QueueType::Backfill, h)),
+                None => ctx
+                    .queue
+                    .consume(QueueType::Live)
+                    .await?
+                    .map(|h| (QueueType::Live, h)),
+            }
         };
 
         let Some((_q_type, handle)) = msg_res else {
@@ -170,4 +178,6 @@ async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std
             }
         }
     }
+    info!("Processor consumer loop exited cleanly");
+    Ok(())
 }

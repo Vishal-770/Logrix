@@ -166,5 +166,20 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), was
         )?;
     }
 
+    linker.func_wrap(
+        "env",
+        "abort",
+        |mut caller: Caller<'_, HostState>, msg_ptr: i32, file_ptr: i32, line: i32, col: i32| {
+            let msg = read_memory_string(&mut caller, msg_ptr, 128)
+                .unwrap_or_else(|| "WASM abort called".to_string());
+            let file = read_memory_string(&mut caller, file_ptr, 64)
+                .unwrap_or_else(|| "unknown".to_string());
+            caller
+                .data_mut()
+                .staging
+                .log("ERROR".to_string(), format!("{msg} at {file}:{line}:{col}"));
+        },
+    )?;
+
     Ok(())
 }

@@ -14,4 +14,5 @@ pub mod scaffold_helm;
 pub mod scaffold_templates;
 pub mod scaffold_terraform;
 pub mod status_tui;
+pub mod warmup;
 pub mod webhook_runner;
