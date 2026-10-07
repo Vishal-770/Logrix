@@ -60,12 +60,14 @@ impl WebhookDispatcherService {
         let webhook_payload = WebhookPayload::new(&event_type, chain_id, data);
         let mut any_delivered = false;
         let mut any_failed = false;
+        let mut dispatched_urls = std::collections::HashSet::new();
 
         // 1. Dispatch to database-registered active endpoints
         if let Some(store) = &self.store {
             if let Ok(endpoints) = store.list_active_endpoints().await {
                 for ep in endpoints {
                     if ep.events.is_empty() || ep.events.iter().any(|ev| ev == &event_type) {
+                        dispatched_urls.insert(ep.url.clone());
                         let res = self
                             .client
                             .dispatch(&ep.url, &ep.secret, &webhook_payload)
@@ -94,16 +96,18 @@ impl WebhookDispatcherService {
             }
         }
 
-        // 2. Dispatch to CLI configured default URL if set
+        // 2. Dispatch to CLI configured default URL if set and not already dispatched
         if let Some(url) = &self.default_webhook_url {
-            let res = self
-                .client
-                .dispatch(url, &self.default_secret, &webhook_payload)
-                .await;
-            if res.success {
-                any_delivered = true;
-            } else {
-                any_failed = true;
+            if !dispatched_urls.contains(url) {
+                let res = self
+                    .client
+                    .dispatch(url, &self.default_secret, &webhook_payload)
+                    .await;
+                if res.success {
+                    any_delivered = true;
+                } else {
+                    any_failed = true;
+                }
             }
         }
 

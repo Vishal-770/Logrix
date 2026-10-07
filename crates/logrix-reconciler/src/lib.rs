@@ -11,10 +11,8 @@ pub mod buffer;
 pub mod detector;
 pub mod reconciler;
 pub mod rollback;
-pub mod webhook;
 
 pub use buffer::RollingBlockBuffer;
 pub use detector::{ContinuityStatus, ReorgDetector};
 pub use reconciler::GapReconciler;
 pub use rollback::ReorgHandler;
-pub use webhook::WebhookDispatcher;
