@@ -10,17 +10,28 @@ pub struct WebhookEndpoint {
     pub secret: String,
     pub events: Vec<String>,
     pub is_active: bool,
+    pub max_retries: u32,
     pub created_at: DateTime<Utc>,
 }
 
 impl WebhookEndpoint {
     pub fn new(url: impl Into<String>, secret: impl Into<String>, events: Vec<String>) -> Self {
+        Self::with_retries(url, secret, events, 0)
+    }
+
+    pub fn with_retries(
+        url: impl Into<String>,
+        secret: impl Into<String>,
+        events: Vec<String>,
+        max_retries: u32,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             url: url.into(),
             secret: secret.into(),
             events,
             is_active: true,
+            max_retries,
             created_at: Utc::now(),
         }
     }
@@ -69,6 +80,8 @@ pub struct WebhookDelivery {
     pub payload: serde_json::Value,
     pub status_code: Option<u16>,
     pub success: bool,
+    pub attempt: u32,
+    pub is_retry: bool,
     pub error_message: Option<String>,
     pub latency_ms: u64,
     pub created_at: DateTime<Utc>,

@@ -22,6 +22,8 @@ pub struct ManifestWebhook {
     pub secret: Option<String>,
     #[serde(default)]
     pub events: Vec<String>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
 }
 
 impl Manifest {

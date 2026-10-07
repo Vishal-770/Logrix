@@ -53,6 +53,8 @@ pub async fn test_webhook_handler(
         payload: serde_json::to_value(&test_payload).unwrap_or_default(),
         status_code: res.status_code,
         success: res.success,
+        attempt: 1,
+        is_retry: false,
         error_message: res.error_message.clone(),
         latency_ms: res.latency_ms,
         created_at: chrono::Utc::now(),

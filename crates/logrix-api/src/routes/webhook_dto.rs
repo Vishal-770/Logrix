@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct CreateWebhookRequest {
     pub url: String,
     pub events: Option<Vec<String>>,
+    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -13,6 +14,7 @@ pub struct UpdateWebhookRequest {
     pub url: Option<String>,
     pub events: Option<Vec<String>>,
     pub is_active: Option<bool>,
+    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,6 +23,7 @@ pub struct CreateWebhookResponse {
     pub url: String,
     pub secret: String,
     pub events: Vec<String>,
+    pub max_retries: u32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -46,6 +49,7 @@ pub struct WebhookEndpointDto {
     pub masked_secret: String,
     pub events: Vec<String>,
     pub is_active: bool,
+    pub max_retries: u32,
     pub created_at: DateTime<Utc>,
 }
 

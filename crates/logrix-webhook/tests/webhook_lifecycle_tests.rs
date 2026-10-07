@@ -37,11 +37,27 @@ fn test_webhook_delivery_struct_creation() {
         payload: serde_json::json!({ "depth": 2 }),
         status_code: Some(200),
         success: true,
+        attempt: 2,
+        is_retry: true,
         error_message: None,
         latency_ms: 45,
         created_at: chrono::Utc::now(),
     };
     assert_eq!(delivery.id, id);
     assert!(delivery.success);
+    assert!(delivery.is_retry);
+    assert_eq!(delivery.attempt, 2);
     assert_eq!(delivery.status_code, Some(200));
+}
+
+#[test]
+fn test_endpoint_with_custom_retries() {
+    let ep = WebhookEndpoint::with_retries(
+        "https://example.com/webhook",
+        generate_secret(),
+        vec!["Transfer".to_string()],
+        3,
+    );
+    assert_eq!(ep.max_retries, 3);
+    assert!(ep.is_active);
 }

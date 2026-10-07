@@ -38,7 +38,8 @@ async fn seed_manifest_webhooks(store: &logrix_webhook::WebhookStore, path: &str
     for hook in manifest.webhooks {
         if existing.iter().any(|e| e.url == hook.url) { continue; }
         let secret = hook.secret.unwrap_or_else(logrix_webhook::generate_secret);
-        let ep = WebhookEndpoint::new(hook.url.clone(), secret, hook.events);
+        let retries = hook.max_retries.unwrap_or(0);
+        let ep = WebhookEndpoint::with_retries(hook.url.clone(), secret, hook.events, retries);
         if store.create_endpoint(&ep).await.is_ok() {
             info!(url = %hook.url, "Seeded webhook endpoint from manifest");
         }

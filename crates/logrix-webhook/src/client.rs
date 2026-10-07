@@ -12,6 +12,7 @@ pub struct DeliveryResult {
     pub delivery_id: Uuid,
     pub status_code: Option<u16>,
     pub success: bool,
+    pub attempts_taken: u32,
     pub error_message: Option<String>,
     pub latency_ms: u64,
 }
@@ -25,7 +26,7 @@ pub struct WebhookHttpClient {
 
 impl Default for WebhookHttpClient {
     fn default() -> Self {
-        Self::new(Duration::from_secs(5), 3)
+        Self::new(Duration::from_secs(5), 1)
     }
 }
 
@@ -37,7 +38,7 @@ impl WebhookHttpClient {
             .expect("build reqwest client");
 
         let retry_policy = RetryPolicy::new(
-            max_retries,
+            max_retries.max(1),
             Duration::from_millis(200),
             Duration::from_secs(4),
         );
@@ -48,12 +49,13 @@ impl WebhookHttpClient {
         }
     }
 
-    /// Dispatch signed webhook payload to the destination URL.
-    pub async fn dispatch(
+    /// Dispatch signed webhook payload with custom max_retries.
+    pub async fn dispatch_with_retries(
         &self,
         url: &str,
         secret: &str,
         payload: &WebhookPayload,
+        max_attempts: u32,
     ) -> DeliveryResult {
         let delivery_id = Uuid::new_v4();
         let serialized = serde_json::to_vec(payload).unwrap_or_default();
@@ -69,7 +71,8 @@ impl WebhookHttpClient {
         let mut last_error: Option<String> = None;
         let start = Instant::now();
 
-        while attempt < self.retry_policy.max_attempts {
+        let attempts_limit = max_attempts.max(1);
+        while attempt < attempts_limit {
             attempt += 1;
 
             let req = self
@@ -91,6 +94,7 @@ impl WebhookHttpClient {
                             delivery_id,
                             status_code: Some(status),
                             success: true,
+                            attempts_taken: attempt,
                             error_message: None,
                             latency_ms: start.elapsed().as_millis() as u64,
                         };
@@ -107,15 +111,28 @@ impl WebhookHttpClient {
                 }
             }
 
-            tokio::time::sleep(self.retry_policy.delay_for_attempt(attempt)).await;
+            if attempt < attempts_limit {
+                tokio::time::sleep(self.retry_policy.delay_for_attempt(attempt)).await;
+            }
         }
 
         DeliveryResult {
             delivery_id,
             status_code: last_status,
             success: false,
+            attempts_taken: attempt,
             error_message: last_error,
             latency_ms: start.elapsed().as_millis() as u64,
         }
+    }
+
+    /// Dispatch signed webhook payload with default at-most-once single attempt.
+    pub async fn dispatch(
+        &self,
+        url: &str,
+        secret: &str,
+        payload: &WebhookPayload,
+    ) -> DeliveryResult {
+        self.dispatch_with_retries(url, secret, payload, 1).await
     }
 }

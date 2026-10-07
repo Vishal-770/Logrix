@@ -52,13 +52,14 @@ async fn create_webhook(
     let events = payload.events.unwrap_or_default();
     validate_events(&events, &state.known_events)?;
     let secret = generate_secret();
-    let endpoint = WebhookEndpoint::new(payload.url.clone(), secret.clone(), events.clone());
+    let max_retries = payload.max_retries.unwrap_or(0);
+    let endpoint = WebhookEndpoint::with_retries(payload.url.clone(), secret.clone(), events.clone(), max_retries);
 
     state.store.create_endpoint(&endpoint).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok((StatusCode::CREATED, Json(CreateWebhookResponse {
-        id: endpoint.id, url: endpoint.url, secret, events, created_at: endpoint.created_at,
+        id: endpoint.id, url: endpoint.url, secret, events, max_retries, created_at: endpoint.created_at,
     })))
 }
 
@@ -69,7 +70,7 @@ async fn update_webhook(
 ) -> Result<Json<WebhookEndpointDto>, (StatusCode, String)> {
     if let Some(ref evs) = payload.events { validate_events(evs, &state.known_events)?; }
     let updated = state.store.update_endpoint(
-        id, payload.url.as_deref(), payload.events.as_deref(), payload.is_active,
+        id, payload.url.as_deref(), payload.events.as_deref(), payload.is_active, payload.max_retries,
     ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     match updated {
@@ -77,7 +78,7 @@ async fn update_webhook(
             let masked_secret = ep.masked_secret();
             Ok(Json(WebhookEndpointDto {
                 id: ep.id, url: ep.url, masked_secret,
-                events: ep.events, is_active: ep.is_active, created_at: ep.created_at,
+                events: ep.events, is_active: ep.is_active, max_retries: ep.max_retries, created_at: ep.created_at,
             }))
         }
         None => Err((StatusCode::NOT_FOUND, "Endpoint not found".into())),
@@ -95,7 +96,7 @@ async fn get_webhook(
     let masked_secret = ep.masked_secret();
     Ok(Json(WebhookEndpointDto {
         id: ep.id, url: ep.url, masked_secret,
-        events: ep.events, is_active: ep.is_active, created_at: ep.created_at,
+        events: ep.events, is_active: ep.is_active, max_retries: ep.max_retries, created_at: ep.created_at,
     }))
 }
 
@@ -109,7 +110,7 @@ async fn list_webhooks(
         let masked_secret = ep.masked_secret();
         WebhookEndpointDto {
             id: ep.id, url: ep.url, masked_secret,
-            events: ep.events, is_active: ep.is_active, created_at: ep.created_at,
+            events: ep.events, is_active: ep.is_active, max_retries: ep.max_retries, created_at: ep.created_at,
         }
     }).collect();
     Ok(Json(dtos))

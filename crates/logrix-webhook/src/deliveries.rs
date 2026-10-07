@@ -81,6 +81,8 @@ impl DeliveryOps {
                     payload: r.get("payload"),
                     status_code: status_i32.map(|s| s as u16),
                     success: r.get("success"),
+                    attempt: 1,
+                    is_retry: false,
                     error_message: r.get("error_message"),
                     latency_ms: lat_i64 as u64,
                     created_at: r.get("created_at"),

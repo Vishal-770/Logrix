@@ -68,9 +68,10 @@ impl WebhookDispatcherService {
                 for ep in endpoints {
                     if ep.events.is_empty() || ep.events.iter().any(|ev| ev == &event_type) {
                         dispatched_urls.insert(ep.url.clone());
+                        let attempts_to_run = if ep.max_retries > 0 { ep.max_retries + 1 } else { 1 };
                         let res = self
                             .client
-                            .dispatch(&ep.url, &ep.secret, &webhook_payload)
+                            .dispatch_with_retries(&ep.url, &ep.secret, &webhook_payload, attempts_to_run)
                             .await;
 
                         let delivery = WebhookDelivery {
@@ -80,6 +81,8 @@ impl WebhookDispatcherService {
                             payload: serde_json::to_value(&webhook_payload).unwrap_or_default(),
                             status_code: res.status_code,
                             success: res.success,
+                            attempt: res.attempts_taken,
+                            is_retry: res.attempts_taken > 1,
                             error_message: res.error_message,
                             latency_ms: res.latency_ms,
                             created_at: Utc::now(),
