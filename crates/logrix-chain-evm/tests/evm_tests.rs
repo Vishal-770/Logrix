@@ -98,3 +98,35 @@ fn test_decode_non_transfer_event() {
 
     assert!(decode_erc20_transfer(421614, &log).is_none());
 }
+
+#[test]
+fn test_strict_hash_parsing() {
+    use logrix_chain_evm::parser::parse_required_hash;
+
+    // Missing field must return error
+    assert!(parse_required_hash(None, "hash").is_err());
+
+    // Malformed hex must return error
+    assert!(parse_required_hash(Some("invalid_hex"), "hash").is_err());
+
+    // Valid 32-byte hex string succeeds
+    let valid = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let hash = parse_required_hash(Some(valid), "hash").expect("parse valid hash");
+    assert_ne!(hash, B256::ZERO);
+}
+
+#[test]
+fn test_strict_envelope_rejects_missing_fields() {
+    use logrix_chain_evm::parser::parse_block_envelope;
+    use logrix_core::domain::ChainId;
+    use serde_json::json;
+
+    // Block with missing parentHash must error
+    let bad_block = json!({
+        "hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "timestamp": "0x66000000"
+    });
+
+    let res = parse_block_envelope(&bad_block, vec![], ChainId::new(1), 100);
+    assert!(res.is_err());
+}

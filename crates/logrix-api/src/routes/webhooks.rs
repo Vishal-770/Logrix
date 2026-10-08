@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use logrix_core::domain::WebhookEndpoint;
-use logrix_webhook::{generate_secret, WebhookStore};
+use logrix_webhook::{generate_secret, WebhookHttpClient, WebhookStore};
 use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -18,6 +18,7 @@ use uuid::Uuid;
 pub struct WebhookApiState {
     pub store: WebhookStore,
     pub known_events: Arc<HashSet<String>>,
+    pub http_client: WebhookHttpClient,
 }
 
 impl WebhookApiState {
@@ -25,6 +26,7 @@ impl WebhookApiState {
         Self {
             store,
             known_events: Arc::new(known_events),
+            http_client: WebhookHttpClient::default(),
         }
     }
 }

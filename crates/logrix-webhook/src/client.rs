@@ -34,6 +34,8 @@ impl WebhookHttpClient {
     pub fn new(timeout: Duration, max_retries: u32) -> Self {
         let client = Client::builder()
             .timeout(timeout)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(10)
             .build()
             .expect("build reqwest client");
 

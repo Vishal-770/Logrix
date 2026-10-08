@@ -141,9 +141,11 @@ impl AbiEventDecoder {
     }
 }
 
+static STANDARD_ERC20_DECODER: std::sync::LazyLock<AbiEventDecoder> =
+    std::sync::LazyLock::new(AbiEventDecoder::standard_erc20);
+
 pub fn decode_erc20_transfer(chain_id: u64, log: &EventLog) -> Option<DecodedTransfer> {
-    let decoder = AbiEventDecoder::standard_erc20();
-    let decoded = decoder.decode_log(log)?;
+    let decoded = STANDARD_ERC20_DECODER.decode_log(log)?;
     if decoded.event_name != "Transfer" {
         return None;
     }

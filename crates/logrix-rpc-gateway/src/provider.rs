@@ -17,6 +17,8 @@ pub struct ManagedProvider {
     cooldown_secs: Arc<AtomicU64>,
     /// Moving average latency in milliseconds
     avg_latency_ms: Arc<AtomicU64>,
+    /// Highest block height observed on this provider
+    latest_block: Arc<AtomicU64>,
 }
 
 impl ManagedProvider {
@@ -28,7 +30,8 @@ impl ManagedProvider {
     ) -> Self {
         let url_str = url.into();
         let name_str = name.into();
-        let client = EvmChainClient::new(chain_id, &url_str);
+        // Supervised client with fast failover for gateway
+        let client = EvmChainClient::new_supervised(chain_id, &url_str);
         // Failure threshold: 3, success threshold to close: 2, recovery timeout: 10s
         let breaker = Arc::new(CircuitBreaker::new(3, 2, Duration::from_secs(10)));
 
@@ -40,6 +43,7 @@ impl ManagedProvider {
             breaker,
             cooldown_secs: Arc::new(AtomicU64::new(10)),
             avg_latency_ms: Arc::new(AtomicU64::new(50)), // seed initial 50ms
+            latest_block: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -106,5 +110,18 @@ impl ManagedProvider {
         let max_millis = base_secs * 1000;
         let jittered_millis = rng.gen_range(min_millis..=max_millis);
         Duration::from_millis(jittered_millis)
+    }
+
+    /// Record newly observed block height from this provider.
+    pub fn record_block_height(&self, height: u64) {
+        let current = self.latest_block.load(Ordering::Relaxed);
+        if height > current {
+            self.latest_block.store(height, Ordering::Relaxed);
+        }
+    }
+
+    /// Retrieve the highest block height observed from this provider.
+    pub fn latest_block(&self) -> u64 {
+        self.latest_block.load(Ordering::Relaxed)
     }
 }

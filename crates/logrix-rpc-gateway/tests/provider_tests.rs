@@ -90,3 +90,43 @@ async fn test_provider_latency_moving_average_and_jitter() {
         assert!(dur <= Duration::from_millis(10000));
     }
 }
+
+#[tokio::test]
+async fn test_tier_round_robin_load_balancing() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+
+    let p1 = ManagedProvider::new("node_a", "http://localhost:8545", 1, chain_id);
+    let p2 = ManagedProvider::new("node_b", "http://localhost:8546", 1, chain_id);
+
+    pool.add_provider(p1).await;
+    pool.add_provider(p2).await;
+
+    let s1 = pool.select_provider().await.unwrap();
+    let s2 = pool.select_provider().await.unwrap();
+    let s3 = pool.select_provider().await.unwrap();
+
+    // Alternate between providers in the same priority tier
+    assert_ne!(s1.name(), s2.name());
+    assert_eq!(s1.name(), s3.name());
+}
+
+#[tokio::test]
+async fn test_stale_provider_penalty() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+
+    let fast_stale = ManagedProvider::new("fast_stale", "http://localhost:8545", 1, chain_id);
+    let normal_fresh = ManagedProvider::new("normal_fresh", "http://localhost:8546", 1, chain_id);
+
+    // fast_stale is at block 100, normal_fresh is at block 105
+    fast_stale.record_block_height(100);
+    normal_fresh.record_block_height(105);
+
+    pool.add_provider(fast_stale).await;
+    pool.add_provider(normal_fresh).await;
+
+    // Normal fresh should be selected due to staleness penalty on fast_stale
+    let selected = pool.select_provider().await.unwrap();
+    assert_eq!(selected.name(), "normal_fresh");
+}

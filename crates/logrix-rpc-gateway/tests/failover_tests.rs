@@ -115,3 +115,38 @@ async fn test_gateway_budget_exhaustion_blocks_further_network_calls() {
     assert!(matches!(err.class, ErrorClass::RateLimited { .. }));
     assert_eq!(counter.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn test_range_limit_error_does_not_trip_circuit_breaker() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+    let p = ManagedProvider::new("healthy-node", "http://localhost:8545", 1, chain_id);
+    pool.add_provider(p.clone()).await;
+
+    let gateway = RpcGateway::new(chain_id, pool, None, None);
+
+    let res: LogrixResult<String> = gateway
+        .execute_with_fallback("eth_getLogs", |_| async move {
+            Err(LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::ChainRpc,
+                "query returned more than 10000 results",
+            ))
+        })
+        .await;
+
+    assert!(res.is_err());
+    // Provider MUST remain healthy because error was query range limit
+    assert!(p.is_healthy().await);
+}
+
+#[tokio::test]
+async fn test_gateway_micro_cache() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+    let gateway = RpcGateway::new(chain_id, pool, None, None);
+
+    assert_eq!(gateway.get_cached_block().await, None);
+    gateway.set_cached_block(12345).await;
+    assert_eq!(gateway.get_cached_block().await, Some(12345));
+}

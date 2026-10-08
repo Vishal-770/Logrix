@@ -72,21 +72,28 @@ impl PostgresStore {
                 )
             })?;
 
-        for e in entities {
-            let payload = serde_json::json!({
-                "chain_id": chain_id,
-                "entity_type": e.entity_type,
-                "entity_id": e.entity_id,
-                "block_number": block_number,
-                "data": e.data
-            });
-            let payload_str = payload.to_string();
-            if payload_str.len() < 7900 {
-                let _ = sqlx::query("SELECT pg_notify('logrix_entity_mutations', $1)")
-                    .bind(payload_str)
-                    .execute(self.pool())
-                    .await;
-            }
+        let payloads: Vec<String> = entities
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "chain_id": chain_id,
+                    "entity_type": e.entity_type,
+                    "entity_id": e.entity_id,
+                    "block_number": block_number,
+                    "data": e.data
+                })
+                .to_string()
+            })
+            .filter(|s| s.len() < 7900)
+            .collect();
+
+        if !payloads.is_empty() {
+            let _ = sqlx::query(
+                "SELECT pg_notify('logrix_entity_mutations', p) FROM UNNEST($1::TEXT[]) AS p",
+            )
+            .bind(&payloads)
+            .execute(self.pool())
+            .await;
         }
 
         Ok(())
@@ -99,25 +106,22 @@ impl PostgresStore {
         entity_type: &str,
         entity_id: &str,
     ) -> LogrixResult<Option<DynamicEntityRecord>> {
-        let row = sqlx::query(
-            r#"
-            SELECT chain_id, entity_type, entity_id, data, block_number, is_reverted, updated_at
-            FROM logrix_entities
-            WHERE chain_id = $1 AND entity_type = $2 AND entity_id = $3 AND is_reverted = FALSE
-            "#,
-        )
-        .bind(chain_id as i64)
-        .bind(entity_type)
-        .bind(entity_id)
-        .fetch_optional(self.pool())
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Database,
-                format!("Failed to get dynamic entity: {e}"),
-            )
-        })?;
+        let query = "SELECT chain_id, entity_type, entity_id, data, block_number, is_reverted, updated_at \
+                     FROM logrix_entities \
+                     WHERE chain_id = $1 AND entity_type = $2 AND entity_id = $3 AND is_reverted = FALSE";
+        let row = sqlx::query(query)
+            .bind(chain_id as i64)
+            .bind(entity_type)
+            .bind(entity_id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Database,
+                    format!("Failed to get dynamic entity: {e}"),
+                )
+            })?;
 
         Ok(row.map(|r| DynamicEntityRecord {
             chain_id: r.get::<i64, _>("chain_id") as u64,
@@ -139,26 +143,22 @@ impl PostgresStore {
         entity_id: &str,
     ) -> LogrixResult<()> {
         let now = chrono::Utc::now();
-        sqlx::query(
-            r#"
-            UPDATE logrix_entities
-            SET is_reverted = TRUE, reverted_at = $4
-            WHERE chain_id = $1 AND entity_type = $2 AND entity_id = $3 AND is_reverted = FALSE
-            "#,
-        )
-        .bind(chain_id as i64)
-        .bind(entity_type)
-        .bind(entity_id)
-        .bind(now)
-        .execute(self.pool())
-        .await
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Database,
-                format!("Failed to soft-delete entity {entity_type}:{entity_id}: {e}"),
-            )
-        })?;
+        let query = "UPDATE logrix_entities SET is_reverted = TRUE, reverted_at = $4 \
+                     WHERE chain_id = $1 AND entity_type = $2 AND entity_id = $3 AND is_reverted = FALSE";
+        sqlx::query(query)
+            .bind(chain_id as i64)
+            .bind(entity_type)
+            .bind(entity_id)
+            .bind(now)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Database,
+                    format!("Failed to soft-delete entity {entity_type}:{entity_id}: {e}"),
+                )
+            })?;
 
         Ok(())
     }

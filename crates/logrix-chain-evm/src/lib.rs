@@ -3,10 +3,12 @@
 //! Provides adaptive AIMD block chunking, token bucket rate limiting,
 //! exponential backoff, and ERC-20 event decoding.
 
+pub mod batch;
 pub mod chain_port;
 pub mod chunker;
 pub mod client;
 pub mod decoder;
+pub mod parser;
 
 pub use chunker::AdaptiveChunker;
 pub use client::EvmChainClient;

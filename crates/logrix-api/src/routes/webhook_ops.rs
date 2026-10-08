@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use logrix_core::domain::{WebhookDelivery, WebhookPayload};
-use logrix_webhook::{generate_secret, WebhookHttpClient};
+use logrix_webhook::generate_secret;
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -60,14 +60,16 @@ pub async fn test_webhook_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "Endpoint not found".into()))?;
 
-    let client = WebhookHttpClient::default();
     let test_payload = WebhookPayload::new(
         "test.ping",
         0,
         serde_json::json!({ "message": "Logrix test webhook delivery", "endpoint_id": id }),
     );
 
-    let res = client.dispatch(&ep.url, &ep.secret, &test_payload).await;
+    let res = state
+        .http_client
+        .dispatch(&ep.url, &ep.secret, &test_payload)
+        .await;
 
     let delivery = WebhookDelivery {
         id: res.delivery_id,

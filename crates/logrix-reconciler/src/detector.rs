@@ -75,10 +75,19 @@ impl ReorgDetector {
                         "Blockchain reorg detected: parent hash mismatch"
                     );
 
+                    let tip_number = tip.number;
+                    // Take snapshot and release write lock before making remote network RPC calls
+                    let buf_snapshot = buf.clone();
+                    drop(buf);
+
                     let (fork_block, fork_hash) = self
-                        .find_common_ancestor(&buf, envelope.block_number, envelope.parent_hash)
+                        .find_common_ancestor(
+                            &buf_snapshot,
+                            envelope.block_number,
+                            envelope.parent_hash,
+                        )
                         .await?;
-                    let reorg_depth = tip.number.saturating_sub(fork_block);
+                    let reorg_depth = tip_number.saturating_sub(fork_block);
 
                     info!(
                         fork_block,

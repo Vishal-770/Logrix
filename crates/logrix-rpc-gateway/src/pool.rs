@@ -1,15 +1,17 @@
 use crate::provider::ManagedProvider;
 use logrix_core::domain::ChainId;
 use logrix_core::error::{ErrorClass, ErrorSource, LogrixError, LogrixResult};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
-/// Multi-provider pool router with latency-weighted priority fallback.
+/// Multi-provider pool router with round-robin load distribution and staleness detection.
 #[derive(Clone)]
 pub struct ProviderPool {
     chain_id: ChainId,
     providers: Arc<RwLock<Vec<ManagedProvider>>>,
+    rr_counter: Arc<AtomicU64>,
 }
 
 impl ProviderPool {
@@ -17,6 +19,7 @@ impl ProviderPool {
         Self {
             chain_id,
             providers: Arc::new(RwLock::new(Vec::new())),
+            rr_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -29,21 +32,16 @@ impl ProviderPool {
     pub async fn add_provider(&self, provider: ManagedProvider) {
         let mut list = self.providers.write().await;
         list.push(provider);
-        // Sort by priority (lowest number = highest priority)
         list.sort_by_key(|p| p.priority());
     }
 
-    /// Select the best available provider:
-    /// 1. Filters for healthy providers whose circuit breaker allows calls.
-    /// 2. Groups by highest priority tier.
-    /// 3. Picks lowest-latency provider in that tier.
-    /// 4. If all in tier are tripped, falls back to next priority tier.
+    /// Select the best available provider.
     pub async fn select_provider(&self) -> LogrixResult<ManagedProvider> {
         self.select_provider_excluding(&std::collections::HashSet::new())
             .await
     }
 
-    /// Select the best available provider, excluding those already attempted in this request.
+    /// Select the best available provider with round-robin load distribution and staleness penalty.
     pub async fn select_provider_excluding(
         &self,
         excluded_names: &std::collections::HashSet<String>,
@@ -57,28 +55,49 @@ impl ProviderPool {
             ));
         }
 
-        // Find healthy providers that have not yet been tried
+        // Detect highest known block tip across all providers
+        let max_block = list.iter().map(|p| p.latest_block()).max().unwrap_or(0);
+
+        // Find healthy untried providers and score them
         let mut healthy = Vec::new();
         for p in list.iter() {
             if !excluded_names.contains(p.name()) && p.is_healthy().await {
-                healthy.push(p);
+                // Penalize providers lagging more than 3 blocks behind the highest seen tip
+                let is_stale = max_block > 0
+                    && p.latest_block() > 0
+                    && max_block.saturating_sub(p.latest_block()) > 3;
+                let effective_prio = if is_stale {
+                    p.priority() + 10
+                } else {
+                    p.priority()
+                };
+                healthy.push((effective_prio, p));
             }
         }
 
-        if let Some(best) = healthy
-            .iter()
-            .min_by_key(|p| (p.priority(), p.avg_latency_ms()))
-        {
+        if let Some(&(best_prio, _)) = healthy.iter().min_by_key(|(prio, _)| *prio) {
+            // Collect all providers matching the best effective priority tier
+            let tier_providers: Vec<&ManagedProvider> = healthy
+                .iter()
+                .filter(|(prio, _)| *prio == best_prio)
+                .map(|(_, p)| *p)
+                .collect();
+
+            // Round-robin load balance across candidates within the same tier
+            let idx =
+                (self.rr_counter.fetch_add(1, Ordering::Relaxed) as usize) % tier_providers.len();
+            let selected = tier_providers[idx];
+
             debug!(
-                provider = best.name(),
-                priority = best.priority(),
-                avg_latency_ms = best.avg_latency_ms(),
-                "Selected RPC provider from pool"
+                provider = selected.name(),
+                priority = selected.priority(),
+                avg_latency_ms = selected.avg_latency_ms(),
+                "Selected RPC provider from pool with tier load-balancing"
             );
-            return Ok((*best).clone());
+            return Ok(selected.clone());
         }
 
-        // If no healthy untried providers, fallback to best-effort untried provider with shortest cooldown
+        // Fallback to best-effort untried provider with shortest cooldown
         let untried: Vec<&ManagedProvider> = list
             .iter()
             .filter(|p| !excluded_names.contains(p.name()))

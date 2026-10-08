@@ -41,8 +41,16 @@ impl SingleFlight {
                 map.insert(key.to_string(), tx);
                 drop(map);
 
+                // RAII guard ensures key is removed if task_fn is cancelled
+                let mut guard = FlightGuard {
+                    key: key.to_string(),
+                    in_flight: self.in_flight.clone(),
+                    completed: false,
+                };
+
                 // We are the leader for this key. Execute task.
                 let outcome = task_fn().await;
+                guard.completed = true;
 
                 // Clean up map and broadcast to followers
                 let mut map = self.in_flight.lock().await;
@@ -67,6 +75,27 @@ impl SingleFlight {
                 ErrorSource::ChainRpc,
                 format!("SingleFlight subscriber missed broadcast: {e}"),
             )),
+        }
+    }
+}
+
+struct FlightGuard {
+    key: String,
+    in_flight: FlightMap,
+    completed: bool,
+}
+
+impl Drop for FlightGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            let key = self.key.clone();
+            let in_flight = self.in_flight.clone();
+            tokio::spawn(async move {
+                let mut map = in_flight.lock().await;
+                if let Some(tx) = map.remove(&key) {
+                    let _ = tx.send(Err("SingleFlight leader task cancelled".to_string()));
+                }
+            });
         }
     }
 }

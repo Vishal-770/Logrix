@@ -17,11 +17,11 @@ use tracing::warn;
 #[derive(Clone)]
 pub struct EvmChainClient {
     chain_id: ChainId,
-    rpc_url: String,
-    http_client: Client,
-    rpc_id: Arc<AtomicU64>,
-    chunker: Arc<AdaptiveChunker>,
-    rate_limiter: Arc<RateLimiter>,
+    pub(crate) rpc_url: String,
+    pub(crate) http_client: Client,
+    pub(crate) rpc_id: Arc<AtomicU64>,
+    pub(crate) chunker: Arc<AdaptiveChunker>,
+    pub(crate) rate_limiter: Arc<RateLimiter>,
     retry_policy: RetryPolicy,
 }
 
@@ -44,6 +44,14 @@ impl EvmChainClient {
             rate_limiter: Arc::new(RateLimiter::new(100, 50.0)),
             retry_policy: RetryPolicy::new(3, Duration::from_millis(200), Duration::from_secs(5)),
         }
+    }
+
+    /// Supervised client for Multi-Provider Gateways: fails fast to allow instant fallback.
+    pub fn new_supervised(chain_id: ChainId, rpc_url: impl Into<String>) -> Self {
+        let mut client = Self::new(chain_id, rpc_url);
+        client.retry_policy =
+            RetryPolicy::new(1, Duration::from_millis(50), Duration::from_millis(100));
+        client
     }
 
     /// Access the internal chain ID.
@@ -132,26 +140,22 @@ impl EvmChainClient {
                             ErrorSource::ChainRpc,
                             "RPC response missing result field",
                         ));
-                    } else if status.as_u16() == 429 {
+                    } else {
                         self.chunker.record_failure();
+                        let retry_after = extract_retry_after(resp.headers());
                         if attempt < self.retry_policy.max_attempts {
                             attempt += 1;
-                            let delay = self.retry_policy.delay_for_attempt(attempt);
-                            warn!(attempt, "HTTP 429 Rate limited, backing off");
+                            let delay = retry_after
+                                .unwrap_or_else(|| self.retry_policy.delay_for_attempt(attempt));
                             tokio::time::sleep(delay).await;
                             continue;
                         }
-                        return Err(LogrixError::rate_limited(
-                            ErrorSource::ChainRpc,
-                            "HTTP 429 Too Many Requests from RPC gateway",
-                            Some(Duration::from_secs(2)),
-                        ));
-                    } else {
-                        if attempt < self.retry_policy.max_attempts {
-                            attempt += 1;
-                            let delay = self.retry_policy.delay_for_attempt(attempt);
-                            tokio::time::sleep(delay).await;
-                            continue;
+                        if status.as_u16() == 429 {
+                            return Err(LogrixError::rate_limited(
+                                ErrorSource::ChainRpc,
+                                "HTTP 429 Too Many Requests from RPC gateway",
+                                retry_after.or(Some(Duration::from_secs(2))),
+                            ));
                         }
                         return Err(LogrixError::new(
                             ErrorClass::Transient,
@@ -177,4 +181,12 @@ impl EvmChainClient {
             }
         }
     }
+}
+
+fn extract_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
 }
