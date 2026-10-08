@@ -259,15 +259,25 @@ function handleTransfer(raw: string): i32 {
 
 ## Deployment
 
-1. Use `@logrix/sdk` to build and export your indexer:
+1. Use `@logrix/sdk` to build and export your indexer bundle:
    ```bash
-   logrix codegen && logrix build && logrix export-values
+   npm run codegen && npm run build && npm run export-values
    ```
-2. Deploy via Helm to your Kubernetes cluster:
+2. Deploy via Helm to your Kubernetes cluster using the scaffolded `deploy/` profiles:
+
+   **Local Kubernetes (Minikube / Kind):**
    ```bash
-   helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
-     -f cluster-infra.yaml \
+   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+     -f deploy/values-local.yaml \
      -f indexer-values.yaml
+   ```
+
+   **Production AWS EKS:**
+   ```bash
+   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+     -f deploy/values-aws.yaml \
+     -f indexer-values.yaml \
+     --set config.existingSecret=logrix-aws-secrets
    ```
 
 Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for full Helm deployment options.

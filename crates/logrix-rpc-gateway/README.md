@@ -155,7 +155,7 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 Pairs your indexer logic with AWS Aurora Serverless PostgreSQL, Amazon SQS, Amazon S3, and KEDA autoscaling using the provided AWS profile:
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/helm/values-aws.yaml \
+  -f deploy/values-aws.yaml \
   -f indexer-values.yaml \
   --set config.existingSecret="logrix-aws-secrets"
 ```

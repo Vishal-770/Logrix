@@ -104,6 +104,12 @@ export function handleTransfer(event: TransferEvent): void {
 npm run build
 ```
 
+### Export Helm Deployment Bundle
+```bash
+npm run export-values
+```
+Generates `indexer-values.yaml` bundling your compiled WASM handler (`config.wasmBase64`), GraphQL schema, and contract manifest.
+
 ---
 
 ## 2. Kubernetes Deployments
@@ -116,10 +122,8 @@ Deploy a complete, self-contained indexer cluster with built-in in-cluster Postg
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  --set localDev.enabled=true \
-  --set-file config.manifestContent=manifest.yaml \
-  --set-file config.schemaContent=schema.graphql \
-  --set-file config.wasmBinary=handlers/mapping.wasm
+  -f deploy/values-local.yaml \
+  -f indexer-values.yaml
 ```
 
 Port-forward and open the GraphQL playground:
@@ -136,7 +140,7 @@ Deploy to AWS EKS with Aurora Serverless v2 PostgreSQL, Amazon SQS, Amazon S3, a
 
 #### Step 1: Provision or Configure AWS Backing Services
 
-- **Using Existing AWS Resources:** If you already have AWS RDS/Aurora PostgreSQL, Amazon SQS, and an S3 bucket, configure your endpoints in `values-aws.yaml`.
+- **Using Existing AWS Resources:** If you already have AWS RDS/Aurora PostgreSQL, Amazon SQS, and an S3 bucket, configure your endpoints in `deploy/values-aws.yaml` and credentials in `deploy/secrets.example.yaml`.
 - **Provisioning with Terraform:** If starting from scratch, run the Terraform modules scaffolded by Logrix:
   ```bash
   cd infra/terraform
@@ -145,33 +149,27 @@ Deploy to AWS EKS with Aurora Serverless v2 PostgreSQL, Amazon SQS, Amazon S3, a
   ```
   *(If developing directly from the source repository, the Terraform modules are located in `deploy/terraform/aws`.)*
   
-  Copy the Terraform outputs (`database_url`, `sqs_queue_url`, `s3_bucket_name`, and `iam_role_arn`) into `values-aws.yaml`.
+  Copy the Terraform outputs (`database_url`, `sqs_queue_url`, `s3_bucket_name`, and `iam_role_arn`) into `deploy/values-aws.yaml`.
 
 #### Step 2: Deploy Helm Chart to AWS EKS
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f values-aws.yaml \
-  --set-file config.manifestContent=manifest.yaml \
-  --set-file config.schemaContent=schema.graphql \
-  --set-file config.wasmBinary=handlers/mapping.wasm
+  -f deploy/values-aws.yaml \
+  -f indexer-values.yaml \
+  --set config.existingSecret=logrix-aws-secrets
 ```
 
 ---
 
 ### Option C: Bring Your Own Infrastructure (Custom BYO)
 
-Supply your existing database and queue credentials directly via `--set` flags or a custom values file:
+Supply your custom cluster infrastructure values along with the generated indexer bundle:
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  --set config.databaseUrl="postgres://user:pass@your-db-host:5432/dbname" \
-  --set config.queueDriver="rabbitmq" \
-  --set config.rabbitmqUrl="amqp://user:pass@your-queue-host:5672/%2f" \
-  --set config.rpcUrl="https://arb1.arbitrum.io/rpc" \
-  --set-file config.manifestContent=manifest.yaml \
-  --set-file config.schemaContent=schema.graphql \
-  --set-file config.wasmBinary=handlers/mapping.wasm
+  -f my-cluster-infra.yaml \
+  -f indexer-values.yaml
 ```
 
 ---
