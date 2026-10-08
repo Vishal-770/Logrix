@@ -120,7 +120,14 @@ pub async fn run_processor(
         let mut engine = UserLogicEngine::new(manifest)?;
         for contract in &engine.manifest().contracts.clone() {
             if let Some(ref wasm_path) = contract.wasm_handler {
-                engine.load_wasm_handler_file(contract.address, wasm_path)?;
+                let resolved = if std::path::Path::new(wasm_path).exists() {
+                    wasm_path.clone()
+                } else if std::path::Path::new("/etc/logrix/handlers/mapping.wasm").exists() {
+                    "/etc/logrix/handlers/mapping.wasm".to_string()
+                } else {
+                    wasm_path.clone()
+                };
+                engine.load_wasm_handler_file(contract.address, resolved)?;
             }
         }
         crate::warmup::prewarm_state_store(&store, &engine, config.chain_id.as_u64()).await;

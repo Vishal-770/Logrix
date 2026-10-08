@@ -66,7 +66,7 @@ export function exportValuesCommand(): Command {
           name: ds.name,
           address: ds.source?.address ?? "",
           events,
-          wasm_handler: "./mapping.wasm",
+          wasm_handler: "/etc/logrix/handlers/mapping.wasm",
         });
       }
 
