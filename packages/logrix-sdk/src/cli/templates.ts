@@ -187,10 +187,11 @@ export function packageJsonTemplate(projectName: string): object {
       codegen: "logrix codegen",
       build: "logrix build",
       validate: "logrix validate",
+      "export-values": "logrix export-values",
       "build:asc": "asc src/mapping.ts --config tsconfig.json -o build/mapping.wasm --optimize --exportRuntime",
     },
     dependencies: {
-      "@logrix/sdk": "^0.1.0",
+      "@logrix/sdk": "^0.3.3",
     },
     devDependencies: {
       assemblyscript: "^0.27.29",
@@ -209,6 +210,142 @@ export function gitignoreTemplate(): string {
   return `node_modules/
 build/
 src/generated/
+indexer-values.yaml
+`;
+}
+
+export function valuesLocalTemplate(a: InitAnswers): string {
+  return `# Local Kubernetes Profile (Minikube / Kind / K3s)
+# 1-click local testing with in-cluster PostgreSQL and RabbitMQ
+
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: "0.3.3"
+  pullPolicy: IfNotPresent
+
+localDev:
+  enabled: true
+  postgres:
+    storage: 1Gi
+  rabbitmq:
+    storage: 1Gi
+
+config:
+  chainId: ${a.chainId}
+  reconcilerIntervalSecs: 15
+  ringBufferDepth: 64
+
+ingester:
+  replicas: 1
+  leaderElection:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+processor:
+  replicas: 1
+  keda:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+api:
+  replicas: 1
+  hpa:
+    enabled: false
+  port: 4000
+`;
+}
+
+export function valuesAwsTemplate(a: InitAnswers): string {
+  return `# Production AWS EKS Profile
+# Provisions on AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3
+
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: "0.3.3"
+  pullPolicy: IfNotPresent
+
+localDev:
+  enabled: false
+
+config:
+  chainId: ${a.chainId}
+  queueDriver: "sqs"
+  reconcilerIntervalSecs: 30
+  ringBufferDepth: 256
+  # Name of Kubernetes Secret containing DATABASE_URL and RPC credentials
+  existingSecret: "logrix-aws-secrets"
+
+serviceAccount:
+  create: true
+  name: "logrix-sa"
+  annotations:
+    # AWS IAM Roles for Service Accounts (IRSA) for SQS and S3 access
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/logrix-production-role"
+
+ingester:
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: "logrix-ingester-lease"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+processor:
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 50
+    queueType: sqs
+    sqs:
+      queueUrl: "https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/logrix-live-jobs"
+      awsRegion: "us-east-1"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+api:
+  replicas: 2
+  port: 4000
+`;
+}
+
+export function secretsExampleTemplate(a: InitAnswers): string {
+  return `# Example Kubernetes Secret for production credentials
+# Apply with: kubectl apply -f deploy/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: logrix-aws-secrets
+  namespace: default
+type: Opaque
+stringData:
+  # Primary paid JSON-RPC endpoint
+  RPC_URL: "${a.rpcUrl}"
+  # Optional fallback JSON-RPC endpoints (comma-separated)
+  RPC_FALLBACK_URLS: ""
+  # Production database connection string (e.g. AWS Aurora PostgreSQL)
+  DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix"
 `;
 }
 
@@ -250,6 +387,52 @@ Implement your event indexing logic in \`src/mapping.ts\`.
 npm run build
 \`\`\`
 Produces \`build/mapping.wasm\`.
+
+### 7. Export Helm deployment bundle
+\`\`\`bash
+npm run export-values
+\`\`\`
+Produces \`indexer-values.yaml\` bundling your WASM binary, GraphQL schema, and contract manifest.
+
+---
+
+## Deployment (Helm)
+
+Deploy to any Kubernetes cluster using the generated \`indexer-values.yaml\` and pre-configured profiles in \`deploy/\`:
+
+### Option A: Local Kubernetes (Minikube / Kind / K3s)
+Deploys with in-cluster PostgreSQL and RabbitMQ:
+\`\`\`bash
+helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
+  -f deploy/values-local.yaml \\
+  -f indexer-values.yaml
+\`\`\`
+
+Port-forward and open the GraphQL playground:
+\`\`\`bash
+kubectl port-forward svc/${projectName}-logrix-api 4000:4000
+\`\`\`
+Visit **http://localhost:4000/** in your browser.
+
+### Option B: Production AWS EKS
+Deploys with Aurora Serverless PostgreSQL, Amazon SQS, and KEDA autoscaling:
+1. Configure credentials in \`deploy/secrets.example.yaml\` and apply:
+   \`\`\`bash
+   kubectl apply -f deploy/secrets.example.yaml
+   \`\`\`
+2. Deploy Helm release:
+   \`\`\`bash
+   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
+     -f deploy/values-aws.yaml \\
+     -f indexer-values.yaml
+   \`\`\`
+
+### Option C: Custom Kubernetes Cluster
+\`\`\`bash
+helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
+  -f my-cluster-infra.yaml \\
+  -f indexer-values.yaml
+\`\`\`
 `;
 }
 

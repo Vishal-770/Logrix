@@ -11,6 +11,9 @@ import {
   tsconfigTemplate,
   gitignoreTemplate,
   readmeTemplate,
+  valuesLocalTemplate,
+  valuesAwsTemplate,
+  secretsExampleTemplate,
   ERC20_ABI,
 } from "../templates";
 
@@ -188,8 +191,9 @@ export function initCommand(): Command {
       // Create directories
       fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
       fs.mkdirSync(path.join(targetDir, "src"), { recursive: true });
+      fs.mkdirSync(path.join(targetDir, "deploy"), { recursive: true });
 
-      // Write files
+      // Write core indexer files
       fs.writeFileSync(
         path.join(targetDir, "logrix.yaml"),
         logrixYamlTemplate(answers)
@@ -223,12 +227,34 @@ export function initCommand(): Command {
         readmeTemplate(projectName)
       );
 
+      // Write deployment configuration profiles
+      fs.writeFileSync(
+        path.join(targetDir, "deploy", "values-local.yaml"),
+        valuesLocalTemplate(answers)
+      );
+      fs.writeFileSync(
+        path.join(targetDir, "deploy", "values-aws.yaml"),
+        valuesAwsTemplate(answers)
+      );
+      fs.writeFileSync(
+        path.join(targetDir, "deploy", "secrets.example.yaml"),
+        secretsExampleTemplate(answers)
+      );
+
       console.log("Done. Next steps:\n");
       console.log(`  cd ${projectName}`);
       console.log("  npm install");
       console.log("  npm run codegen");
       console.log("  npm run validate");
-      console.log("  npm run build\n");
+      console.log("  npm run build");
+      console.log("  npm run export-values\n");
+      console.log("Deploy with Helm:\n");
+      console.log(
+        `  Local: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f indexer-values.yaml`
+      );
+      console.log(
+        `  AWS:   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml\n`
+      );
     });
 
   return cmd;

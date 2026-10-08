@@ -43,6 +43,10 @@ my-indexer/
     TokenContract.json # contract ABI
   src/
     mapping.ts         # handler logic
+  deploy/
+    values-local.yaml  # local Kubernetes profile (Minikube / Kind)
+    values-aws.yaml    # production AWS profile (Aurora, SQS, S3, KEDA)
+    secrets.example.yaml # Kubernetes Secret template for RPC/DB credentials
   package.json
   tsconfig.json
   .gitignore
@@ -135,7 +139,7 @@ Options:
 
 ### `logrix export-values`
 
-Reads `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm` to produce a ready-to-deploy `indexer-values.yaml` for Helm.
+Reads `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm` to produce a ready-to-deploy `indexer-values.yaml` for Helm. Also ensures deployment profile templates exist in `deploy/`.
 
 ```bash
 npx logrix export-values
@@ -145,11 +149,29 @@ Options:
 - `--out <file>` -- output values file (default: `indexer-values.yaml`)
 - `--chain-id <id>` -- override chain ID
 - `--rpc <url>` -- override RPC URL
+- `--deploy-profiles` -- regenerate `deploy/` profile templates (`values-local.yaml`, `values-aws.yaml`, `secrets.example.yaml`)
 
-Deploy directly to Kubernetes:
+Deploy with Helm:
+
+**Local Kubernetes (Minikube / Kind):**
 ```bash
-helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
-  -f cluster-infra.yaml \
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f deploy/values-local.yaml \
+  -f indexer-values.yaml
+```
+
+**Production AWS EKS:**
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f deploy/values-aws.yaml \
+  -f indexer-values.yaml \
+  --set config.existingSecret=logrix-aws-secrets
+```
+
+**Custom Kubernetes Cluster:**
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f my-cluster-infra.yaml \
   -f indexer-values.yaml
 ```
 

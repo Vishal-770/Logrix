@@ -196,7 +196,8 @@ function initCommand() {
         // Create directories
         fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
         fs.mkdirSync(path.join(targetDir, "src"), { recursive: true });
-        // Write files
+        fs.mkdirSync(path.join(targetDir, "deploy"), { recursive: true });
+        // Write core indexer files
         fs.writeFileSync(path.join(targetDir, "logrix.yaml"), (0, templates_1.logrixYamlTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "schema.graphql"), (0, templates_1.schemaGraphqlTemplate)());
         fs.writeFileSync(path.join(targetDir, "abis", `${contractName}.json`), JSON.stringify(templates_1.ERC20_ABI, null, 2));
@@ -205,12 +206,20 @@ function initCommand() {
         fs.writeFileSync(path.join(targetDir, "tsconfig.json"), JSON.stringify((0, templates_1.tsconfigTemplate)(), null, 2));
         fs.writeFileSync(path.join(targetDir, ".gitignore"), (0, templates_1.gitignoreTemplate)());
         fs.writeFileSync(path.join(targetDir, "README.md"), (0, templates_1.readmeTemplate)(projectName));
+        // Write deployment configuration profiles
+        fs.writeFileSync(path.join(targetDir, "deploy", "values-local.yaml"), (0, templates_1.valuesLocalTemplate)(answers));
+        fs.writeFileSync(path.join(targetDir, "deploy", "values-aws.yaml"), (0, templates_1.valuesAwsTemplate)(answers));
+        fs.writeFileSync(path.join(targetDir, "deploy", "secrets.example.yaml"), (0, templates_1.secretsExampleTemplate)(answers));
         console.log("Done. Next steps:\n");
         console.log(`  cd ${projectName}`);
         console.log("  npm install");
         console.log("  npm run codegen");
         console.log("  npm run validate");
-        console.log("  npm run build\n");
+        console.log("  npm run build");
+        console.log("  npm run export-values\n");
+        console.log("Deploy with Helm:\n");
+        console.log(`  Local: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f indexer-values.yaml`);
+        console.log(`  AWS:   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml\n`);
     });
     return cmd;
 }

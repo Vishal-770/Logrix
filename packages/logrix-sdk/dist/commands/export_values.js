@@ -38,13 +38,14 @@ const commander_1 = require("commander");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const yaml_1 = require("yaml");
+const templates_1 = require("../templates");
 /**
  * logrix export-values
  *
  * Reads logrix.yaml, schema.graphql, and build/mapping.wasm then writes an
  * indexer-values.yaml that is ready to be passed to:
  *   helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
- *     -f cluster-infra.yaml -f indexer-values.yaml
+ *     -f deploy/values-local.yaml -f indexer-values.yaml
  */
 function exportValuesCommand() {
     const cmd = new commander_1.Command("export-values");
@@ -53,6 +54,7 @@ function exportValuesCommand() {
         .option("--out <file>", "Output file path", "indexer-values.yaml")
         .option("--chain-id <id>", "Override chain ID (default: from logrix.yaml)")
         .option("--rpc <url>", "Override RPC URL (default: from logrix.yaml)")
+        .option("--deploy-profiles", "Regenerate deploy/ profiles (values-local.yaml, values-aws.yaml, secrets.example.yaml)")
         .action((opts) => {
         const projectDir = process.cwd();
         const configPath = path.join(projectDir, "logrix.yaml");
@@ -119,9 +121,36 @@ function exportValuesCommand() {
         };
         const outPath = path.resolve(projectDir, opts.out);
         fs.writeFileSync(outPath, (0, yaml_1.stringify)(values, { indent: 2 }));
+        // Ensure deployment profile directory exists
+        const deployDir = path.join(projectDir, "deploy");
+        if (!fs.existsSync(deployDir) || opts.deployProfiles) {
+            fs.mkdirSync(deployDir, { recursive: true });
+            const answers = {
+                projectName: path.basename(projectDir),
+                networkName: config.network?.name ?? "network",
+                chainId,
+                rpcUrl,
+                contractName: contracts[0]?.name ?? "Contract",
+                contractAddress: contracts[0]?.address ?? "",
+                startBlock: 0,
+            };
+            const localPath = path.join(deployDir, "values-local.yaml");
+            if (!fs.existsSync(localPath) || opts.deployProfiles) {
+                fs.writeFileSync(localPath, (0, templates_1.valuesLocalTemplate)(answers));
+            }
+            const awsPath = path.join(deployDir, "values-aws.yaml");
+            if (!fs.existsSync(awsPath) || opts.deployProfiles) {
+                fs.writeFileSync(awsPath, (0, templates_1.valuesAwsTemplate)(answers));
+            }
+            const secretPath = path.join(deployDir, "secrets.example.yaml");
+            if (!fs.existsSync(secretPath) || opts.deployProfiles) {
+                fs.writeFileSync(secretPath, (0, templates_1.secretsExampleTemplate)(answers));
+            }
+        }
         console.log(`\nExported Helm values to: ${opts.out}`);
-        console.log("\nDeploy with:");
-        console.log(`  helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f cluster-infra.yaml -f ${opts.out}\n`);
+        console.log("\nDeploy with Helm:");
+        console.log(`  Local: helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f ${opts.out}`);
+        console.log(`  AWS:   helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f ${opts.out}\n`);
     });
     return cmd;
 }
