@@ -116,94 +116,90 @@ The crate includes exhaustive unit and integration tests under `tests/`:
 
 ---
 
-## Kubernetes (K8s) Deployment Guide
+## Production Deployment Workflow
 
-In Kubernetes production environments, RPC credentials should be managed via Secrets and ConfigMaps rather than plain text manifest fields.
+Logrix is an SDK-first indexing platform. Developers do not manually write low-level Kubernetes pod manifests. Instead, `@logrix/sdk` scaffolds your project, compiles the AssemblyScript event handlers into WebAssembly, and exports a production-ready Helm values bundle.
 
-### 1. Create Kubernetes Secret for RPC URLs
+### 1. Developer Flow: Scaffold, Build, and Export Values
 
-```yaml
-# k8s/rpc-secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: logrix-rpc-secrets
-  namespace: logrix
-type: Opaque
-stringData:
-  RPC_URL: "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
-  RPC_FALLBACK_URLS: "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY,https://arb1.arbitrum.io/rpc"
-```
-
-Apply the secret:
 ```bash
-kubectl apply -f k8s/rpc-secret.yaml
+# 1. Scaffold indexer project
+npx @logrix/sdk init my-indexer
+cd my-indexer
+
+# 2. Write schema.graphql and handlers, then build WASM binary
+npm run codegen
+npm run build
+
+# 3. Export production Helm values (bundles manifest, schema, and base64 WASM)
+npx @logrix/sdk export-values --out indexer-values.yaml
 ```
 
-### 2. Injecting into Kubernetes Deployment
+The exported `indexer-values.yaml` contains your compiled WASM logic, GraphQL entity schemas, and default network parameters ready for any Kubernetes cluster.
 
-Configure the Logrix indexer container to consume the RPC endpoints from the secret:
+---
 
-```yaml
-# k8s/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: logrix-indexer
-  namespace: logrix
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: logrix-indexer
-  template:
-    metadata:
-      labels:
-        app: logrix-indexer
-    spec:
-      containers:
-        - name: indexer
-          image: ghcr.io/vishal-770/logrix:0.3.3
-          args: ["start", "--manifest", "/etc/logrix/manifest.yaml"]
-          env:
-            # Primary and fallback RPC endpoints from Secret
-            - name: RPC_URL
-              valueFrom:
-                secretKeyRef:
-                  name: logrix-rpc-secrets
-                  key: RPC_URL
-            - name: RPC_FALLBACK_URLS
-              valueFrom:
-                secretKeyRef:
-                  name: logrix-rpc-secrets
-                  key: RPC_FALLBACK_URLS
-            # Budget and operational limits
-            - name: CU_BUDGET
-              value: "25000000"
-            - name: RPC_TIMEOUT_SECS
-              value: "20"
-          resources:
-            requests:
-              cpu: "500m"
-              memory: "512Mi"
-            limits:
-              cpu: "2000m"
-              memory: "2Gi"
+### 2. Deploying According to Your Target Infrastructure
+
+You can deploy the generated `indexer-values.yaml` to your environment of choice:
+
+#### Target A: Local Kubernetes (Minikube / Kind / K3s)
+Deploys with built-in in-cluster PostgreSQL and RabbitMQ for instant local testing:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set localDev.enabled=true
 ```
 
-### 3. Helm Values (`values.yaml`) Configuration
-
-If deploying via Helm, configure RPC parameters in `values.yaml`:
-
-```yaml
-indexer:
-  chain:
-    rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
-    fallbackUrls:
-      - "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY"
-      - "https://arb1.arbitrum.io/rpc"
-    cuBudget: 25000000
-    timeoutSecs: 20
-  secrets:
-    existingSecretName: "logrix-rpc-secrets"
+#### Target B: Production AWS EKS
+Pairs your indexer logic with AWS Aurora Serverless PostgreSQL, Amazon SQS, Amazon S3, and KEDA autoscaling using the provided AWS profile:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f deploy/helm/values-aws.yaml \
+  -f indexer-values.yaml \
+  --set config.existingSecret="logrix-aws-secrets"
 ```
+
+#### Target C: Custom / Bring-Your-Own Kubernetes Cluster
+Deploys to any existing Kubernetes cluster with your own database and queue credentials:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f my-cluster-infra.yaml \
+  -f indexer-values.yaml
+```
+
+---
+
+### 3. Passing RPC URLs and Secrets to the Pods
+
+Depending on your security posture, RPC endpoints can be supplied in two ways:
+
+#### Option 1: Direct Helm CLI Override (Development & Testing)
+Supply paid Alchemy/Infura endpoints or fallback providers directly at deployment time:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set config.rpcUrl="https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY" \
+  --set config.rpcFallbackUrls="https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY,https://arb1.arbitrum.io/rpc" \
+  --set config.cuBudget="25000000"
+```
+
+#### Option 2: Pre-Created Kubernetes Secret (Production & GitOps)
+To keep sensitive API keys out of Git and CI/CD logs:
+
+1. Create a Kubernetes Secret containing your RPC URLs:
+```bash
+kubectl create secret generic logrix-rpc-secrets \
+  --namespace logrix \
+  --from-literal=RPC_URL="https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY" \
+  --from-literal=RPC_FALLBACK_URLS="https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY,https://arb1.arbitrum.io/rpc"
+```
+
+2. Point Helm to the secret using `config.existingSecret`:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set config.existingSecret="logrix-rpc-secrets"
+```
+
+Under the hood, the Helm templates mount the secret via `envFrom.secretRef` directly into the Ingester and Processor pods. Keys in the Secret securely override matching ConfigMap placeholders and are loaded directly into the Rust gateway process memory.
