@@ -64,12 +64,16 @@ pub async fn run_all_in_one(
         max_limit: cli.graphql_max_limit,
         query_timeout_secs: 5,
     };
+    let broadcaster = Arc::new(logrix_api::SubscriptionBroadcaster::default());
+    broadcaster
+        .clone()
+        .start_postgres_listener(store_api.pool().clone());
     let api_handle = tokio::spawn(async move {
         if let Err(e) = start_api_server_with_schema(
             store_api,
             schema_path_clone.as_deref(),
             Some(api_config),
-            None, // broadcaster -- wire SubscriptionBroadcaster here when subscriptions are needed
+            Some(broadcaster),
             addr,
         )
         .await

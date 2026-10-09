@@ -7,7 +7,9 @@ metadata:
     {{- include "logrix.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
+{{- if not .Values.api.hpa.enabled }}
   replicas: {{ .Values.api.replicas }}
+{{- end }}
   selector:
     matchLabels:
       {{- include "logrix.selectorLabels" . | nindent 6 }}

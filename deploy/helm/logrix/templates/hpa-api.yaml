@@ -20,4 +20,12 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.api.hpa.targetCPUUtilizationPercentage | default 80 }}
+    {{- if .Values.api.hpa.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
 {{- end }}

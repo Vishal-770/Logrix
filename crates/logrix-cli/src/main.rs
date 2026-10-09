@@ -134,6 +134,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Api { port } => {
             let store = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
+            let broadcaster = Arc::new(logrix_api::SubscriptionBroadcaster::default());
+            broadcaster
+                .clone()
+                .start_postgres_listener(store.pool().clone());
             let api_config = logrix_api::ApiConfig {
                 max_depth: cli.graphql_max_depth,
                 max_complexity: cli.graphql_max_complexity,
@@ -145,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 store,
                 cli.schema_path.as_deref(),
                 Some(api_config),
-                None,
+                Some(broadcaster),
                 addr,
             )
             .await?;
