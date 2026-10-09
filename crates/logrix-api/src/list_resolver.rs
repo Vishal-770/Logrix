@@ -5,9 +5,25 @@ use async_graphql::dynamic::{Field, FieldFuture, FieldValue, InputValue, TypeRef
 use logrix_store_postgres::PostgresStore;
 use std::sync::Arc;
 
+fn extract_filter_value(val: &async_graphql::dynamic::ValueAccessor<'_>) -> Option<String> {
+    if let Ok(s) = val.string() {
+        Some(s.to_string())
+    } else if let Ok(i) = val.i64() {
+        Some(i.to_string())
+    } else if let Ok(u) = val.u64() {
+        Some(u.to_string())
+    } else if let Ok(f) = val.f64() {
+        Some(f.to_string())
+    } else if let Ok(b) = val.boolean() {
+        Some(b.to_string())
+    } else {
+        None
+    }
+}
+
 /// Build dynamic collection query field: e.g. accounts(where: AccountFilter, first: Int, ...)
 pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) -> Field {
-    let list_query_name = format!("{}s", entity.name.to_lowercase());
+    let list_query_name = crate::pluralize::pluralize_entity_name(&entity.name);
     let entity_name = entity.name.clone();
     let filter_name = format!("{}Filter", entity.name);
 
@@ -53,12 +69,12 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
                 if let Some(where_arg) = ctx.args.get("where") {
                     if let Ok(obj) = where_arg.object() {
                         for (k, v) in obj.iter() {
-                            if let Ok(val_str) = v.string() {
+                            if let Some(val_str) = extract_filter_value(&v) {
                                 let (field, op) = parse_filter_key(k);
                                 filters.push(FieldFilter {
                                     field,
                                     op,
-                                    value: val_str.to_string(),
+                                    value: val_str,
                                 });
                             }
                         }
@@ -86,7 +102,9 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
                     Ok(r) => r,
                     Err(e) => {
                         tracing::error!(error = %e, "Dynamic entity query execution error");
-                        Vec::new()
+                        return Err(async_graphql::Error::new(format!(
+                            "Query execution failed: {e}"
+                        )));
                     }
                 };
 

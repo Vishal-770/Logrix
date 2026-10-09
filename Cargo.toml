@@ -60,6 +60,7 @@ lapin = "2.5"
 # Networking & API
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "compression-gzip"] }
 async-graphql = { version = "7.0", features = ["chrono", "uuid", "dynamic-schema"] }
 async-graphql-parser = "7.0"
 async-graphql-axum = "7.0"

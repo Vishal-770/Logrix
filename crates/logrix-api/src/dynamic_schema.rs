@@ -155,7 +155,13 @@ fn build_single_entity_field(entity: &EntityDef, store: Arc<PostgresStore>) -> F
                     }
                     Ok(Some(FieldValue::owned_any(data)))
                 }
-                _ => Ok(None),
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    tracing::error!(error = %e, "Entity fetch failed");
+                    Err(async_graphql::Error::new(format!(
+                        "Entity fetch failed: {e}"
+                    )))
+                }
             }
         })
     })

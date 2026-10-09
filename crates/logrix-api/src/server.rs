@@ -6,6 +6,7 @@ use async_graphql::http::GraphiQLSource;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
+    http::StatusCode,
     response::{Html, IntoResponse},
     routing::{get, post},
     Router,
@@ -14,6 +15,8 @@ use logrix_store_postgres::PostgresStore;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 use tracing::info;
 
 async fn graphql_handler(schema: Extension<LogrixSchema>, req: GraphQLRequest) -> GraphQLResponse {
@@ -41,13 +44,21 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
+async fn readiness_check(
+    store: Option<Extension<Arc<PostgresStore>>>,
+) -> (StatusCode, &'static str) {
+    if let Some(Extension(store)) = store {
+        match sqlx::query("SELECT 1").execute(store.pool()).await {
+            Ok(_) => (StatusCode::OK, "OK"),
+            Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE"),
+        }
+    } else {
+        (StatusCode::OK, "OK")
+    }
+}
+
 async fn prometheus_metrics() -> impl IntoResponse {
-    let body = "# HELP logrix_api_health API server health status\n\
-# TYPE logrix_api_health gauge\n\
-logrix_api_health 1\n\
-# HELP logrix_api_version Build version info\n\
-# TYPE logrix_api_version info\n\
-logrix_api_version{version=\"0.1.0\"} 1\n";
+    let body = "# HELP logrix_api_health API server health status\n# TYPE logrix_api_health gauge\nlogrix_api_health 1\n# HELP logrix_api_version Build version info\n# TYPE logrix_api_version info\nlogrix_api_version{version=\"0.1.0\"} 1\n";
     (
         [(
             axum::http::header::CONTENT_TYPE,
@@ -64,8 +75,10 @@ pub fn create_router(schema: LogrixSchema) -> Router {
         .route("/graphiql", get(graphiql))
         .route("/graphql", post(graphql_handler))
         .route("/healthz", get(health_check))
-        .route("/readyz", get(health_check))
+        .route("/readyz", get(readiness_check))
         .route("/metrics", get(prometheus_metrics))
+        .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new())
         .layer(Extension(schema))
 }
 
@@ -79,15 +92,16 @@ pub fn create_dynamic_router(
         .route("/graphiql", get(graphiql))
         .route("/graphql", post(dynamic_graphql_handler))
         .route("/healthz", get(health_check))
-        .route("/readyz", get(health_check))
+        .route("/readyz", get(readiness_check))
         .route("/metrics", get(prometheus_metrics));
 
-    // Wire WebSocket subscriptions when a broadcaster is present
     if broadcaster.is_some() {
         router = router.route_service("/ws", GraphQLSubscription::new(schema.clone()));
     }
-
-    router.layer(Extension(schema))
+    router
+        .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new())
+        .layer(Extension(schema))
 }
 
 /// Configuration for the Logrix GraphQL API server and query guardrails.
@@ -129,22 +143,11 @@ pub async fn start_api_server_with_schema(
     addr: SocketAddr,
 ) -> Result<(), std::io::Error> {
     let conf = config.unwrap_or_default();
-    info!("Starting Logrix GraphQL server on http://{}", addr);
-    info!(
-        max_depth = conf.max_depth,
-        max_complexity = conf.max_complexity,
-        "Configured query guardrails"
-    );
+    info!(addr = %addr, max_depth = conf.max_depth, max_complexity = conf.max_complexity, "Starting Logrix GraphQL server");
     if broadcaster.is_some() {
-        info!(
-            "GraphQL subscriptions enabled via WebSocket at ws://{}/ws",
-            addr
-        );
+        info!(addr = %addr, "GraphQL subscriptions enabled via WebSocket at /ws");
     }
-    info!(
-        "GraphiQL interactive UI available at http://{}/ and http://{}/graphiql",
-        addr, addr
-    );
+    info!(addr = %addr, "GraphiQL UI available at / and /graphiql");
 
     let mut known_events = std::collections::HashSet::new();
     known_events.insert("reorg".to_string());
@@ -169,7 +172,7 @@ pub async fn start_api_server_with_schema(
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             create_dynamic_router(dynamic_schema, broadcaster)
         } else {
-            info!("Schema path provided does not exist; using default core schema");
+            info!("Schema path does not exist; using core schema");
             create_router(build_schema(store.clone()))
         }
     } else {
@@ -180,7 +183,9 @@ pub async fn start_api_server_with_schema(
         logrix_webhook::WebhookStore::new(store.pool().clone()),
         known_events,
     );
-    let app = app.merge(crate::routes::webhook_routes(webhook_state));
+    let app = app
+        .merge(crate::routes::webhook_routes(webhook_state))
+        .layer(Extension(store));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await

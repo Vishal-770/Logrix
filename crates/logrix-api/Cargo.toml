@@ -13,6 +13,7 @@ async-graphql = { workspace = true }
 async-graphql-parser = { workspace = true }
 async-graphql-axum = { workspace = true }
 axum = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "compression-gzip"] }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 futures = { workspace = true }
@@ -25,3 +26,7 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 logrix-webhook = { workspace = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
