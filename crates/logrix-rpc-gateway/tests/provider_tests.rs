@@ -130,3 +130,24 @@ async fn test_stale_provider_penalty() {
     let selected = pool.select_provider().await.unwrap();
     assert_eq!(selected.name(), "normal_fresh");
 }
+
+#[test]
+fn test_redact_rpc_url() {
+    let sanitized =
+        logrix_rpc_gateway::redact_rpc_url("https://user:secret123@eth.provider.com/v1");
+    assert_eq!(sanitized, "https://***@eth.provider.com/v1");
+
+    let clean = logrix_rpc_gateway::redact_rpc_url("https://eth.provider.com/v1");
+    assert_eq!(clean, "https://eth.provider.com/v1");
+}
+
+#[test]
+fn test_provider_masked_url() {
+    let provider = ManagedProvider::new(
+        "alchemy",
+        "https://api:pass@arb.alchemy.com/v2/key",
+        1,
+        ChainId::new(42161),
+    );
+    assert_eq!(provider.masked_url(), "https://***@arb.alchemy.com/v2/key");
+}
