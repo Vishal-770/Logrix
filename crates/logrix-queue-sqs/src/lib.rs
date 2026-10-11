@@ -5,7 +5,8 @@
 
 pub mod batch;
 pub mod client;
+pub mod port;
 pub mod queue;
 
-pub use client::SqsClientConfig;
+pub use client::{SqsClientConfig, SqsConfigBuilder};
 pub use queue::SqsQueue;

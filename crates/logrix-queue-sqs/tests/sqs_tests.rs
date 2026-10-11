@@ -70,3 +70,35 @@ async fn test_sqs_client_config_url_resolution() {
     assert!(config.resolve_url(QueueType::Live).is_ok());
     assert!(config.resolve_url(QueueType::Backfill).is_err());
 }
+
+#[tokio::test]
+async fn test_sqs_config_builder() {
+    let builder_res = SqsClientConfig::builder()
+        .live_queue_url("https://sqs.us-east-1.amazonaws.com/123/live")
+        .backfill_queue_url("https://sqs.us-east-1.amazonaws.com/123/backfill")
+        .webhook_queue_url("https://sqs.us-east-1.amazonaws.com/123/webhook")
+        .dlq_url("https://sqs.us-east-1.amazonaws.com/123/dlq")
+        .endpoint_override("http://localhost:4566")
+        .region("us-east-1")
+        .build()
+        .await;
+
+    assert!(builder_res.is_ok());
+    let cfg = builder_res.unwrap();
+    assert_eq!(
+        cfg.resolve_url(QueueType::Live).unwrap(),
+        "https://sqs.us-east-1.amazonaws.com/123/live"
+    );
+    assert_eq!(
+        cfg.resolve_url(QueueType::Backfill).unwrap(),
+        "https://sqs.us-east-1.amazonaws.com/123/backfill"
+    );
+    assert_eq!(
+        cfg.resolve_url(QueueType::Webhook).unwrap(),
+        "https://sqs.us-east-1.amazonaws.com/123/webhook"
+    );
+    assert_eq!(
+        cfg.resolve_url(QueueType::DeadLetter).unwrap(),
+        "https://sqs.us-east-1.amazonaws.com/123/dlq"
+    );
+}
