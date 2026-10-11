@@ -16,6 +16,13 @@ pub struct TokenTransfer {
     pub timestamp: DateTime<Utc>,
 }
 
+impl TokenTransfer {
+    /// Parse numeric transfer amount into alloy_primitives::U256 without floating point truncation.
+    pub fn amount_u256(&self) -> Option<alloy_primitives::U256> {
+        self.amount.parse::<alloy_primitives::U256>().ok()
+    }
+}
+
 /// Filter criteria for querying token transfers.
 #[derive(Debug, Default, Clone)]
 pub struct TransferFilter {
