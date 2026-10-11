@@ -1,6 +1,7 @@
 pub mod host_funcs;
 pub mod host_state;
 pub mod instance;
+pub mod memory;
 pub mod runtime;
 
 pub use host_state::HostState;

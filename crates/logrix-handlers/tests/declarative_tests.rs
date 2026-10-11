@@ -35,6 +35,10 @@ fn test_declarative_mapping_field_extraction() {
     fields.insert("from".to_string(), "log.topics[1]".to_string());
     fields.insert("to".to_string(), "log.topics[2]".to_string());
     fields.insert("val_chunk".to_string(), "log.data[0..32]".to_string());
+    fields.insert(
+        "val_u256".to_string(),
+        "log.data[0..32].as_u256".to_string(),
+    );
 
     let rule = DeclarativeRule {
         event: "Transfer".to_string(),
@@ -42,7 +46,13 @@ fn test_declarative_mapping_field_extraction() {
         fields,
     };
 
-    let entities = mapper.apply_rules(&[rule], &log);
+    let mismatched_rule = DeclarativeRule {
+        event: "UnknownCustomEvent".to_string(),
+        entity: "ShouldNotEmit".to_string(),
+        fields: HashMap::new(),
+    };
+
+    let entities = mapper.apply_rules(&[rule, mismatched_rule], &log);
     assert_eq!(entities.len(), 1);
 
     let entity = &entities[0];
@@ -57,6 +67,7 @@ fn test_declarative_mapping_field_extraction() {
     assert_eq!(payload["from"], format!("{:#x}", B256::repeat_byte(0x02)));
     assert_eq!(payload["to"], format!("{:#x}", B256::repeat_byte(0x03)));
     assert!(payload["val_chunk"].as_str().unwrap().starts_with("0x"));
+    assert_eq!(payload["val_u256"], "100");
 }
 
 #[test]
@@ -80,7 +91,10 @@ contracts:
 "#;
 
     let manifest = Manifest::from_yaml_str(yaml).expect("Valid manifest YAML");
-    assert_eq!(manifest.chain_id, 421614);
+    assert_eq!(
+        manifest.chain_id,
+        logrix_core::domain::ChainId::from(421614u64)
+    );
     assert_eq!(manifest.contracts.len(), 1);
     assert_eq!(manifest.contracts[0].name, "USDC");
     assert_eq!(manifest.contracts[0].declarative.len(), 1);
@@ -142,4 +156,30 @@ contracts:
     assert_eq!(mutations.len(), 1);
     assert_eq!(emitted.len(), 1);
     assert_eq!(engine.get_state("counter").await.unwrap(), "1");
+}
+
+#[tokio::test]
+async fn test_contract_manifest_enabled_toggle() {
+    let yaml = r#"
+schema_version: "1.0"
+chain_id: 1
+contracts:
+  - name: "DisabledToken"
+    address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    enabled: false
+    events: ["Transfer"]
+    declarative:
+      - event: "Transfer"
+        entity: "ShouldNotEmit"
+        fields:
+          block: "log.block_number"
+    wasm_handler: null
+"#;
+    let manifest = Manifest::from_yaml_str(yaml).unwrap();
+    assert!(!manifest.contracts[0].is_enabled());
+
+    let engine = UserLogicEngine::new(manifest).unwrap();
+    let log = create_sample_log();
+    let staging = engine.process_log(&log).await.unwrap();
+    assert_eq!(staging.emitted_entities().len(), 0);
 }

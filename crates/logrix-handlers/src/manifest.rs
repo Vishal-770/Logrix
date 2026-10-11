@@ -1,4 +1,5 @@
 use alloy_primitives::Address;
+use logrix_core::domain::ChainId;
 use logrix_core::error::{ErrorClass, ErrorSource, LogrixError, LogrixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub schema_version: String,
-    pub chain_id: u64,
+    pub chain_id: ChainId,
     pub contracts: Vec<ContractManifest>,
     #[serde(default)]
     pub webhooks: Vec<ManifestWebhook>,
@@ -61,6 +62,23 @@ pub struct ContractManifest {
     #[serde(default)]
     pub declarative: Vec<DeclarativeRule>,
     pub wasm_handler: Option<String>,
+    /// User toggle to disable indexing for this contract without removing config.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Per-contract execution fuel budget override.
+    #[serde(default)]
+    pub fuel_limit: Option<u64>,
+    /// Per-contract memory ceiling override in megabytes.
+    #[serde(default)]
+    pub max_memory_mb: Option<usize>,
+}
+
+impl ContractManifest {
+    /// Returns true if indexing is active for this contract.
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
 }
 
 /// Declarative event mapping rule converting logs directly into entity records.

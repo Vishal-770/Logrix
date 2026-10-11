@@ -67,7 +67,7 @@ impl UserLogicEngine {
 
         // 1. Fast Path: Declarative YAML mapping evaluation
         for contract in &self.manifest.contracts {
-            if contract.address == log.address {
+            if contract.address == log.address && contract.is_enabled() {
                 let entities = self.declarative.apply_rules(&contract.declarative, log);
                 for entity in entities {
                     staging.emit_entity(entity.entity_type, entity.payload);
@@ -76,24 +76,34 @@ impl UserLogicEngine {
         }
 
         // 2. Programmable Path: Sandboxed WebAssembly handler execution
-        if let Some(handler) = self.wasm_handlers.get(&log.address) {
-            let base_state = {
-                let guard = self.state_store.read().await;
-                guard.clone()
-            };
+        let contract_enabled = self
+            .manifest
+            .contracts
+            .iter()
+            .find(|c| c.address == log.address)
+            .map(|c| c.is_enabled())
+            .unwrap_or(true);
 
-            let log_json = serde_json::to_string(log).unwrap_or_default();
-            let guest_staging = handler.execute_event(&log_json, base_state)?;
+        if contract_enabled {
+            if let Some(handler) = self.wasm_handlers.get(&log.address) {
+                let base_state = {
+                    let guard = self.state_store.read().await;
+                    guard.clone()
+                };
 
-            // Merge guest mutations into staging buffer
-            for (k, v) in guest_staging.state_entries() {
-                staging.set_state(k.clone(), v.clone());
-            }
-            for key in guest_staging.removed_keys() {
-                staging.remove_state(key.clone());
-            }
-            for entity in guest_staging.emitted_entities() {
-                staging.emit_entity(entity.entity_type.clone(), entity.payload.clone());
+                let log_json = serde_json::to_string(log).unwrap_or_default();
+                let guest_staging = handler.execute_event(&log_json, base_state)?;
+
+                // Merge guest mutations into staging buffer
+                for (k, v) in guest_staging.state_entries() {
+                    staging.set_state(k.clone(), v.clone());
+                }
+                for key in guest_staging.removed_keys() {
+                    staging.remove_state(key.clone());
+                }
+                for entity in guest_staging.emitted_entities() {
+                    staging.emit_entity(entity.entity_type.clone(), entity.payload.clone());
+                }
             }
         }
 

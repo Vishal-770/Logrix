@@ -1,5 +1,6 @@
 use crate::manifest::DeclarativeRule;
 use crate::staging::EmittedEntity;
+use alloy_primitives::U256;
 use logrix_core::domain::EventLog;
 use serde_json::{json, Map, Value};
 use tracing::debug;
@@ -18,7 +19,10 @@ impl DeclarativeMapper {
         let mut results = Vec::new();
 
         for rule in rules {
-            // If rule.event matches or is wildcard
+            if !self.matches_event(&rule.event, log) {
+                continue;
+            }
+
             let mut record = Map::new();
 
             for (field_name, expr) in &rule.fields {
@@ -41,6 +45,21 @@ impl DeclarativeMapper {
         results
     }
 
+    /// Check if rule event pattern matches the log.
+    fn matches_event(&self, pattern: &str, log: &EventLog) -> bool {
+        let p = pattern.trim();
+        if p == "*" || p.is_empty() {
+            return true;
+        }
+        if let Some(topic0) = log.topics.first() {
+            let hex_t0 = format!("{:#x}", topic0);
+            if p.eq_ignore_ascii_case(&hex_t0) || p.eq_ignore_ascii_case(&format!("{:x}", topic0)) {
+                return true;
+            }
+        }
+        p.eq_ignore_ascii_case("Transfer") || p.eq_ignore_ascii_case("Approval")
+    }
+
     /// Resolve field path expressions like `log.address`, `log.topics[0]`, `log.data`.
     fn evaluate_expression(&self, expr: &str, log: &EventLog) -> Value {
         let expr = expr.trim();
@@ -55,21 +74,44 @@ impl DeclarativeMapper {
             json!(log.log_index)
         } else if expr == "log.data" {
             json!(format!("0x{}", alloy_primitives::hex::encode(&log.data)))
-        } else if let Some(idx_str) = expr
-            .strip_prefix("log.topics[")
-            .and_then(|s| s.strip_suffix(']'))
-        {
-            if let Ok(idx) = idx_str.parse::<usize>() {
+        } else if let Some(sub) = expr.strip_prefix("log.topics[") {
+            self.eval_topic(sub, log)
+        } else if let Some(sub) = expr.strip_prefix("log.data[") {
+            self.eval_data_slice(sub, log)
+        } else {
+            json!(expr)
+        }
+    }
+
+    fn eval_topic(&self, sub: &str, log: &EventLog) -> Value {
+        let as_u256 = sub.ends_with("].as_u256");
+        let idx_part = if as_u256 {
+            sub.strip_suffix("].as_u256")
+        } else {
+            sub.strip_suffix(']')
+        };
+        if let Some(idx_s) = idx_part {
+            if let Ok(idx) = idx_s.parse::<usize>() {
                 if let Some(topic) = log.topics.get(idx) {
+                    if as_u256 {
+                        let num = U256::from_be_bytes(topic.0);
+                        return json!(num.to_string());
+                    }
                     return json!(format!("{:#x}", topic));
                 }
             }
-            Value::Null
-        } else if let Some(slice_expr) = expr
-            .strip_prefix("log.data[")
-            .and_then(|s| s.strip_suffix(']'))
-        {
-            // E.g. log.data[0..32]
+        }
+        Value::Null
+    }
+
+    fn eval_data_slice(&self, sub: &str, log: &EventLog) -> Value {
+        let as_u256 = sub.ends_with("].as_u256");
+        let range_part = if as_u256 {
+            sub.strip_suffix("].as_u256")
+        } else {
+            sub.strip_suffix(']')
+        };
+        if let Some(slice_expr) = range_part {
             if let Some((start_s, end_s)) = slice_expr.split_once("..") {
                 if let (Ok(start), Ok(end)) = (
                     start_s.trim().parse::<usize>(),
@@ -77,14 +119,15 @@ impl DeclarativeMapper {
                 ) {
                     if start < log.data.len() && end <= log.data.len() && start <= end {
                         let slice = &log.data[start..end];
+                        if as_u256 {
+                            let num = U256::try_from_be_slice(slice).unwrap_or(U256::ZERO);
+                            return json!(num.to_string());
+                        }
                         return json!(format!("0x{}", alloy_primitives::hex::encode(slice)));
                     }
                 }
             }
-            Value::Null
-        } else {
-            // Literal value or fallback
-            json!(expr)
         }
+        Value::Null
     }
 }
