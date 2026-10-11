@@ -19,5 +19,5 @@ pub use budget::CuBudgetTracker;
 pub use bulk::BulkStreamClient;
 pub use gateway::RpcGateway;
 pub use pool::ProviderPool;
-pub use provider::ManagedProvider;
+pub use provider::{redact_rpc_url, ManagedProvider};
 pub use singleflight::SingleFlight;

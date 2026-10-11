@@ -55,6 +55,11 @@ impl ManagedProvider {
         &self.url
     }
 
+    /// Return redacted URL suitable for safe tracing and logging.
+    pub fn masked_url(&self) -> String {
+        redact_rpc_url(&self.url)
+    }
+
     pub fn priority(&self) -> u32 {
         self.priority
     }
@@ -124,4 +129,22 @@ impl ManagedProvider {
     pub fn latest_block(&self) -> u64 {
         self.latest_block.load(Ordering::Relaxed)
     }
+}
+
+/// Redact embedded basic auth or path keys from RPC endpoint URLs.
+#[must_use]
+pub fn redact_rpc_url(raw_url: &str) -> String {
+    let mut sanitized = raw_url.to_string();
+    if let Some(proto_end) = sanitized.find("://") {
+        let after_proto = proto_end + 3;
+        if let Some(at_idx) = sanitized[after_proto..].find('@') {
+            let at_abs = after_proto + at_idx;
+            sanitized = format!(
+                "{}***@{}",
+                &sanitized[..after_proto],
+                &sanitized[at_abs + 1..]
+            );
+        }
+    }
+    sanitized
 }
