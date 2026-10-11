@@ -3,17 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Ultra-fast, self-hosted EVM indexer in Rust.</strong><br />
-  Kubernetes-native with KEDA autoscaling, reorg-safe atomic rollbacks, WASM/YAML handlers, and dynamic GraphQL.
-</p>
-
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-18181b.svg?style=flat-square" alt="License" /></a>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2021_Edition-dea584.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust" /></a>
-  <a href="https://github.com/Vishal-770/Logrix/actions"><img src="https://img.shields.io/github/actions/workflow/status/Vishal-770/Logrix/ci.yml?branch=main&label=CI&style=flat-square&logo=githubactions&logoColor=white" alt="CI Status" /></a>
-  <a href="https://github.com/Vishal-770/Logrix/pkgs/container/logrix"><img src="https://img.shields.io/badge/Docker-GHCR-2496ed.svg?style=flat-square&logo=docker&logoColor=white" alt="Docker" /></a>
-  <a href="https://github.com/Vishal-770/Logrix/pkgs/container/charts%2Flogrix"><img src="https://img.shields.io/badge/Helm-OCI_Registry-0f1689.svg?style=flat-square&logo=helm&logoColor=white" alt="Helm" /></a>
-  <a href="https://github.com/Vishal-770/Logrix/pkgs/npm/%40logrix%2Fsdk"><img src="https://img.shields.io/badge/npm-%40logrix%2Fsdk-cb3837.svg?style=flat-square&logo=npm&logoColor=white" alt="npm" /></a>
+  <strong>Ultra-fast, Kubernetes-native EVM indexer in Rust.</strong><br />
+  Write custom event indexing logic in TypeScript with <a href="packages/logrix-sdk"><code>logrix-sdk</code></a> and deploy production indexer clusters in seconds.
 </p>
 
 ---
