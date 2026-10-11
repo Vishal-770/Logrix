@@ -3,7 +3,7 @@ use crate::parser::{parse_block_envelope, parse_required_hash, parse_rpc_log};
 use alloy_primitives::{Address, B256};
 use async_trait::async_trait;
 use logrix_core::{
-    domain::{BlockEnvelope, BlockRef, EventLog},
+    domain::{BlockEnvelope, BlockRef, ChainId, EventLog},
     error::{ErrorClass, ErrorSource, LogrixError, LogrixResult},
     ports::ChainPort,
 };
@@ -12,6 +12,10 @@ use tracing::debug;
 
 #[async_trait]
 impl ChainPort for EvmChainClient {
+    fn chain_id(&self) -> ChainId {
+        self.chain_id()
+    }
+
     async fn get_latest_block_number(&self) -> LogrixResult<u64> {
         let res = self.call_rpc("eth_blockNumber", json!([])).await?;
         let hex_str = res.as_str().ok_or_else(|| {

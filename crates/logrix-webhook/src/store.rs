@@ -24,9 +24,10 @@ impl WebhookStore {
     /// Insert a new webhook endpoint.
     pub async fn create_endpoint(&self, ep: &WebhookEndpoint) -> LogrixResult<()> {
         sqlx::query(
-            "INSERT INTO logrix_webhook_endpoints (id, url, secret, events, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO logrix_webhook_endpoints (id, url, secret, events, is_active, max_retries, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
-        .bind(ep.id).bind(&ep.url).bind(&ep.secret).bind(&ep.events).bind(ep.is_active).bind(ep.created_at)
+        .bind(ep.id).bind(&ep.url).bind(&ep.secret).bind(&ep.events).bind(ep.is_active)
+        .bind(i64::from(ep.max_retries)).bind(ep.created_at)
         .execute(&self.pool).await
         .map_err(|e| LogrixError::new(ErrorClass::Permanent, ErrorSource::Database, format!("Failed to insert endpoint: {e}")))?;
         Ok(())
@@ -50,8 +51,9 @@ impl WebhookStore {
         let new_active = is_active.unwrap_or(current.is_active);
         let new_retries = max_retries.unwrap_or(current.max_retries);
 
-        sqlx::query("UPDATE logrix_webhook_endpoints SET url = $1, events = $2, is_active = $3 WHERE id = $4")
-            .bind(new_url).bind(&new_events).bind(new_active).bind(id)
+        sqlx::query("UPDATE logrix_webhook_endpoints SET url = $1, events = $2, is_active = $3, max_retries = $4 WHERE id = $5")
+            .bind(new_url).bind(&new_events).bind(new_active)
+            .bind(i64::from(new_retries)).bind(id)
             .execute(&self.pool).await
             .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Update failed: {e}")))?;
 
@@ -82,7 +84,7 @@ impl WebhookStore {
     /// Retrieve an endpoint by its unique identifier.
     pub async fn get_endpoint(&self, id: Uuid) -> LogrixResult<Option<WebhookEndpoint>> {
         let row = sqlx::query(
-            "SELECT id, url, secret, events, is_active, created_at FROM logrix_webhook_endpoints WHERE id = $1"
+            "SELECT id, url, secret, events, is_active, max_retries, created_at FROM logrix_webhook_endpoints WHERE id = $1"
         )
         .bind(id).fetch_optional(&self.pool).await
         .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("Fetch failed: {e}")))?;
@@ -93,7 +95,7 @@ impl WebhookStore {
             secret: r.get("secret"),
             events: r.get("events"),
             is_active: r.get("is_active"),
-            max_retries: 0,
+            max_retries: r.get::<i64, _>("max_retries").try_into().unwrap_or(0),
             created_at: r.get("created_at"),
         }))
     }
@@ -101,7 +103,7 @@ impl WebhookStore {
     /// Fetch all active webhook endpoints.
     pub async fn list_active_endpoints(&self) -> LogrixResult<Vec<WebhookEndpoint>> {
         let rows = sqlx::query(
-            "SELECT id, url, secret, events, is_active, created_at FROM logrix_webhook_endpoints WHERE is_active = true ORDER BY created_at DESC"
+            "SELECT id, url, secret, events, is_active, max_retries, created_at FROM logrix_webhook_endpoints WHERE is_active = true ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool).await
         .map_err(|e| LogrixError::new(ErrorClass::Transient, ErrorSource::Database, format!("List failed: {e}")))?;
@@ -114,7 +116,7 @@ impl WebhookStore {
                 secret: r.get("secret"),
                 events: r.get("events"),
                 is_active: r.get("is_active"),
-                max_retries: 0,
+                max_retries: r.get::<i64, _>("max_retries").try_into().unwrap_or(0),
                 created_at: r.get("created_at"),
             })
             .collect();

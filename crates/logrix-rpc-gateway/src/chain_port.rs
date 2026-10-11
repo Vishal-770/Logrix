@@ -1,13 +1,17 @@
 use crate::RpcGateway;
 use alloy_primitives::Address;
 use async_trait::async_trait;
-use logrix_core::domain::{BlockEnvelope, BlockRef, EventLog};
+use logrix_core::domain::{BlockEnvelope, BlockRef, ChainId, EventLog};
 use logrix_core::error::{ErrorClass, ErrorSource, LogrixError, LogrixResult};
 use logrix_core::ports::ChainPort;
 use tracing::debug;
 
 #[async_trait]
 impl ChainPort for RpcGateway {
+    fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
     async fn get_latest_block_number(&self) -> LogrixResult<u64> {
         if let Some(cached) = self.get_cached_block().await {
             return Ok(cached);

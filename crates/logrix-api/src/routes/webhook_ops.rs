@@ -28,6 +28,24 @@ pub fn validate_events(
     Ok(())
 }
 
+pub fn validate_webhook_url(url: &str) -> Result<(), (StatusCode, String)> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Webhook URL must be a valid absolute URL".to_string(),
+        )
+    })?;
+
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Webhook URL must use http or https and include a host".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub async fn rotate_secret_handler(
     State(state): State<super::webhooks::WebhookApiState>,
     Path(id): Path<Uuid>,
@@ -106,4 +124,22 @@ pub async fn list_deliveries_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(deliveries))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_webhook_url;
+
+    #[test]
+    fn accepts_http_and_https_webhook_urls() {
+        assert!(validate_webhook_url("https://example.com/hooks/logrix").is_ok());
+        assert!(validate_webhook_url("http://localhost:8080/events").is_ok());
+    }
+
+    #[test]
+    fn rejects_relative_and_unsupported_webhook_urls() {
+        assert!(validate_webhook_url("/hooks/logrix").is_err());
+        assert!(validate_webhook_url("ftp://example.com/hooks").is_err());
+        assert!(validate_webhook_url("not-a-url").is_err());
+    }
 }

@@ -1,6 +1,7 @@
 use super::webhook_dto::*;
 use super::webhook_ops::{
     list_deliveries_handler, rotate_secret_handler, test_webhook_handler, validate_events,
+    validate_webhook_url,
 };
 use axum::{
     extract::{Path, State},
@@ -53,6 +54,7 @@ async fn create_webhook(
     State(state): State<WebhookApiState>,
     Json(payload): Json<CreateWebhookRequest>,
 ) -> Result<(StatusCode, Json<CreateWebhookResponse>), (StatusCode, String)> {
+    validate_webhook_url(&payload.url)?;
     let events = payload.events.unwrap_or_default();
     validate_events(&events, &state.known_events)?;
     let secret = generate_secret();
@@ -88,6 +90,9 @@ async fn update_webhook(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateWebhookRequest>,
 ) -> Result<Json<WebhookEndpointDto>, (StatusCode, String)> {
+    if let Some(url) = payload.url.as_deref() {
+        validate_webhook_url(url)?;
+    }
     if let Some(ref evs) = payload.events {
         validate_events(evs, &state.known_events)?;
     }
