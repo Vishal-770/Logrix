@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NETWORKS = void 0;
 exports.initCommand = initCommand;
@@ -39,6 +42,9 @@ const commander_1 = require("commander");
 const prompts_1 = require("@inquirer/prompts");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const picocolors_1 = __importDefault(require("picocolors"));
+const ui_1 = require("../ui");
+const errors_1 = require("../errors");
 const templates_1 = require("../templates");
 exports.NETWORKS = {
     // Mainnets
@@ -81,8 +87,12 @@ function initCommand() {
         .option("--contract-name <name>", "Contract name")
         .option("--address <address>", "Contract target address")
         .option("--start-block <block>", "Starting block number")
+        .option("--fallback-rpc <urls...>", "Fallback RPC endpoint URL(s)")
+        .option("--webhook-url <url>", "Declarative webhook subscriber URL")
+        .option("--reorg-depth <depth>", "Reorg ring buffer depth (default: 128)")
+        .option("--reconciler-interval <secs>", "Gap reconciler interval in seconds (default: 30)")
         .action(async (nameArg, opts) => {
-        console.log("\nLogrix Project Initializer\n");
+        ui_1.ui.banner("Project Scaffolding", "Scaffold a production-ready Logrix indexer");
         const isNonInteractive = opts.yes || !process.stdin.isTTY;
         // Project Name
         let projectName = nameArg || opts.name;
@@ -101,8 +111,7 @@ function initCommand() {
         projectName = projectName.trim();
         const targetDir = path.resolve(process.cwd(), projectName);
         if (fs.existsSync(targetDir)) {
-            console.error(`Error: directory '${projectName}' already exists.`);
-            process.exit(1);
+            throw new errors_1.CliError(`Directory already exists: '${projectName}'`, `Destination path ${targetDir} already contains files`, "Choose a different project name or remove the existing directory");
         }
         // Network selection
         let networkKey = opts.network;
@@ -183,16 +192,70 @@ function initCommand() {
             }
         }
         const startBlock = parseInt(startBlockStr.trim(), 10);
+        // Advanced engine and infrastructure settings
+        let fallbackRpcUrls = [];
+        if (opts.fallbackRpc) {
+            fallbackRpcUrls = Array.isArray(opts.fallbackRpc)
+                ? opts.fallbackRpc
+                : opts.fallbackRpc.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        let webhookUrl = opts.webhookUrl;
+        let ringBufferDepth = opts.reorgDepth
+            ? parseInt(opts.reorgDepth, 10)
+            : undefined;
+        let reconcilerIntervalSecs = opts.reconcilerInterval
+            ? parseInt(opts.reconcilerInterval, 10)
+            : undefined;
+        if (!isNonInteractive) {
+            const wantAdvanced = await (0, prompts_1.select)({
+                message: "Configure advanced engine settings (fallback RPCs, webhooks, reorg buffer)?",
+                choices: [
+                    { name: "No - use recommended production defaults", value: false },
+                    { name: "Yes - customize engine settings", value: true },
+                ],
+                default: false,
+            });
+            if (wantAdvanced) {
+                const fallbackStr = await (0, prompts_1.input)({
+                    message: "Fallback RPC URLs (optional, comma-separated):",
+                    default: "",
+                });
+                if (fallbackStr.trim()) {
+                    fallbackRpcUrls = fallbackStr
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                }
+                const whStr = await (0, prompts_1.input)({
+                    message: "Webhook URL (optional, e.g. https://api.mybackend.com/webhooks):",
+                    default: "",
+                });
+                if (whStr.trim()) {
+                    webhookUrl = whStr.trim();
+                }
+                const depthStr = await (0, prompts_1.input)({
+                    message: "Reorg ring buffer depth:",
+                    default: "128",
+                    validate: (v) => (/^\d+$/.test(v.trim()) && parseInt(v.trim(), 10) >= 10) ||
+                        "Must be an integer >= 10",
+                });
+                ringBufferDepth = parseInt(depthStr.trim(), 10);
+            }
+        }
         const answers = {
             projectName,
             networkName: networkKey,
             chainId: network.chainId,
             rpcUrl,
+            fallbackRpcUrls,
             contractName,
             contractAddress,
             startBlock,
+            webhookUrl,
+            ringBufferDepth,
+            reconcilerIntervalSecs,
         };
-        console.log(`\nScaffolding in ./${projectName}/ ...\n`);
+        ui_1.ui.banner("Project Scaffolding", `Creating new indexer in ./${projectName}`);
         // Create directories
         fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
         fs.mkdirSync(path.join(targetDir, "src"), { recursive: true });
@@ -207,19 +270,20 @@ function initCommand() {
         fs.writeFileSync(path.join(targetDir, ".gitignore"), (0, templates_1.gitignoreTemplate)());
         fs.writeFileSync(path.join(targetDir, "README.md"), (0, templates_1.readmeTemplate)(projectName));
         // Write deployment configuration profiles
-        fs.writeFileSync(path.join(targetDir, "deploy", "values-local.yaml"), (0, templates_1.valuesLocalTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "deploy", "values-aws.yaml"), (0, templates_1.valuesAwsTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "deploy", "secrets.example.yaml"), (0, templates_1.secretsExampleTemplate)(answers));
-        console.log("Done. Next steps:\n");
-        console.log(`  cd ${projectName}`);
-        console.log("  npm install");
-        console.log("  npm run codegen");
-        console.log("  npm run validate");
-        console.log("  npm run build");
-        console.log("  npm run export-values\n");
-        console.log("Deploy with Helm:\n");
-        console.log(`  Local: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f indexer-values.yaml`);
-        console.log(`  AWS:   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml\n`);
+        ui_1.ui.success("Project scaffolded", `Created indexer in ./${projectName}`);
+        ui_1.ui.section("Development Workflow");
+        console.log(`  ${picocolors_1.default.cyan("cd")} ${projectName}`);
+        console.log(`  ${picocolors_1.default.cyan("npm install")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run codegen")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run validate")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run build")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run export-values")}`);
+        ui_1.ui.section("Deployment (Helm)");
+        ui_1.ui.label("Self-Hosted:", `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`);
+        ui_1.ui.label("AWS (EKS):", `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets`);
+        console.log();
     });
     return cmd;
 }

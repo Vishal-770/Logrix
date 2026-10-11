@@ -112,19 +112,40 @@ Generates `indexer-values.yaml` bundling your compiled WASM handler (`config.was
 
 ---
 
-## 2. Kubernetes Deployments
+## 2. Deployment Architecture
 
-Logrix publishes pre-built container images and Helm charts directly on GitHub Container Registry (GHCR). No container builds or repository cloning are required.
+Logrix is a Kubernetes-native indexing system supporting two streamlined, production-grade deployment modes:
 
-### Option A: Local Kubernetes (Minikube / Kind / K3s)
+---
 
-Deploy a complete, self-contained indexer cluster with built-in in-cluster PostgreSQL 16 and RabbitMQ:
+### Mode 1: Self-Hosted Kubernetes (Zero-Configuration Default)
+
+Deploy directly to any Kubernetes cluster (Minikube, Kind, K3s, bare-metal, or on-premises Kubernetes).
+Runs out-of-the-box with built-in, in-cluster **PostgreSQL 16** and **RabbitMQ 3.13** pods—no external dependencies or separate manifests needed:
 
 ```bash
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/values-local.yaml \
   -f indexer-values.yaml
 ```
+
+**Optional Cold S3 Archiving:**
+S3 is 100% optional. If you want raw compressed block snapshots archived, enable built-in MinIO with:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set builtIn.minio=true
+```
+
+**Using External Database or Queue (BYO Infrastructure):**
+To connect your own PostgreSQL or RabbitMQ, configure your connection strings in `deploy/secrets.example.yaml` and apply:
+```bash
+kubectl apply -f deploy/secrets.example.yaml
+
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set config.existingSecret=logrix-secrets
+```
+The chart automatically detects your external database or queue and disables the corresponding built-in pod.
 
 Port-forward and open the GraphQL playground:
 ```bash
@@ -134,42 +155,35 @@ Visit **[http://localhost:4000/](http://localhost:4000/)** in your browser.
 
 ---
 
-### Option B: Production AWS EKS Deployment
+### Mode 2: Full AWS Production Deployment (EKS + Terraform)
 
-Deploy to AWS EKS with Aurora Serverless v2 PostgreSQL, Amazon SQS, Amazon S3, and KEDA autoscaling.
+Cloud-native AWS architecture powered by AWS EKS, AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, Amazon S3 (optional), KEDA event-driven autoscaling, and IAM Roles for Service Accounts (IRSA).
 
-#### Step 1: Provision or Configure AWS Backing Services
-
-- **Using Existing AWS Resources:** If you already have AWS RDS/Aurora PostgreSQL, Amazon SQS, and an S3 bucket, configure your endpoints in `deploy/values-aws.yaml` and credentials in `deploy/secrets.example.yaml`.
-- **Provisioning with Terraform:** If starting from scratch, run the Terraform modules scaffolded by Logrix:
+#### Step 1: AWS Backing Infrastructure
+- **Provisioning from Scratch via Terraform:** If starting from scratch, clone the Logrix repository to provision the full AWS VPC, EKS cluster, Aurora PostgreSQL, SQS queues, S3 archive bucket, and IRSA roles:
   ```bash
-  cd infra/terraform
+  git clone https://github.com/Vishal-770/Logrix.git
+  cd Logrix/deploy/terraform/aws
   terraform init
   terraform apply
   ```
-  *(If developing directly from the source repository, the Terraform modules are located in `deploy/terraform/aws`.)*
-  
-  Copy the Terraform outputs (`database_url`, `sqs_queue_url`, `s3_bucket_name`, and `iam_role_arn`) into `deploy/values-aws.yaml`.
+  Map the resulting outputs (`database_url`, `sqs_queue_url`, `s3_bucket_name`, and `iam_role_arn`) into `deploy/values-aws.yaml`.
+- **Using Existing AWS Resources:** If your organization already has an Aurora cluster, SQS queue, and S3 bucket, configure your endpoints directly in `deploy/values-aws.yaml` and credentials in `deploy/secrets.example.yaml`.
 
 #### Step 2: Deploy Helm Chart to AWS EKS
-
+Connect kubectl to your EKS cluster:
 ```bash
+aws eks update-kubeconfig --name <cluster-name> --region <aws-region>
+```
+
+Apply secrets and deploy the unified Helm release:
+```bash
+kubectl apply -f deploy/secrets.example.yaml
+
 helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
   -f deploy/values-aws.yaml \
   -f indexer-values.yaml \
-  --set config.existingSecret=logrix-aws-secrets
-```
-
----
-
-### Option C: Bring Your Own Infrastructure (Custom BYO)
-
-Supply your custom cluster infrastructure values along with the generated indexer bundle:
-
-```bash
-helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f my-cluster-infra.yaml \
-  -f indexer-values.yaml
+  --set config.existingSecret=logrix-secrets
 ```
 
 ---

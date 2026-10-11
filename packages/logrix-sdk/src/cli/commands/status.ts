@@ -1,9 +1,16 @@
 import { Command } from "commander";
 import * as fs from "fs";
 import * as path from "path";
+import pc from "picocolors";
 import { parse as parseYaml } from "yaml";
+import { ui } from "../ui";
+import { CliError } from "../errors";
 
-async function jsonRpcCall(url: string, method: string, params: any[] = []): Promise<{ result?: any; error?: any; latencyMs: number }> {
+async function jsonRpcCall(
+  url: string,
+  method: string,
+  params: any[] = []
+): Promise<{ result?: any; error?: any; latencyMs: number }> {
   const start = Date.now();
   try {
     const res = await fetch(url, {
@@ -26,69 +33,119 @@ export function statusCommand(): Command {
   const cmd = new Command("status");
 
   cmd
-    .description("Check RPC connectivity, network block height, and contract deployment status")
+    .description(
+      "Check RPC connectivity, network block height, and contract deployment status"
+    )
     .action(async () => {
       const projectDir = process.cwd();
       const configPath = path.join(projectDir, "logrix.yaml");
 
+      ui.banner("Indexer Diagnostics", "Inspecting live blockchain endpoints and contracts");
+
       if (!fs.existsSync(configPath)) {
-        console.error("Error: logrix.yaml not found. Run this command from your project root.");
-        process.exit(1);
+        throw new CliError(
+          "logrix.yaml not found",
+          "Project manifest is missing in current directory",
+          "Command must be executed from your indexer project root"
+        );
       }
 
       let config: any;
       try {
         config = parseYaml(fs.readFileSync(configPath, "utf-8"));
       } catch (e: any) {
-        console.error(`Error parsing logrix.yaml: ${e.message}`);
-        process.exit(1);
+        throw new CliError("Failed to parse logrix.yaml", e.message);
       }
 
       const networkName = config.network?.name || "unspecified";
       const configuredChainId = config.network?.chainId;
       const rpcUrl = config.network?.rpcUrl;
 
-      console.log("\nLogrix Indexer Status");
-      console.log("============================================================");
-      console.log(`Network Name:     ${networkName}`);
-      console.log(`Configured Chain: ${configuredChainId ?? "Not set"}`);
-      console.log(`RPC Endpoint:     ${rpcUrl || "None"}`);
+      ui.section("Network & RPC Configuration");
+      ui.label("Network:", pc.bold(pc.white(networkName)));
+      ui.label("Configured Chain:", pc.cyan(String(configuredChainId ?? "Not set")));
+      ui.label("Primary RPC:", rpcUrl ? pc.dim(rpcUrl) : pc.red("None configured"));
 
       if (!rpcUrl) {
-        console.error("\nError: No RPC URL configured in logrix.yaml.");
-        console.log("============================================================\n");
-        process.exit(1);
+        throw new CliError(
+          "Missing RPC URL",
+          "network.rpcUrl is not defined in logrix.yaml",
+          "Define network.rpcUrl in logrix.yaml to run status checks"
+        );
       }
 
-      // 1. Query block height
-      process.stdout.write("Connecting to RPC endpoint ... ");
-      const blockRes = await jsonRpcCall(rpcUrl, "eth_blockNumber");
+      const spinner = ui.spinner("Probing blockchain RPC endpoints...");
 
+      // 1. Query block height
+      const blockRes = await jsonRpcCall(rpcUrl, "eth_blockNumber");
       if (blockRes.error || !blockRes.result) {
-        console.log("FAILED");
-        console.error(`RPC Error: ${JSON.stringify(blockRes.error)} (${blockRes.latencyMs} ms)`);
-        console.log("============================================================\n");
-        process.exit(1);
+        spinner.fail("Primary RPC Unreachable");
+        throw new CliError(
+          "Primary RPC Unreachable",
+          typeof blockRes.error === "object" ? JSON.stringify(blockRes.error) : String(blockRes.error),
+          "Verify RPC endpoint availability, credentials, or rate limits"
+        );
       }
 
       const latestBlock = parseInt(blockRes.result, 16);
-      console.log(`ONLINE (${blockRes.latencyMs} ms)`);
-      console.log(`Latest Block:     #${latestBlock.toLocaleString()}`);
 
       // 2. Query chain ID
       const chainRes = await jsonRpcCall(rpcUrl, "eth_chainId");
+      spinner.succeed("Blockchain endpoints reachable");
+
+      ui.label(
+        "Primary Status:",
+        `${ui.statusBadge("ONLINE")} (${ui.latency(blockRes.latencyMs)})`
+      );
+      ui.label("Latest Block:", pc.bold(pc.green(`#${latestBlock.toLocaleString()}`)));
+
       if (chainRes.result) {
         const reportedChainId = parseInt(chainRes.result, 16);
         const match = configuredChainId === reportedChainId;
-        console.log(
-          `Chain ID Check:   Reported ${reportedChainId} (${match ? "VERIFIED MATCH" : "MISMATCH WARNING"})`
-        );
+        const chainBadge = match
+          ? pc.green(`✓ Matched (#${reportedChainId})`)
+          : pc.yellow(`! Mismatch (Configured: ${configuredChainId}, Node: ${reportedChainId})`);
+        ui.label("Chain ID Match:", chainBadge);
+      }
+
+      // Check Fallback RPCs
+      const fallbackUrls = config.network?.fallbackRpcUrls || [];
+      if (fallbackUrls.length > 0) {
+        ui.section(`Fallback RPC Gateway (${fallbackUrls.length} configured)`);
+        const fbTable = ui.table(["Endpoint", "Status", "Latency", "Block Height"]);
+        for (const fbUrl of fallbackUrls) {
+          const fbRes = await jsonRpcCall(fbUrl, "eth_blockNumber");
+          if (fbRes.error || !fbRes.result) {
+            fbTable.push([
+              pc.dim(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+              ui.statusBadge("OFFLINE"),
+              pc.dim("-"),
+              pc.dim(String(fbRes.error || "unreachable")),
+            ]);
+          } else {
+            const fbBlock = parseInt(fbRes.result, 16);
+            fbTable.push([
+              pc.cyan(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+              ui.statusBadge("ONLINE"),
+              ui.latency(fbRes.latencyMs),
+              pc.bold(pc.green(`#${fbBlock.toLocaleString()}`)),
+            ]);
+          }
+        }
+        console.log(fbTable.toString());
       }
 
       // 3. Inspect contracts
       const dataSources = config.dataSources || [];
-      console.log(`\nContracts Monitored (${dataSources.length}):`);
-      console.log("------------------------------------------------------------");
+      ui.section(`Monitored Contracts (${dataSources.length})`);
+
+      const contractTable = ui.table([
+        "Contract",
+        "Address",
+        "Status",
+        "Start Block",
+        "Sync Delta",
+      ]);
 
       for (const ds of dataSources) {
         const addr = ds.source?.address || "";
@@ -96,7 +153,13 @@ export function statusCommand(): Command {
         const startBlock = ds.source?.startBlock ?? 0;
 
         if (!addr) {
-          console.log(`  - ${name}: [NO ADDRESS SPECIFIED]`);
+          contractTable.push([
+            name,
+            pc.yellow("Missing address"),
+            ui.statusBadge("EMPTY"),
+            pc.dim(String(startBlock)),
+            pc.dim("-"),
+          ]);
           continue;
         }
 
@@ -105,20 +168,42 @@ export function statusCommand(): Command {
         const isDeployed = code.length > 2 && code !== "0x" && code !== "0x0";
         const byteSize = isDeployed ? (code.length - 2) / 2 : 0;
 
-        console.log(`  - Name:        ${name}`);
-        console.log(`    Address:     ${addr}`);
-        console.log(
-          `    Deployed:    ${isDeployed ? `YES (${byteSize.toLocaleString()} bytes bytecode)` : "NO (Empty bytecode / Not found)"}`
-        );
-        console.log(`    Start Block: #${startBlock.toLocaleString()}`);
-        if (latestBlock > startBlock) {
-          const lag = latestBlock - startBlock;
-          console.log(`    Sync Scope:  #${startBlock} -> #${latestBlock} (${lag.toLocaleString()} blocks to process)`);
+        const statusStr = isDeployed
+          ? `${ui.statusBadge("DEPLOYED")} ${pc.dim(`(${byteSize}B)`)}`
+          : ui.statusBadge("EMPTY");
+
+        const deltaStr =
+          latestBlock > startBlock
+            ? pc.green(`+${(latestBlock - startBlock).toLocaleString()} blks`)
+            : pc.dim("0 blks");
+
+        contractTable.push([
+          pc.bold(name),
+          pc.dim(addr.slice(0, 10) + "..." + addr.slice(-8)),
+          statusStr,
+          pc.cyan(`#${startBlock.toLocaleString()}`),
+          deltaStr,
+        ]);
+      }
+      console.log(contractTable.toString());
+
+      // Webhooks Summary
+      const webhooks = config.webhooks || [];
+      if (webhooks.length > 0) {
+        ui.section(`Declarative Webhooks (${webhooks.length})`);
+        const whTable = ui.table(["Endpoint URL", "Subscribed Events", "Max Retries"]);
+        for (const wh of webhooks) {
+          whTable.push([
+            pc.cyan(wh.url),
+            (wh.events || ["reorg"]).join(", "),
+            String(wh.maxRetries || 3),
+          ]);
         }
-        console.log("");
+        console.log(whTable.toString());
       }
 
-      console.log("============================================================\n");
+      ui.divider();
+      console.log();
     });
 
   return cmd;

@@ -30,9 +30,13 @@ Options:
 - `-y, --yes` -- non-interactive mode using sensible defaults
 - `--network <name>` -- network preset (`arbitrum-one`, `ethereum`, `base`, `optimism`, `polygon`, `bsc`, `avalanche`, `sepolia`, etc.)
 - `--rpc <url>` -- custom RPC endpoint
+- `--fallback-rpc <urls...>` -- optional fallback RPC endpoints for RPC gateway failover
 - `--contract-name <name>` -- contract name
 - `--address <address>` -- target contract 0x address
 - `--start-block <block>` -- initial indexing block
+- `--webhook-url <url>` -- declarative webhook subscriber URL
+- `--reorg-depth <depth>` -- reorg ring buffer depth (default: 128)
+- `--reconciler-interval <secs>` -- gap reconciler interval in seconds (default: 30)
 
 Creates:
 ```
@@ -57,7 +61,7 @@ my-indexer/
 
 ### `logrix status`
 
-Checks live JSON-RPC connectivity, measures round-trip latency, verifies chain ID match, checks latest block height, and verifies that target smart contracts are deployed with on-chain bytecode.
+Checks live JSON-RPC connectivity across primary and fallback endpoints, measures round-trip latency, verifies chain ID match, checks latest block height, and verifies that target smart contracts are deployed with on-chain bytecode.
 
 ```bash
 npx logrix status
@@ -65,36 +69,47 @@ npx logrix status
 
 Output includes:
 - Network Name & Chain ID verification
-- RPC reachability and response latency (ms)
+- Primary and fallback RPC reachability and response latency (ms)
 - Latest chain block number
 - Contract deployment verification (`eth_getCode` bytecode inspection)
 - Sync scope and remaining block delta
+- Configured declarative webhooks
 
 ---
 
-### `logrix add contract <name>`
+### `logrix add contract <name>` and `logrix add webhook <url>`
 
-Adds an additional smart contract to an existing `logrix.yaml` project for multi-contract indexing.
+Adds an additional smart contract or declarative webhook to an existing `logrix.yaml` project.
 
 ```bash
-# Add with manual ABI path
+# Add contract with manual ABI path
 npx logrix add contract SecondaryToken \
   --address 0x1111111111111111111111111111111111111111 \
   --abi ./my-abis/SecondaryToken.json \
   --start-block 1000000
 
-# Add with automatic ABI fetch from block explorers / Sourcify
+# Add contract with automatic ABI fetch from block explorers / Sourcify
 npx logrix add contract DaiToken \
   --address 0x6b175474e89094c44da98b954eedeac495271d0f \
   --fetch-abi
+
+# Add declarative webhook subscriber
+npx logrix add webhook https://api.mybackend.com/webhooks/logrix \
+  --events Transfer,reorg \
+  --max-retries 3
 ```
 
-Options:
+Contract Options:
 - `--address <address>` -- contract address
 - `--abi <path>` -- path to local ABI JSON
-- `--fetch-abi` -- auto-fetch verified contract ABI from block explorers (Etherscan, Arbiscan, Basescan, Polygonscan, etc.) and Sourcify
+- `--fetch-abi` -- auto-fetch verified contract ABI from block explorers and Sourcify
 - `--etherscan-key <key>` -- optional block explorer API key for rate limits
 - `--start-block <block>` -- initial indexing block
+
+Webhook Options:
+- `--events <events>` -- comma-separated event names (default: `reorg`)
+- `--secret <secret>` -- HMAC signing secret (optional)
+- `--max-retries <retries>` -- maximum delivery retries (default: 3)
 
 ---
 
@@ -263,21 +278,29 @@ function handleTransfer(raw: string): i32 {
    ```bash
    npm run codegen && npm run build && npm run export-values
    ```
-2. Deploy via Helm to your Kubernetes cluster using the scaffolded `deploy/` profiles:
 
-   **Local Kubernetes (Minikube / Kind):**
+2. Deploy using Helm:
+
+   **Mode 1: Self-Hosted Deployment (Default)**
+   Deploys out-of-the-box with built-in PostgreSQL and RabbitMQ pods. No extra infrastructure config needed:
    ```bash
    helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     -f deploy/values-local.yaml \
      -f indexer-values.yaml
    ```
+   *(Optional S3 block archiving can be enabled with `--set builtIn.minio=true`)*
 
-   **Production AWS EKS:**
+   *(To connect your own external database or queue securely, configure `deploy/secrets.example.yaml`, apply with `kubectl apply -f deploy/secrets.example.yaml`, and pass `--set config.existingSecret=logrix-secrets`)*
+
+   **Mode 2: Full AWS Production (EKS + Terraform)**
+   Deploys with Aurora Serverless PostgreSQL, Amazon SQS, and KEDA autoscaling:
    ```bash
    helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
      -f deploy/values-aws.yaml \
      -f indexer-values.yaml \
-     --set config.existingSecret=logrix-aws-secrets
+     --set config.existingSecret=logrix-secrets
    ```
+
+   **AWS Infrastructure Note:**
+   The `@logrix/sdk` generates the application indexer bundle (`indexer-values.yaml`) and Helm deployment profile (`deploy/values-aws.yaml`). If you need to provision the underlying AWS infrastructure (VPC, EKS cluster, Aurora PostgreSQL, SQS queues, S3 bucket, IAM roles) from scratch, complete production Terraform modules are provided in the [Logrix GitHub Repository](https://github.com/Vishal-770/Logrix) under `deploy/terraform/aws/`.
 
 Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for full Helm deployment options.

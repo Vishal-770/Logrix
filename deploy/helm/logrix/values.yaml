@@ -18,8 +18,9 @@ config:
   rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc"
   rpcFallbackUrls: ""
   queueDriver: "rabbitmq"
-  rabbitmqUrl: "amqp://logrix:logrix@rabbitmq:5672/%2f"
-  databaseUrl: "postgres://logrix:logrix@postgres:5432/logrix"
+  rabbitmqUrl: ""
+  databaseUrl: ""
+  s3Endpoint: ""
   startBlock: ""
   cuBudget: ""
   bulkStreamUrl: ""
@@ -39,14 +40,21 @@ config:
   # Optional existing Kubernetes secret name providing DATABASE_URL and RABBITMQ_URL
   existingSecret: ""
 
-# Built-in lightweight local development infrastructure (PostgreSQL & RabbitMQ)
-# Enable this for instant 1-click local testing on Minikube / Kind / K3s
+# Mode 1: Built-in self-hosted backing infrastructure (PostgreSQL, RabbitMQ, and MinIO S3)
+# Enabled by default for zero-configuration out-of-the-box self-hosted deployment.
+# Any service is automatically disabled if you specify an external endpoint (e.g. databaseUrl or queueDriver: sqs).
+builtIn:
+  enabled: true
+  postgres: true
+  rabbitmq: true
+  minio: false
+  postgresStorage: 1Gi
+  rabbitmqStorage: 1Gi
+  minioStorage: 5Gi
+
+# Backward-compatibility alias
 localDev:
   enabled: false
-  postgres:
-    storage: 1Gi
-  rabbitmq:
-    storage: 1Gi
 
 ingester:
   enabled: true
@@ -85,6 +93,9 @@ processor:
     rabbitmq:
       queueName: "logrix.live.jobs"
       host: "amqp://logrix:logrix@rabbitmq:5672/%2f"
+    sqs:
+      queueUrl: ""
+      awsRegion: "us-east-1"
   resources:
     limits:
       cpu: 1000m

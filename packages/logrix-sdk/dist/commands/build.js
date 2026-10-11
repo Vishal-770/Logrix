@@ -32,13 +32,19 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildCommand = buildCommand;
 const commander_1 = require("commander");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
+const picocolors_1 = __importDefault(require("picocolors"));
 const yaml_1 = require("yaml");
+const ui_1 = require("../ui");
+const errors_1 = require("../errors");
 function buildCommand() {
     const cmd = new commander_1.Command("build");
     cmd
@@ -48,19 +54,18 @@ function buildCommand() {
         .option("--debug", "Build without optimization (for debugging)")
         .action((opts) => {
         const projectDir = process.cwd();
+        ui_1.ui.banner("Handler Compilation", "Compiling AssemblyScript mapping to WebAssembly");
         // Resolve entry and output paths
         const entryFile = path.resolve(projectDir, opts.entry);
         const outFile = path.resolve(projectDir, opts.out);
         if (!fs.existsSync(entryFile)) {
-            console.error(`Error: entry file not found: ${opts.entry}`);
-            process.exit(1);
+            throw new errors_1.CliError(`Entry file missing: ${opts.entry}`, `Expected handler file at ${entryFile}`, "Ensure your mapping file exists or pass --entry <path>");
         }
         // Check if generated bindings exist
         const generatedSchema = path.join(projectDir, "src", "generated", "schema.ts");
         const generatedEvents = path.join(projectDir, "src", "generated", "events.ts");
         if (!fs.existsSync(generatedSchema) || !fs.existsSync(generatedEvents)) {
-            console.warn("Notice: Generated bindings (src/generated/) not found or incomplete.");
-            console.warn("Tip: Run `logrix codegen` before `logrix build` to generate typed classes.\n");
+            ui_1.ui.warn("Generated bindings incomplete", "Run `logrix codegen` before compiling to refresh typed event and schema classes");
         }
         // Ensure output directory exists
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
@@ -98,19 +103,22 @@ function buildCommand() {
         ]
             .filter(Boolean)
             .join(" ");
-        console.log(`Running: ${ascCmd}\n`);
+        ui_1.ui.info("Target output:", picocolors_1.default.cyan(path.relative(projectDir, outFile)));
+        ui_1.ui.info("Mode:", opts.debug ? picocolors_1.default.yellow("Debug (unoptimized)") : picocolors_1.default.green("Optimized (--optimize)"));
+        console.log();
+        const spinner = ui_1.ui.spinner("Executing AssemblyScript compiler (asc)...");
         try {
-            (0, child_process_1.execSync)(ascCmd, { cwd: projectDir, stdio: "inherit" });
+            (0, child_process_1.execSync)(ascCmd, { cwd: projectDir, stdio: "pipe" });
             const stat = fs.statSync(outFile);
-            console.log(`\nBuild complete: ${path.relative(projectDir, outFile)} (${stat.size} bytes)`);
+            spinner.succeed(`Compiled WebAssembly binary (${(stat.size / 1024).toFixed(1)} KB)`);
+            console.log();
+            ui_1.ui.success("Compilation Succeeded", path.relative(projectDir, outFile));
+            console.log();
         }
-        catch {
-            console.error("\nBuild failed.");
-            console.error("Troubleshooting tips:");
-            console.error("  1. Verify AssemblyScript types in src/mapping.ts (e.g. use BigInt / Address / Bytes from @logrix/sdk)");
-            console.error("  2. Run `logrix codegen` to refresh generated bindings");
-            console.error("  3. Run `logrix validate` to check configuration syntax\n");
-            process.exit(1);
+        catch (e) {
+            spinner.fail("AssemblyScript compilation failed");
+            const details = e.stderr ? e.stderr.toString() : e.message;
+            throw new errors_1.CliError("Compilation Failed", details, "Check type imports in src/mapping.ts and verify generated bindings with `logrix codegen`");
         }
     });
     return cmd;

@@ -60,6 +60,64 @@ export class EventLog {
   block_timestamp: u64 = 0;
   topics: Array<string> = [];
   data: string = "";
+
+  static fromJson(json: string): EventLog {
+    const log = new EventLog();
+    log.address = extractJsonField(json, "address");
+    
+    const blockNumStr = extractJsonField(json, "block_number");
+    if (blockNumStr.length > 0) {
+      log.block_number = u64(parseInt(blockNumStr) as i32);
+    }
+    
+    log.block_hash = extractJsonField(json, "block_hash");
+    
+    // Support tx_hash (EVM domain struct) and transaction_hash aliases
+    let txHash = extractJsonField(json, "tx_hash");
+    if (txHash.length == 0) {
+      txHash = extractJsonField(json, "transaction_hash");
+    }
+    log.transaction_hash = txHash;
+    
+    const logIdxStr = extractJsonField(json, "log_index");
+    if (logIdxStr.length > 0) {
+      log.log_index = u32(parseInt(logIdxStr) as i32);
+    }
+    
+    const tsStr = extractJsonField(json, "block_timestamp");
+    if (tsStr.length > 0) {
+      log.block_timestamp = u64(parseInt(tsStr) as i32);
+    }
+    
+    log.data = extractJsonField(json, "data");
+    log.topics = parseJsonStringArray(json, "topics");
+    return log;
+  }
+}
+
+function parseJsonStringArray(json: string, key: string): Array<string> {
+  const result = new Array<string>();
+  const needle = '"' + key + '":';
+  const idx = json.indexOf(needle);
+  if (idx == -1) return result;
+  
+  const arrayStart = json.indexOf("[", idx + needle.length);
+  if (arrayStart == -1) return result;
+  
+  const arrayEnd = json.indexOf("]", arrayStart);
+  if (arrayEnd == -1) return result;
+  
+  const inside = json.slice(arrayStart + 1, arrayEnd);
+  let pos = 0;
+  while (pos < inside.length) {
+    const q1 = inside.indexOf('"', pos);
+    if (q1 == -1) break;
+    const q2 = inside.indexOf('"', q1 + 1);
+    if (q2 == -1) break;
+    result.push(inside.slice(q1 + 1, q2));
+    pos = q2 + 1;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
