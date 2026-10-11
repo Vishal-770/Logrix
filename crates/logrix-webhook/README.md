@@ -182,3 +182,29 @@ logrix webhook \
 ### 3. Dynamic Management REST API
 Manage webhooks dynamically at runtime via `logrix-api` (Port 8080).
 See `crates/logrix-api/README.md` for complete endpoint curl examples.
+
+---
+
+## Programmatic Worker & Graceful Shutdown
+
+The `WebhookDispatcherService` integrates seamlessly with container shutdown signals (SIGINT / SIGTERM):
+
+```rust
+use logrix_webhook::WebhookDispatcherService;
+use std::sync::Arc;
+
+let dispatcher = WebhookDispatcherService::new(
+    queue,
+    Some(store),
+    Some("https://api.mybackend.com/webhooks".into()),
+    "whsec_production_secret",
+);
+
+// Runs until cancellation signal is received, draining in-flight HTTP deliveries
+dispatcher.run_loop_with_shutdown(tokio::signal::ctrl_c()).await;
+```
+
+## Security & Secret Hygiene
+
+- **Constant-Time Verification**: `verify_signature` performs constant-time comparison (`Mac::verify_slice`) preventing timing side-channel attacks.
+- **Credential Masking in Logs**: Webhook endpoints and HTTP warnings automatically sanitize sensitive embedded credentials via `sanitize_webhook_url`.

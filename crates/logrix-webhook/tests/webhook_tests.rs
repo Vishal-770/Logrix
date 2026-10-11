@@ -76,3 +76,37 @@ async fn test_webhook_http_client_handles_unreachable_endpoint() {
     assert!(!res.success);
     assert!(res.error_message.is_some());
 }
+
+#[test]
+fn test_sanitize_webhook_url() {
+    let sanitized =
+        logrix_webhook::sanitize_webhook_url("https://user:pass123@example.com/webhook");
+    assert_eq!(sanitized, "https://***@example.com/webhook");
+
+    let clean = logrix_webhook::sanitize_webhook_url("https://example.com/api/v1/webhook");
+    assert_eq!(clean, "https://example.com/api/v1/webhook");
+}
+
+#[tokio::test]
+async fn test_dispatcher_graceful_shutdown() {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let queue = std::sync::Arc::new(logrix_testkit::MockQueuePort::new());
+    let dispatcher = logrix_webhook::WebhookDispatcherService::new(
+        queue,
+        None,
+        Some("http://127.0.0.1:59999/webhook".to_string()),
+        "whsec_shutdown_test",
+    );
+
+    let handle = tokio::spawn(async move {
+        dispatcher
+            .run_loop_with_shutdown(async {
+                let _ = rx.await;
+            })
+            .await;
+    });
+
+    let _ = tx.send(());
+    let res = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
+    assert!(res.is_ok(), "Dispatcher should shut down gracefully");
+}

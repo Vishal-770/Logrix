@@ -81,6 +81,28 @@ pub fn verify_signature(
     mac.update(b".");
     mac.update(payload);
 
-    let computed_sig = hex::encode(mac.finalize().into_bytes());
-    computed_sig.as_bytes() == expected_sig.as_bytes()
+    let expected_bytes = match hex::decode(expected_sig) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    mac.verify_slice(&expected_bytes).is_ok()
+}
+
+/// Redact embedded basic auth credentials or query token secrets from webhook URLs for safe logging.
+#[must_use]
+pub fn sanitize_webhook_url(raw_url: &str) -> String {
+    let mut sanitized = raw_url.to_string();
+    if let Some(proto_end) = sanitized.find("://") {
+        let after_proto = proto_end + 3;
+        if let Some(at_idx) = sanitized[after_proto..].find('@') {
+            let at_abs = after_proto + at_idx;
+            sanitized = format!(
+                "{}***@{}",
+                &sanitized[..after_proto],
+                &sanitized[at_abs + 1..]
+            );
+        }
+    }
+    sanitized
 }
