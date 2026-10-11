@@ -81,20 +81,57 @@ function exportValuesCommand() {
         }
         // Build contracts manifest array (Rust engine format)
         const contracts = [];
+        let minStartBlock = Number.MAX_SAFE_INTEGER;
         for (const ds of config.dataSources ?? []) {
             const events = (ds.mapping?.eventHandlers ?? []).map((h) => h.event);
-            contracts.push({
+            const startBlock = ds.source?.startBlock ?? 0;
+            if (startBlock < minStartBlock) {
+                minStartBlock = startBlock;
+            }
+            const contractEntry = {
                 name: ds.name,
                 address: ds.source?.address ?? "",
+                start_block: startBlock,
                 events,
                 wasm_handler: "/etc/logrix/handlers/mapping.wasm",
-            });
+            };
+            if (typeof ds.mapping?.enabled === "boolean") {
+                contractEntry.enabled = ds.mapping.enabled;
+            }
+            if (typeof ds.mapping?.fuelLimit === "number") {
+                contractEntry.fuel_limit = ds.mapping.fuelLimit;
+            }
+            if (typeof ds.mapping?.maxMemoryMb === "number") {
+                contractEntry.max_memory_mb = ds.mapping.maxMemoryMb;
+            }
+            contracts.push(contractEntry);
+        }
+        if (minStartBlock === Number.MAX_SAFE_INTEGER) {
+            minStartBlock = 0;
+        }
+        // Build webhooks manifest array (Rust engine format)
+        const webhooks = [];
+        for (const wh of config.webhooks ?? []) {
+            if (!wh.url)
+                continue;
+            const entry = {
+                url: wh.url,
+                events: Array.isArray(wh.events) ? wh.events : ["reorg"],
+                max_retries: wh.maxRetries ?? wh.max_retries ?? 3,
+            };
+            if (wh.secret) {
+                entry.secret = wh.secret;
+            }
+            webhooks.push(entry);
         }
         const manifest = {
             schema_version: "1",
             chain_id: chainId,
             contracts,
         };
+        if (webhooks.length > 0) {
+            manifest.webhooks = webhooks;
+        }
         // Read schema.graphql
         const schemaPath = path.join(projectDir, "schema.graphql");
         if (!fs.existsSync(schemaPath)) {
@@ -109,16 +146,32 @@ function exportValuesCommand() {
             process.exit(1);
         }
         const wasmBase64 = fs.readFileSync(wasmPath).toString("base64");
+        // Resolve advanced network and engine settings
+        const fallbackUrls = config.network?.fallbackRpcUrls ?? [];
+        const rpcFallbackStr = Array.isArray(fallbackUrls) ? fallbackUrls.join(",") : "";
+        const reconcilerIntervalSecs = config.indexing?.reconcilerIntervalSecs ?? 30;
+        const ringBufferDepth = config.indexing?.ringBufferDepth ?? 128;
         // Build indexer-values.yaml
         const values = {
             config: {
                 chainId,
                 rpcUrl,
+                rpcFallbackUrls: rpcFallbackStr,
+                contractAddress: contracts[0]?.address ?? "",
+                startBlock: String(minStartBlock),
+                reconcilerIntervalSecs,
+                ringBufferDepth,
                 manifestContent: (0, yaml_1.stringify)(manifest, { indent: 2 }),
                 schemaContent,
                 wasmBase64,
             },
         };
+        if (webhooks.length > 0) {
+            values.config.webhookUrl = webhooks[0].url;
+            values.webhook = {
+                enabled: true,
+            };
+        }
         const outPath = path.resolve(projectDir, opts.out);
         fs.writeFileSync(outPath, (0, yaml_1.stringify)(values, { indent: 2 }));
         // Ensure deployment profile directory exists
@@ -130,14 +183,14 @@ function exportValuesCommand() {
                 networkName: config.network?.name ?? "network",
                 chainId,
                 rpcUrl,
+                fallbackRpcUrls: Array.isArray(fallbackUrls) ? fallbackUrls : [],
                 contractName: contracts[0]?.name ?? "Contract",
                 contractAddress: contracts[0]?.address ?? "",
-                startBlock: 0,
+                startBlock: minStartBlock,
+                webhookUrl: webhooks[0]?.url,
+                ringBufferDepth,
+                reconcilerIntervalSecs,
             };
-            const localPath = path.join(deployDir, "values-local.yaml");
-            if (!fs.existsSync(localPath) || opts.deployProfiles) {
-                fs.writeFileSync(localPath, (0, templates_1.valuesLocalTemplate)(answers));
-            }
             const awsPath = path.join(deployDir, "values-aws.yaml");
             if (!fs.existsSync(awsPath) || opts.deployProfiles) {
                 fs.writeFileSync(awsPath, (0, templates_1.valuesAwsTemplate)(answers));
@@ -149,8 +202,8 @@ function exportValuesCommand() {
         }
         console.log(`\nExported Helm values to: ${opts.out}`);
         console.log("\nDeploy with Helm:");
-        console.log(`  Local: helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f ${opts.out}`);
-        console.log(`  AWS:   helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f ${opts.out}\n`);
+        console.log(`  Self-Hosted: helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f ${opts.out}`);
+        console.log(`  AWS:         helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f ${opts.out} --set config.existingSecret=logrix-secrets\n`);
     });
     return cmd;
 }

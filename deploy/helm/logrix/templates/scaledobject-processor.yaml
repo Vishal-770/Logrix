@@ -16,13 +16,20 @@ spec:
   minReplicaCount: {{ .Values.processor.keda.minReplicaCount | default 1 }}
   maxReplicaCount: {{ .Values.processor.keda.maxReplicaCount | default 50 }}
   triggers:
-    {{- if eq .Values.processor.keda.queueType "rabbitmq" }}
+    {{- if or (eq .Values.processor.keda.queueType "sqs") (eq .Values.config.queueDriver "sqs") }}
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: {{ .Values.processor.keda.sqs.queueUrl | quote }}
+        queueLength: {{ .Values.processor.keda.targetQueueDepth | default 30 | quote }}
+        awsRegion: {{ .Values.processor.keda.sqs.awsRegion | default "us-east-1" | quote }}
+        identityOwner: operator
+    {{- else }}
     - type: rabbitmq
       metadata:
         protocol: amqp
-        queueName: {{ .Values.processor.keda.rabbitmq.queueName | quote }}
+        queueName: {{ .Values.processor.keda.rabbitmq.queueName | default "logrix.live.jobs" | quote }}
         mode: QueueLength
-        value: {{ .Values.processor.keda.targetQueueDepth | quote }}
-        host: {{ .Values.processor.keda.rabbitmq.host | quote }}
+        value: {{ .Values.processor.keda.targetQueueDepth | default 30 | quote }}
+        host: {{ default (printf "amqp://logrix:logrixpassword@%s-rabbitmq:5672/%%2f" (include "logrix.fullname" .)) .Values.processor.keda.rabbitmq.host | quote }}
     {{- end }}
 {{- end }}

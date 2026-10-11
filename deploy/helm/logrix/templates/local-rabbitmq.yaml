@@ -1,4 +1,4 @@
-{{- if .Values.localDev.enabled }}
+{{- if or (and .Values.localDev .Values.localDev.enabled) (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.rabbitmq (empty .Values.config.rabbitmqUrl) (ne .Values.config.queueDriver "sqs")) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

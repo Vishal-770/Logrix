@@ -11,7 +11,6 @@ import {
   tsconfigTemplate,
   gitignoreTemplate,
   readmeTemplate,
-  valuesLocalTemplate,
   valuesAwsTemplate,
   secretsExampleTemplate,
   ERC20_ABI,
@@ -68,6 +67,10 @@ export function initCommand(): Command {
     .option("--contract-name <name>", "Contract name")
     .option("--address <address>", "Contract target address")
     .option("--start-block <block>", "Starting block number")
+    .option("--fallback-rpc <urls...>", "Fallback RPC endpoint URL(s)")
+    .option("--webhook-url <url>", "Declarative webhook subscriber URL")
+    .option("--reorg-depth <depth>", "Reorg ring buffer depth (default: 128)")
+    .option("--reconciler-interval <secs>", "Gap reconciler interval in seconds (default: 30)")
     .action(async (nameArg: string | undefined, opts: any) => {
       console.log("\nLogrix Project Initializer\n");
 
@@ -176,14 +179,75 @@ export function initCommand(): Command {
       }
       const startBlock = parseInt(startBlockStr.trim(), 10);
 
+      // Advanced engine and infrastructure settings
+      let fallbackRpcUrls: string[] = [];
+      if (opts.fallbackRpc) {
+        fallbackRpcUrls = Array.isArray(opts.fallbackRpc)
+          ? opts.fallbackRpc
+          : opts.fallbackRpc.split(",").map((s: string) => s.trim()).filter(Boolean);
+      }
+
+      let webhookUrl: string | undefined = opts.webhookUrl;
+      let ringBufferDepth: number | undefined = opts.reorgDepth
+        ? parseInt(opts.reorgDepth, 10)
+        : undefined;
+      let reconcilerIntervalSecs: number | undefined = opts.reconcilerInterval
+        ? parseInt(opts.reconcilerInterval, 10)
+        : undefined;
+
+      if (!isNonInteractive) {
+        const wantAdvanced = await select<boolean>({
+          message: "Configure advanced engine settings (fallback RPCs, webhooks, reorg buffer)?",
+          choices: [
+            { name: "No - use recommended production defaults", value: false },
+            { name: "Yes - customize engine settings", value: true },
+          ],
+          default: false,
+        });
+
+        if (wantAdvanced) {
+          const fallbackStr = await input({
+            message: "Fallback RPC URLs (optional, comma-separated):",
+            default: "",
+          });
+          if (fallbackStr.trim()) {
+            fallbackRpcUrls = fallbackStr
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+
+          const whStr = await input({
+            message: "Webhook URL (optional, e.g. https://api.mybackend.com/webhooks):",
+            default: "",
+          });
+          if (whStr.trim()) {
+            webhookUrl = whStr.trim();
+          }
+
+          const depthStr = await input({
+            message: "Reorg ring buffer depth:",
+            default: "128",
+            validate: (v) =>
+              (/^\d+$/.test(v.trim()) && parseInt(v.trim(), 10) >= 10) ||
+              "Must be an integer >= 10",
+          });
+          ringBufferDepth = parseInt(depthStr.trim(), 10);
+        }
+      }
+
       const answers: InitAnswers = {
         projectName,
         networkName: networkKey,
         chainId: network.chainId,
         rpcUrl,
+        fallbackRpcUrls,
         contractName,
         contractAddress,
         startBlock,
+        webhookUrl,
+        ringBufferDepth,
+        reconcilerIntervalSecs,
       };
 
       console.log(`\nScaffolding in ./${projectName}/ ...\n`);
@@ -229,10 +293,6 @@ export function initCommand(): Command {
 
       // Write deployment configuration profiles
       fs.writeFileSync(
-        path.join(targetDir, "deploy", "values-local.yaml"),
-        valuesLocalTemplate(answers)
-      );
-      fs.writeFileSync(
         path.join(targetDir, "deploy", "values-aws.yaml"),
         valuesAwsTemplate(answers)
       );
@@ -250,10 +310,10 @@ export function initCommand(): Command {
       console.log("  npm run export-values\n");
       console.log("Deploy with Helm:\n");
       console.log(
-        `  Local: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f indexer-values.yaml`
+        `  Self-Hosted: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`
       );
       console.log(
-        `  AWS:   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml\n`
+        `  AWS:         helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets\n`
       );
     });
 

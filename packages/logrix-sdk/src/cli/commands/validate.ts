@@ -94,10 +94,91 @@ export function validateCommand(): Command {
           } else {
             console.log(`  [OK] ${dsName}: handler entry point exists at src/mapping.ts`);
           }
+
+          // Check resource limits if specified
+          if (ds.mapping?.fuelLimit !== undefined) {
+            const fuel = ds.mapping.fuelLimit;
+            if (typeof fuel !== "number" || fuel < 1000) {
+              console.error(`  [FAIL] ${dsName}: mapping.fuelLimit must be a number >= 1000 (got ${fuel}).`);
+              hasErrors = true;
+            } else {
+              console.log(`  [OK] ${dsName}: fuel limit set to ${fuel.toLocaleString()} ticks.`);
+            }
+          }
+
+          if (ds.mapping?.maxMemoryMb !== undefined) {
+            const mem = ds.mapping.maxMemoryMb;
+            if (typeof mem !== "number" || mem < 1 || mem > 512) {
+              console.error(`  [FAIL] ${dsName}: mapping.maxMemoryMb must be between 1 and 512 MB (got ${mem}).`);
+              hasErrors = true;
+            } else {
+              console.log(`  [OK] ${dsName}: max memory ceiling set to ${mem} MB.`);
+            }
+          }
         }
       }
 
-      // 3. Check schema.graphql
+      // 3. Check network fallback RPC URLs
+      if (config.network?.fallbackRpcUrls) {
+        if (!Array.isArray(config.network.fallbackRpcUrls)) {
+          console.error("  [FAIL] network.fallbackRpcUrls must be a list of URL strings.");
+          hasErrors = true;
+        } else {
+          for (const url of config.network.fallbackRpcUrls) {
+            if (!/^https?:\/\/.+/.test(url)) {
+              console.error(`  [FAIL] network.fallbackRpcUrls: invalid URL '${url}'. Must start with http:// or https://`);
+              hasErrors = true;
+            }
+          }
+          console.log(`  [OK] Configured ${config.network.fallbackRpcUrls.length} fallback RPC endpoint(s).`);
+        }
+      }
+
+      // 4. Check webhooks
+      if (config.webhooks) {
+        if (!Array.isArray(config.webhooks)) {
+          console.error("  [FAIL] webhooks must be an array of webhook objects.");
+          hasErrors = true;
+        } else {
+          for (let i = 0; i < config.webhooks.length; i++) {
+            const wh = config.webhooks[i];
+            const whDesc = `webhook[${i}] (${wh.url || "unspecified"})`;
+            if (!wh.url || !/^https?:\/\/.+/.test(wh.url)) {
+              console.error(`  [FAIL] ${whDesc}: invalid URL. Must start with http:// or https://`);
+              hasErrors = true;
+            }
+            if (wh.maxRetries !== undefined && (typeof wh.maxRetries !== "number" || wh.maxRetries < 1)) {
+              console.error(`  [FAIL] ${whDesc}: maxRetries must be an integer >= 1.`);
+              hasErrors = true;
+            }
+          }
+          console.log(`  [OK] Configured ${config.webhooks.length} declarative webhook(s).`);
+        }
+      }
+
+      // 5. Check indexing tuning
+      if (config.indexing) {
+        if (config.indexing.ringBufferDepth !== undefined) {
+          const depth = config.indexing.ringBufferDepth;
+          if (typeof depth !== "number" || depth < 10) {
+            console.error(`  [FAIL] indexing.ringBufferDepth must be >= 10 (got ${depth}).`);
+            hasErrors = true;
+          } else {
+            console.log(`  [OK] Reorg ring buffer depth set to ${depth}.`);
+          }
+        }
+        if (config.indexing.reconcilerIntervalSecs !== undefined) {
+          const secs = config.indexing.reconcilerIntervalSecs;
+          if (typeof secs !== "number" || secs < 1) {
+            console.error(`  [FAIL] indexing.reconcilerIntervalSecs must be >= 1 (got ${secs}).`);
+            hasErrors = true;
+          } else {
+            console.log(`  [OK] Gap reconciler interval set to ${secs}s.`);
+          }
+        }
+      }
+
+      // 6. Check schema.graphql
       const schemaPath = path.join(projectDir, "schema.graphql");
       if (!fs.existsSync(schemaPath)) {
         console.error("  [FAIL] schema.graphql not found.");

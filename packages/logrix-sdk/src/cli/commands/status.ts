@@ -85,6 +85,23 @@ export function statusCommand(): Command {
         );
       }
 
+      // Check Fallback RPCs
+      const fallbackUrls = config.network?.fallbackRpcUrls || [];
+      if (fallbackUrls.length > 0) {
+        console.log(`\nFallback RPC Endpoints (${fallbackUrls.length}):`);
+        console.log("------------------------------------------------------------");
+        for (const fbUrl of fallbackUrls) {
+          process.stdout.write(`  Checking ${fbUrl} ... `);
+          const fbRes = await jsonRpcCall(fbUrl, "eth_blockNumber");
+          if (fbRes.error || !fbRes.result) {
+            console.log(`FAILED (${fbRes.error || "no response"})`);
+          } else {
+            const fbBlock = parseInt(fbRes.result, 16);
+            console.log(`ONLINE (${fbRes.latencyMs} ms, #${fbBlock.toLocaleString()})`);
+          }
+        }
+      }
+
       // 3. Inspect contracts
       const dataSources = config.dataSources || [];
       console.log(`\nContracts Monitored (${dataSources.length}):`);
@@ -114,6 +131,19 @@ export function statusCommand(): Command {
         if (latestBlock > startBlock) {
           const lag = latestBlock - startBlock;
           console.log(`    Sync Scope:  #${startBlock} -> #${latestBlock} (${lag.toLocaleString()} blocks to process)`);
+        }
+        console.log("");
+      }
+
+      // Webhooks Summary
+      const webhooks = config.webhooks || [];
+      if (webhooks.length > 0) {
+        console.log(`Declarative Webhooks (${webhooks.length}):`);
+        console.log("------------------------------------------------------------");
+        for (const wh of webhooks) {
+          console.log(`  - URL:         ${wh.url}`);
+          console.log(`    Events:      ${(wh.events || ["reorg"]).join(", ")}`);
+          console.log(`    Max Retries: ${wh.maxRetries || 3}`);
         }
         console.log("");
       }

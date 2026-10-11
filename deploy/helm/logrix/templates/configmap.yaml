@@ -9,9 +9,13 @@ data:
   CONTRACT_ADDRESS: {{ .Values.config.contractAddress | quote }}
   RPC_URL: {{ .Values.config.rpcUrl | quote }}
   RPC_FALLBACK_URLS: {{ .Values.config.rpcFallbackUrls | quote }}
-  QUEUE_DRIVER: {{ .Values.config.queueDriver | quote }}
-  RABBITMQ_URL: {{ .Values.config.rabbitmqUrl | quote }}
-  DATABASE_URL: {{ .Values.config.databaseUrl | quote }}
+  QUEUE_DRIVER: {{ .Values.config.queueDriver | default "rabbitmq" | quote }}
+  RABBITMQ_URL: {{ default (printf "amqp://logrix:logrixpassword@%s-rabbitmq:5672/%%2f" (include "logrix.fullname" .)) .Values.config.rabbitmqUrl | quote }}
+  DATABASE_URL: {{ default (printf "postgres://logrix:logrixpassword@%s-postgres:5432/logrix" (include "logrix.fullname" .)) .Values.config.databaseUrl | quote }}
+  {{- if or (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio) .Values.config.s3Bucket }}
+  S3_BUCKET: {{ default "logrix-blocks" .Values.config.s3Bucket | quote }}
+  S3_ENDPOINT: {{ default (printf "http://%s-minio:9000" (include "logrix.fullname" .)) .Values.config.s3Endpoint | quote }}
+  {{- end }}
   RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | quote }}
   RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | quote }}
   {{- if .Values.config.startBlock }}

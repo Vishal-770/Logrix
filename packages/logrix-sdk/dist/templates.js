@@ -9,17 +9,30 @@ exports.mappingTemplate = mappingTemplate;
 exports.packageJsonTemplate = packageJsonTemplate;
 exports.tsconfigTemplate = tsconfigTemplate;
 exports.gitignoreTemplate = gitignoreTemplate;
-exports.valuesLocalTemplate = valuesLocalTemplate;
 exports.valuesAwsTemplate = valuesAwsTemplate;
 exports.secretsExampleTemplate = secretsExampleTemplate;
 exports.readmeTemplate = readmeTemplate;
 function logrixYamlTemplate(a) {
+    const fallbackRpcSection = a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
+        ? `\n  fallbackRpcUrls:\n` +
+            a.fallbackRpcUrls.map((u) => `    - "${u}"`).join("\n")
+        : `\n  # Optional fallback RPC endpoints for automated gateway failover:\n  # fallbackRpcUrls:\n  #   - "https://fallback-rpc.example.com"`;
+    const webhookSection = a.webhookUrl
+        ? `\n# Declarative Webhooks\nwebhooks:\n  - url: "${a.webhookUrl}"\n    events:\n      - "reorg"\n      - "Transfer"\n    maxRetries: 3\n`
+        : `\n# Optional Declarative Webhooks:\n# webhooks:\n#   - url: "https://api.yourbackend.com/webhooks/logrix"\n#     events:\n#       - "reorg"\n#       - "Transfer"\n#     maxRetries: 3\n`;
+    const indexingSection = `\n# Advanced engine tuning (optional)\nindexing:\n  ringBufferDepth: ${a.ringBufferDepth ?? 128}\n  reconcilerIntervalSecs: ${a.reconcilerIntervalSecs ?? 30}\n`;
+    const fuelComment = a.fuelLimit
+        ? `\n      fuelLimit: ${a.fuelLimit}`
+        : "";
+    const memComment = a.maxMemoryMb
+        ? `\n      maxMemoryMb: ${a.maxMemoryMb}`
+        : "";
     return `specVersion: "0.1.0"
 
 network:
   name: "${a.networkName}"
   chainId: ${a.chainId}
-  rpcUrl: "${a.rpcUrl}"
+  rpcUrl: "${a.rpcUrl}"${fallbackRpcSection}
 
 dataSources:
   - kind: ethereum/contract
@@ -31,7 +44,7 @@ dataSources:
       startBlock: ${a.startBlock}
     mapping:
       kind: wasm/assemblyscript
-      file: ./build/mapping.wasm
+      file: ./build/mapping.wasm${fuelComment}${memComment}
       abis:
         - name: "${a.contractName}"
           file: ./abis/${a.contractName}.json
@@ -40,7 +53,7 @@ dataSources:
           handler: handleTransfer
         - event: "Approval(address indexed,address indexed,uint256)"
           handler: handleApproval
-`;
+${webhookSection}${indexingSection}`;
 }
 function schemaGraphqlTemplate() {
     return `type Transfer @entity {
@@ -210,66 +223,24 @@ src/generated/
 indexer-values.yaml
 `;
 }
-function valuesLocalTemplate(a) {
-    return `# Local Kubernetes Profile (Minikube / Kind / K3s)
-# 1-click local testing with in-cluster PostgreSQL and RabbitMQ
-
-image:
-  repository: ghcr.io/vishal-770/logrix
-  tag: "0.4.0"
-  pullPolicy: IfNotPresent
-
-localDev:
-  enabled: true
-  postgres:
-    storage: 1Gi
-  rabbitmq:
-    storage: 1Gi
-
-config:
-  chainId: ${a.chainId}
-  reconcilerIntervalSecs: 15
-  ringBufferDepth: 64
-
-ingester:
-  replicas: 1
-  leaderElection:
-    enabled: false
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-processor:
-  replicas: 1
-  keda:
-    enabled: false
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-
-api:
-  replicas: 1
-  hpa:
-    enabled: false
-  port: 4000
-`;
-}
 function valuesAwsTemplate(a) {
-    return `# Production AWS EKS Profile
+    const hasWebhooks = Boolean(a.webhookUrl);
+    return `# Mode 2: Production AWS EKS Profile
 # Provisions on AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3
+# Note: To provision backing AWS infrastructure (VPC, EKS, RDS Aurora, SQS, S3, IAM) from scratch,
+# clone https://github.com/Vishal-770/Logrix and run deploy/terraform/aws.
 
 image:
   repository: ghcr.io/vishal-770/logrix
   tag: "0.4.0"
   pullPolicy: IfNotPresent
+
+# Disable built-in self-hosted containers (AWS provides Aurora, SQS, and S3)
+builtIn:
+  enabled: false
+  postgres: false
+  rabbitmq: false
+  minio: false
 
 localDev:
   enabled: false
@@ -277,10 +248,12 @@ localDev:
 config:
   chainId: ${a.chainId}
   queueDriver: "sqs"
-  reconcilerIntervalSecs: 30
-  ringBufferDepth: 256
+  reconcilerIntervalSecs: ${a.reconcilerIntervalSecs ?? 30}
+  ringBufferDepth: ${a.ringBufferDepth ?? 256}
   # Name of Kubernetes Secret containing DATABASE_URL and RPC credentials
-  existingSecret: "logrix-aws-secrets"
+  existingSecret: "logrix-secrets"
+  # Optional S3 block archive bucket (populate from Terraform output, or leave empty if not archiving)
+  s3Bucket: ""
 
 serviceAccount:
   create: true
@@ -322,22 +295,29 @@ processor:
 api:
   replicas: 2
   port: 4000
+
+webhook:
+  enabled: ${hasWebhooks}
+  replicaCount: 1
 `;
 }
 function secretsExampleTemplate(a) {
+    const fallbackUrlsStr = a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
+        ? a.fallbackRpcUrls.join(",")
+        : "";
     return `# Example Kubernetes Secret for production credentials
 # Apply with: kubectl apply -f deploy/secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: logrix-aws-secrets
+  name: logrix-secrets
   namespace: default
 type: Opaque
 stringData:
   # Primary paid JSON-RPC endpoint
   RPC_URL: "${a.rpcUrl}"
   # Optional fallback JSON-RPC endpoints (comma-separated)
-  RPC_FALLBACK_URLS: ""
+  RPC_FALLBACK_URLS: "${fallbackUrlsStr}"
   # Production database connection string (e.g. AWS Aurora PostgreSQL)
   DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix"
 `;
@@ -391,15 +371,15 @@ Produces \`indexer-values.yaml\` bundling your WASM binary, GraphQL schema, and 
 
 ## Deployment (Helm)
 
-Deploy to any Kubernetes cluster using the generated \`indexer-values.yaml\` and pre-configured profiles in \`deploy/\`:
-
-### Option A: Local Kubernetes (Minikube / Kind / K3s)
-Deploys with in-cluster PostgreSQL and RabbitMQ:
+### Mode 1: Self-Hosted Deployment (Default)
+Deploys out-of-the-box with built-in PostgreSQL and RabbitMQ pods. No extra infrastructure config needed:
 \`\`\`bash
 helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
-  -f deploy/values-local.yaml \\
   -f indexer-values.yaml
 \`\`\`
+*(Optional S3 cold block archiving can be enabled with \`--set builtIn.minio=true\`)*
+
+*(To use an existing database or queue securely, configure credentials in \`deploy/secrets.example.yaml\`, run \`kubectl apply -f deploy/secrets.example.yaml\`, and pass \`--set config.existingSecret=logrix-secrets\`)*
 
 Port-forward and open the GraphQL playground:
 \`\`\`bash
@@ -407,25 +387,20 @@ kubectl port-forward svc/${projectName}-logrix-api 4000:4000
 \`\`\`
 Visit **http://localhost:4000/** in your browser.
 
-### Option B: Production AWS EKS
+### Mode 2: Full AWS Production (EKS + Terraform)
 Deploys with Aurora Serverless PostgreSQL, Amazon SQS, and KEDA autoscaling:
-1. Configure credentials in \`deploy/secrets.example.yaml\` and apply:
+1. *(Optional)* If provisioning AWS infrastructure from scratch, clone https://github.com/Vishal-770/Logrix and run \`deploy/terraform/aws\`.
+2. Configure credentials in \`deploy/secrets.example.yaml\` and apply:
    \`\`\`bash
    kubectl apply -f deploy/secrets.example.yaml
    \`\`\`
-2. Deploy Helm release:
+3. Deploy Helm release:
    \`\`\`bash
    helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
      -f deploy/values-aws.yaml \\
-     -f indexer-values.yaml
+     -f indexer-values.yaml \\
+     --set config.existingSecret=logrix-secrets
    \`\`\`
-
-### Option C: Custom Kubernetes Cluster
-\`\`\`bash
-helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
-  -f my-cluster-infra.yaml \\
-  -f indexer-values.yaml
-\`\`\`
 `;
 }
 exports.ERC20_ABI = [

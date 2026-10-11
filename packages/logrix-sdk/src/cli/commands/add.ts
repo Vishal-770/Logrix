@@ -82,13 +82,16 @@ export function addCommand(): Command {
 
   cmd
     .description("Add components to an existing Logrix indexer project")
-    .argument("<type>", "Type of component to add (e.g. contract)")
-    .argument("[name]", "Name of the component")
+    .argument("<type>", "Type of component to add (contract or webhook)")
+    .argument("[nameOrUrl]", "Name of contract or URL of webhook")
     .option("--address <address>", "Contract address")
     .option("--abi <path>", "Path to ABI JSON file")
     .option("--fetch-abi", "Auto-fetch ABI from block explorer / Sourcify")
     .option("--etherscan-key <key>", "Explorer API key for ABI fetch (optional)")
     .option("--start-block <block>", "Starting block number", "0")
+    .option("--events <events>", "Comma-separated event names (e.g. reorg,Transfer)")
+    .option("--secret <secret>", "Webhook signing secret (optional)")
+    .option("--max-retries <retries>", "Maximum webhook delivery retries", "3")
     .action(
       async (
         type: string,
@@ -99,6 +102,9 @@ export function addCommand(): Command {
           fetchAbi?: boolean;
           etherscanKey?: string;
           startBlock: string;
+          events?: string;
+          secret?: string;
+          maxRetries?: string;
         }
       ) => {
         const projectDir = process.cwd();
@@ -109,8 +115,8 @@ export function addCommand(): Command {
           process.exit(1);
         }
 
-        if (type !== "contract") {
-          console.error(`Error: Unknown component type '${type}'. Supported types: contract`);
+        if (type !== "contract" && type !== "webhook") {
+          console.error(`Error: Unknown component type '${type}'. Supported types: contract, webhook`);
           process.exit(1);
         }
 
@@ -120,6 +126,53 @@ export function addCommand(): Command {
         } catch (e: any) {
           console.error(`Error parsing logrix.yaml: ${e.message}`);
           process.exit(1);
+        }
+
+        if (type === "webhook") {
+          let url = nameArg;
+          if (!url) {
+            if (process.stdin.isTTY) {
+              url = await input({
+                message: "Webhook Destination URL:",
+                validate: (v) =>
+                  /^https?:\/\/.+/.test(v.trim()) || "Must be a valid http:// or https:// URL",
+              });
+            } else {
+              console.error("Error: Webhook URL required. Usage: logrix add webhook <url>");
+              process.exit(1);
+            }
+          }
+          url = url.trim();
+          if (!/^https?:\/\/.+/.test(url)) {
+            console.error("Error: Invalid webhook URL. Must start with http:// or https://");
+            process.exit(1);
+          }
+
+          const events = opts.events
+            ? opts.events.split(",").map((s) => s.trim()).filter(Boolean)
+            : ["reorg"];
+          const maxRetries = parseInt(opts.maxRetries || "3", 10);
+
+          if (!config.webhooks) {
+            config.webhooks = [];
+          }
+
+          const webhookEntry: any = {
+            url,
+            events,
+            maxRetries,
+          };
+          if (opts.secret) {
+            webhookEntry.secret = opts.secret.trim();
+          }
+
+          config.webhooks.push(webhookEntry);
+          fs.writeFileSync(configPath, stringifyYaml(config, { indent: 2 }));
+
+          console.log(`\nSuccessfully added webhook '${url}' to logrix.yaml!`);
+          console.log(`  Events:      ${events.join(", ")}`);
+          console.log(`  Max Retries: ${maxRetries}\n`);
+          return;
         }
 
         if (!config.dataSources) {

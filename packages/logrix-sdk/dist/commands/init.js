@@ -81,6 +81,10 @@ function initCommand() {
         .option("--contract-name <name>", "Contract name")
         .option("--address <address>", "Contract target address")
         .option("--start-block <block>", "Starting block number")
+        .option("--fallback-rpc <urls...>", "Fallback RPC endpoint URL(s)")
+        .option("--webhook-url <url>", "Declarative webhook subscriber URL")
+        .option("--reorg-depth <depth>", "Reorg ring buffer depth (default: 128)")
+        .option("--reconciler-interval <secs>", "Gap reconciler interval in seconds (default: 30)")
         .action(async (nameArg, opts) => {
         console.log("\nLogrix Project Initializer\n");
         const isNonInteractive = opts.yes || !process.stdin.isTTY;
@@ -183,14 +187,68 @@ function initCommand() {
             }
         }
         const startBlock = parseInt(startBlockStr.trim(), 10);
+        // Advanced engine and infrastructure settings
+        let fallbackRpcUrls = [];
+        if (opts.fallbackRpc) {
+            fallbackRpcUrls = Array.isArray(opts.fallbackRpc)
+                ? opts.fallbackRpc
+                : opts.fallbackRpc.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        let webhookUrl = opts.webhookUrl;
+        let ringBufferDepth = opts.reorgDepth
+            ? parseInt(opts.reorgDepth, 10)
+            : undefined;
+        let reconcilerIntervalSecs = opts.reconcilerInterval
+            ? parseInt(opts.reconcilerInterval, 10)
+            : undefined;
+        if (!isNonInteractive) {
+            const wantAdvanced = await (0, prompts_1.select)({
+                message: "Configure advanced engine settings (fallback RPCs, webhooks, reorg buffer)?",
+                choices: [
+                    { name: "No - use recommended production defaults", value: false },
+                    { name: "Yes - customize engine settings", value: true },
+                ],
+                default: false,
+            });
+            if (wantAdvanced) {
+                const fallbackStr = await (0, prompts_1.input)({
+                    message: "Fallback RPC URLs (optional, comma-separated):",
+                    default: "",
+                });
+                if (fallbackStr.trim()) {
+                    fallbackRpcUrls = fallbackStr
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                }
+                const whStr = await (0, prompts_1.input)({
+                    message: "Webhook URL (optional, e.g. https://api.mybackend.com/webhooks):",
+                    default: "",
+                });
+                if (whStr.trim()) {
+                    webhookUrl = whStr.trim();
+                }
+                const depthStr = await (0, prompts_1.input)({
+                    message: "Reorg ring buffer depth:",
+                    default: "128",
+                    validate: (v) => (/^\d+$/.test(v.trim()) && parseInt(v.trim(), 10) >= 10) ||
+                        "Must be an integer >= 10",
+                });
+                ringBufferDepth = parseInt(depthStr.trim(), 10);
+            }
+        }
         const answers = {
             projectName,
             networkName: networkKey,
             chainId: network.chainId,
             rpcUrl,
+            fallbackRpcUrls,
             contractName,
             contractAddress,
             startBlock,
+            webhookUrl,
+            ringBufferDepth,
+            reconcilerIntervalSecs,
         };
         console.log(`\nScaffolding in ./${projectName}/ ...\n`);
         // Create directories
@@ -207,7 +265,6 @@ function initCommand() {
         fs.writeFileSync(path.join(targetDir, ".gitignore"), (0, templates_1.gitignoreTemplate)());
         fs.writeFileSync(path.join(targetDir, "README.md"), (0, templates_1.readmeTemplate)(projectName));
         // Write deployment configuration profiles
-        fs.writeFileSync(path.join(targetDir, "deploy", "values-local.yaml"), (0, templates_1.valuesLocalTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "deploy", "values-aws.yaml"), (0, templates_1.valuesAwsTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "deploy", "secrets.example.yaml"), (0, templates_1.secretsExampleTemplate)(answers));
         console.log("Done. Next steps:\n");
@@ -218,8 +275,8 @@ function initCommand() {
         console.log("  npm run build");
         console.log("  npm run export-values\n");
         console.log("Deploy with Helm:\n");
-        console.log(`  Local: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-local.yaml -f indexer-values.yaml`);
-        console.log(`  AWS:   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml\n`);
+        console.log(`  Self-Hosted: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`);
+        console.log(`  AWS:         helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets\n`);
     });
     return cmd;
 }
