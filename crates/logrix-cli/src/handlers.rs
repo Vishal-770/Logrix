@@ -33,6 +33,7 @@ pub async fn handle_live_block(
                 let _ = ctx.queue.ack(handle).await;
             } else {
                 let _ = ctx.queue.nack(handle, true).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         Ok(ContinuityStatus::ReorgDetected {
@@ -131,6 +132,7 @@ pub async fn handle_backfill_range(
                 let _ = ctx.queue.ack(handle).await;
             } else {
                 let _ = ctx.queue.nack(handle, true).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         Err(e) => {

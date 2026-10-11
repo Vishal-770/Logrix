@@ -30,6 +30,7 @@ pub async fn run_all_in_one(
     let ingester_gw = gateway.clone();
     let ingester_leader: Arc<dyn LeaderElectionPort> = Arc::new(LocalLeaderElector::new());
 
+    let max_depth = cli.max_queue_depth;
     let ingester_handle = tokio::spawn(async move {
         if let Err(e) = run_ingester(
             chain_id,
@@ -38,6 +39,7 @@ pub async fn run_all_in_one(
             &db_url,
             start,
             ingester_leader,
+            max_depth,
         )
         .await
         {
@@ -83,8 +85,8 @@ pub async fn run_all_in_one(
     });
 
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received shutdown signal (Ctrl+C). Draining tasks gracefully...");
+        _ = crate::shutdown::wait_for_shutdown_signal() => {
+            info!("Received shutdown signal. Draining tasks gracefully...");
         }
         res = ingester_handle => { warn!(?res, "Ingester terminated"); }
         res = processor_handle => { warn!(?res, "Processor terminated"); }

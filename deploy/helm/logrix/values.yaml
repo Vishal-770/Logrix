@@ -20,6 +20,9 @@ config:
   queueDriver: "rabbitmq"
   rabbitmqUrl: ""
   databaseUrl: ""
+  databaseMaxConnections: 10
+  databaseMinConnections: 2
+  maxQueueDepth: 1000
   s3Endpoint: ""
   startBlock: ""
   cuBudget: ""

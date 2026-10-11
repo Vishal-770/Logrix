@@ -48,8 +48,12 @@ pub async fn run_processor(
         gateway.clone(),
         Duration::from_secs(config.reconciler_interval_secs),
     );
+    let (shutdown_tx, shutdown_rx) = crate::shutdown::shutdown_channel();
+    let reconciler_rx = shutdown_rx.clone();
     tokio::spawn(async move {
-        reconciler.run_loop().await;
+        reconciler
+            .run_loop_with_shutdown(crate::shutdown::wait_shutdown(reconciler_rx))
+            .await;
     });
 
     if config.enable_webhooks {
@@ -65,8 +69,11 @@ pub async fn run_processor(
             config.webhook_url.clone(),
             secret,
         );
+        let wh_rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            wh_dispatcher.run_loop().await;
+            wh_dispatcher
+                .run_loop_with_shutdown(crate::shutdown::wait_shutdown(wh_rx))
+                .await;
         });
     }
 
@@ -102,29 +109,52 @@ pub async fn run_processor(
         engine: engine_opt.as_ref(),
     };
 
-    run_consumer_loop(&ctx).await
+    run_consumer_loop(&ctx, shutdown_tx).await
 }
 
-async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_consumer_loop(
+    ctx: &ProcessorContext<'_>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting processor consumer loop; listening for shutdown signals");
+    let mut backoff = Duration::from_millis(500);
+    let max_backoff = Duration::from_secs(5);
+
     loop {
         let msg_res = tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = crate::shutdown::wait_for_shutdown_signal() => {
                 info!("Shutdown signal received; draining processor consumer loop");
+                let _ = shutdown_tx.send(true);
                 break;
             }
-            res = ctx.queue.consume(QueueType::Backfill) => match res? {
-                Some(h) => Some((QueueType::Backfill, h)),
-                None => ctx
-                    .queue
-                    .consume(QueueType::Live)
-                    .await?
-                    .map(|h| (QueueType::Live, h)),
+            res = ctx.queue.consume(QueueType::Backfill) => match res {
+                Ok(Some(h)) => {
+                    backoff = Duration::from_millis(500);
+                    Some((QueueType::Backfill, h))
+                }
+                Ok(None) => match ctx.queue.consume(QueueType::Live).await {
+                    Ok(opt) => {
+                        backoff = Duration::from_millis(500);
+                        opt.map(|h| (QueueType::Live, h))
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Error consuming from live queue; backing off");
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(max_backoff);
+                        None
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(error = %e, "Error consuming from backfill queue; backing off");
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(max_backoff);
+                    None
+                }
             }
         };
 
         let Some((_q_type, handle)) = msg_res else {
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
 
@@ -140,6 +170,7 @@ async fn run_consumer_loop(ctx: &ProcessorContext<'_>) -> Result<(), Box<dyn std
             }
         }
     }
+    let _ = shutdown_tx.send(true);
     info!("Processor consumer loop exited cleanly");
     Ok(())
 }

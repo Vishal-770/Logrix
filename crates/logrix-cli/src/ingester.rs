@@ -1,3 +1,4 @@
+use crate::ingester_ops::{is_backpressure_active, publish_with_retry};
 use alloy_primitives::B256;
 use logrix_core::{
     domain::{BlockRangeJob, ChainId, LiveBlockJob, QueueMessage, QueueType},
@@ -15,6 +16,7 @@ pub async fn run_ingester(
     database_url: &str,
     start_block: Option<u64>,
     leader_elector: Arc<dyn LeaderElectionPort>,
+    max_queue_depth: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         chain = chain_id.as_u64(),
@@ -56,45 +58,99 @@ pub async fn run_ingester(
             }
             Ok(false) => {
                 info!("Standby instance (non-leader). Waiting to acquire lease...");
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                continue;
-            }
-            Err(e) => {
-                warn!(error = %e, "Leader election check error, standing by...");
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                continue;
-            }
-        }
-
-        match gateway.get_latest_block_number().await {
-            Ok(latest) => {
-                if current_block <= latest {
-                    let to_block = (current_block + chunk_size - 1).min(latest);
-
-                    if current_block == to_block && to_block == latest {
-                        let job = LiveBlockJob::new(chain_id, to_block, B256::ZERO, B256::ZERO);
-                        let msg = QueueMessage::LiveBlock(job);
-                        queue.publish(QueueType::Live, &msg).await?;
-                    } else {
-                        let job = BlockRangeJob::new(
-                            chain_id,
-                            current_block,
-                            to_block,
-                            format!("{chain_id}:{current_block}-{to_block}"),
-                        );
-                        let msg = QueueMessage::BackfillRange(job);
-                        queue.publish(QueueType::Backfill, &msg).await?;
+                tokio::select! {
+                    _ = crate::shutdown::wait_for_shutdown_signal() => {
+                        info!("Shutdown received on standby instance; exiting cleanly");
+                        break;
                     }
-
-                    current_block = to_block + 1;
-                } else {
-                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                        continue;
+                    }
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Failed to query latest block number from RPC Gateway");
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                warn!(error = %e, "Leader election check error, standing by...");
+                tokio::select! {
+                    _ = crate::shutdown::wait_for_shutdown_signal() => {
+                        info!("Shutdown received during leader election backoff; exiting cleanly");
+                        break;
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if is_backpressure_active(queue.as_ref(), max_queue_depth).await {
+            tokio::select! {
+                _ = crate::shutdown::wait_for_shutdown_signal() => {
+                    info!("Shutdown received during backpressure throttle; exiting cleanly");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                    continue;
+                }
+            }
+        }
+
+        let latest = tokio::select! {
+            _ = crate::shutdown::wait_for_shutdown_signal() => {
+                info!("Shutdown signal received in Ingester loop; exiting cleanly");
+                break;
+            }
+            res = gateway.get_latest_block_number() => match res {
+                Ok(num) => num,
+                Err(e) => {
+                    warn!(error = %e, "Failed to query latest block number from RPC Gateway");
+                    tokio::select! {
+                        _ = crate::shutdown::wait_for_shutdown_signal() => {
+                            info!("Shutdown received during RPC backoff; exiting cleanly");
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                            continue;
+                        }
+                    }
+                }
+            }
+        };
+
+        if current_block <= latest {
+            let to_block = (current_block + chunk_size - 1).min(latest);
+
+            let published = if current_block == to_block && to_block == latest {
+                let job = LiveBlockJob::new(chain_id, to_block, B256::ZERO, B256::ZERO);
+                let msg = QueueMessage::LiveBlock(job);
+                publish_with_retry(queue.as_ref(), QueueType::Live, &msg).await
+            } else {
+                let job = BlockRangeJob::new(
+                    chain_id,
+                    current_block,
+                    to_block,
+                    format!("{chain_id}:{current_block}-{to_block}"),
+                );
+                let msg = QueueMessage::BackfillRange(job);
+                publish_with_retry(queue.as_ref(), QueueType::Backfill, &msg).await
+            };
+
+            if !published {
+                info!("Ingester shutting down without advancing block checkpoint");
+                break;
+            }
+
+            current_block = to_block + 1;
+        } else {
+            tokio::select! {
+                _ = crate::shutdown::wait_for_shutdown_signal() => {
+                    info!("Shutdown received while at chain head; exiting cleanly");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(1500)) => {}
             }
         }
     }
+
+    info!("Ingester loop finished draining");
+    Ok(())
 }
