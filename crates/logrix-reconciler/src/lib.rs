@@ -7,6 +7,7 @@
 //! - Self-healing continuous gap reconciler
 //! - `event.reverted` webhook dispatcher with exponential backoff & DLQ routing
 
+pub mod ancestor;
 pub mod buffer;
 pub mod detector;
 pub mod reconciler;

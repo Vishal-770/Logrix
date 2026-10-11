@@ -17,6 +17,7 @@ pub struct GapReconciler {
     queue: Arc<dyn QueuePort>,
     chain_client: Arc<dyn ChainPort>,
     interval: Duration,
+    lag_threshold: u64,
 }
 
 impl GapReconciler {
@@ -33,7 +34,15 @@ impl GapReconciler {
             queue,
             chain_client,
             interval,
+            lag_threshold: 10,
         }
+    }
+
+    /// Configure minimum blocks behind chain head required to trigger gap fill.
+    #[must_use]
+    pub fn with_lag_threshold(mut self, lag_threshold: u64) -> Self {
+        self.lag_threshold = lag_threshold;
+        self
     }
 
     /// Perform a single reconciliation scan.
@@ -51,8 +60,8 @@ impl GapReconciler {
         let latest_block = self.chain_client.get_latest_block_number().await?;
         let last_indexed = checkpoint.last_indexed_block;
 
-        // If checkpoint is far behind live chain head (> 10 blocks) and no active jobs
-        if latest_block > last_indexed + 10 {
+        // If checkpoint is far behind live chain head (> lag_threshold blocks)
+        if latest_block > last_indexed + self.lag_threshold {
             let from_block = last_indexed + 1;
             let to_block = latest_block.saturating_sub(1);
             let missing_count = to_block - from_block + 1;
@@ -61,6 +70,7 @@ impl GapReconciler {
                 from_block,
                 to_block,
                 missing_count,
+                lag_threshold = self.lag_threshold,
                 "Gap reconciler detected lagging checkpoint behind chain head. Dispatching refill job."
             );
 
@@ -83,17 +93,35 @@ impl GapReconciler {
 
     /// Run the continuous reconciliation loop until cancellation.
     pub async fn run_loop(&self) {
+        self.run_loop_with_shutdown(std::future::pending()).await;
+    }
+
+    /// Run the continuous reconciliation loop with graceful shutdown signal.
+    pub async fn run_loop_with_shutdown<F>(&self, shutdown: F)
+    where
+        F: std::future::Future<Output = ()> + Send,
+    {
         info!(
             chain = self.chain_id.as_u64(),
             interval_secs = self.interval.as_secs(),
+            lag_threshold = self.lag_threshold,
             "Starting self-healing GapReconciler background loop"
         );
 
         let mut timer = tokio::time::interval(self.interval);
+        tokio::pin!(shutdown);
+
         loop {
-            timer.tick().await;
-            if let Err(e) = self.check_and_reconcile().await {
-                warn!(error = %e, "Error occurred during gap reconciliation check");
+            tokio::select! {
+                _ = &mut shutdown => {
+                    info!(chain = self.chain_id.as_u64(), "GapReconciler received shutdown signal, exiting cleanly");
+                    break;
+                }
+                _ = timer.tick() => {
+                    if let Err(e) = self.check_and_reconcile().await {
+                        warn!(error = %e, "Error occurred during gap reconciliation check");
+                    }
+                }
             }
         }
     }

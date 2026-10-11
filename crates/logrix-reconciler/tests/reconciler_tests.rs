@@ -86,3 +86,38 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
         panic!("Expected BackfillRange job in queue");
     }
 }
+
+#[tokio::test]
+async fn test_gap_reconciler_graceful_shutdown() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let mock_store = Arc::new(MockStorePort::new());
+    let mock_queue = Arc::new(MockQueuePort::new());
+    let mock_chain = Arc::new(MockChainPort::new(chain_id));
+
+    let reconciler = GapReconciler::new(
+        chain_id,
+        mock_store,
+        mock_queue,
+        mock_chain,
+        Duration::from_millis(50),
+    )
+    .with_lag_threshold(5);
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let join_handle = tokio::spawn(async move {
+        reconciler
+            .run_loop_with_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let _ = shutdown_tx.send(());
+
+    tokio::time::timeout(Duration::from_secs(1), join_handle)
+        .await
+        .expect("Shutdown cleanly")
+        .unwrap();
+}
