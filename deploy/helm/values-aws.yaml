@@ -26,6 +26,13 @@ config:
   # Production DB credentials injected from Kubernetes Secret (managed by AWS Secrets Manager or External Secrets)
   existingSecret: "logrix-secrets"
 
+  # AWS SQS Queue URLs for cloud worker scaling
+  sqsLiveUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-live-jobs"
+  sqsBackfillUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-backfill-jobs"
+  sqsWebhookUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-webhook-jobs"
+  sqsDlqUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-dead-letter-jobs"
+  sqsEndpoint: ""
+
   # Optional S3 block archive bucket (populate with s3_bucket_name from Terraform outputs, or leave empty if not archiving)
   s3Bucket: ""
 

@@ -45,7 +45,7 @@ impl PostgresStore {
                 $1::bigint[], $2::bigint[], $3::varchar[], $4::varchar[], $5::bigint[],
                 $6::varchar[], $7::varchar[], $8::varchar[], $9::numeric[], $10::timestamptz[]
             )
-            ON CONFLICT (chain_id, tx_hash, log_index) DO NOTHING
+            ON CONFLICT (chain_id, tx_hash, log_index) DO UPDATE SET is_reverted = FALSE
             "#,
         )
         .bind(&chain_ids)

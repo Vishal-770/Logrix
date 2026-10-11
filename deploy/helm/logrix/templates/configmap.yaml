@@ -19,6 +19,16 @@ data:
   S3_BUCKET: {{ default "logrix-blocks" .Values.config.s3Bucket | quote }}
   S3_ENDPOINT: {{ default (printf "http://%s-minio:9000" (include "logrix.fullname" .)) .Values.config.s3Endpoint | quote }}
   {{- end }}
+  {{- if or (eq .Values.config.queueDriver "sqs") .Values.config.sqsLiveUrl }}
+  SQS_LIVE_URL: {{ .Values.config.sqsLiveUrl | default "" | quote }}
+  SQS_BACKFILL_URL: {{ .Values.config.sqsBackfillUrl | default "" | quote }}
+  SQS_WEBHOOK_URL: {{ .Values.config.sqsWebhookUrl | default "" | quote }}
+  SQS_DLQ_URL: {{ .Values.config.sqsDlqUrl | default "" | quote }}
+  SQS_ENDPOINT: {{ .Values.config.sqsEndpoint | default "" | quote }}
+  {{- end }}
+  {{- if and .Values.webhook .Values.webhook.enabled }}
+  ENABLE_WEBHOOKS: "true"
+  {{- end }}
   RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | quote }}
   RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | quote }}
   {{- if .Values.config.startBlock }}

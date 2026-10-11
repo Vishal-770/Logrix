@@ -86,11 +86,11 @@ impl WebhookDispatcherService {
         }
 
         // 3. Acknowledge or dead-letter based on delivery outcome
-        if any_delivered || (!any_failed && self.default_webhook_url.is_none()) {
+        if !any_failed && (any_delivered || self.default_webhook_url.is_none()) {
             self.queue.ack(&handle).await?;
             info!(event = %event_type, "Webhook processed and acknowledged");
         } else {
-            error!(event = %event_type, "Failed to deliver webhook to destinations; routing to DLQ");
+            error!(event = %event_type, "Webhook delivery failed or partially failed; routing to DLQ");
             self.queue
                 .dead_letter(&handle, "webhook delivery failure")
                 .await?;

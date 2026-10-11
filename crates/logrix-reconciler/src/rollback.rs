@@ -80,11 +80,8 @@ impl ReorgHandler {
             payload: revert_payload,
         };
 
-        if let Err(e) = self.queue.publish(QueueType::Webhook, &webhook_msg).await {
-            warn!(error = %e, "Failed to publish revert notification to webhook queue");
-        } else {
-            info!("Published chain.reorg notification to webhook queue");
-        }
+        self.queue.publish(QueueType::Webhook, &webhook_msg).await?;
+        info!("Published chain.reorg notification to webhook queue");
 
         info!(
             fork_block,

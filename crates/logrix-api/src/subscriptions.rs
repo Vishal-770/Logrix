@@ -109,15 +109,25 @@ pub fn build_subscription_type(
         let sub_field = SubscriptionField::new(
             field_name,
             TypeRef::named(&entity_name_for_create),
-            move |_ctx| {
+            move |ctx| {
                 let bc = bc.clone();
                 let filter_type = entity_name.clone();
+                let filter_chain_id = ctx
+                    .args
+                    .get("chainId")
+                    .and_then(|v| v.i64().ok())
+                    .map(|id| id as u64);
                 SubscriptionFieldFuture::new(async move {
                     use futures::StreamExt;
                     let stream = bc
                         .event_stream()
                         .filter(move |ev| {
-                            let matches = ev.entity_type == filter_type;
+                            let type_matches = ev.entity_type == filter_type;
+                            let chain_matches = match filter_chain_id {
+                                Some(expected) => ev.chain_id == expected,
+                                None => true,
+                            };
+                            let matches = type_matches && chain_matches;
                             async move { matches }
                         })
                         .map(|ev| -> async_graphql::Result<FieldValue> {

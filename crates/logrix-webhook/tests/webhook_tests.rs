@@ -59,6 +59,25 @@ fn test_hmac_verify_rejects_expired_timestamp() {
     );
 }
 
+#[test]
+fn test_hmac_verify_rejects_future_timestamp() {
+    let secret = generate_secret();
+    let future_ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 10000;
+
+    let payload = b"{\"event\": \"chain.reorg\"}";
+    let header = sign_payload(&secret, future_ts, payload);
+
+    let valid = verify_signature(&secret, &header, payload, 300);
+    assert!(
+        !valid,
+        "Future timestamp must be rejected to prevent replay bypass"
+    );
+}
+
 #[tokio::test]
 async fn test_webhook_http_client_handles_unreachable_endpoint() {
     let client = WebhookHttpClient::default();

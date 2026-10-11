@@ -68,7 +68,7 @@ pub fn verify_signature(
         .unwrap_or_default()
         .as_secs();
 
-    if now.saturating_sub(ts) > tolerance_seconds {
+    if now.abs_diff(ts) > tolerance_seconds {
         return false;
     }
 

@@ -1,6 +1,7 @@
 use logrix_core::domain::{BlockRangeJob, ChainId, QueueMessage, QueueType};
 use logrix_core::error::LogrixResult;
 use logrix_core::ports::{ChainPort, QueuePort, StorePort};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
@@ -18,6 +19,7 @@ pub struct GapReconciler {
     chain_client: Arc<dyn ChainPort>,
     interval: Duration,
     lag_threshold: u64,
+    last_dispatched_to: Arc<AtomicU64>,
 }
 
 impl GapReconciler {
@@ -35,6 +37,7 @@ impl GapReconciler {
             chain_client,
             interval,
             lag_threshold: 10,
+            last_dispatched_to: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -62,8 +65,29 @@ impl GapReconciler {
 
         // If checkpoint is far behind live chain head (> lag_threshold blocks)
         if latest_block > last_indexed + self.lag_threshold {
-            let from_block = last_indexed + 1;
             let to_block = latest_block.saturating_sub(1);
+            let last_dispatched = self.last_dispatched_to.load(Ordering::Relaxed);
+
+            let from_block = if last_dispatched > last_indexed {
+                if to_block <= last_dispatched {
+                    debug!(
+                        chain = self.chain_id.as_u64(),
+                        last_indexed,
+                        last_dispatched,
+                        to_block,
+                        "Gap range already in flight; skipping duplicate dispatch"
+                    );
+                    return Ok(0);
+                }
+                last_dispatched + 1
+            } else {
+                last_indexed + 1
+            };
+
+            if from_block > to_block {
+                return Ok(0);
+            }
+
             let missing_count = to_block - from_block + 1;
 
             warn!(
@@ -84,6 +108,8 @@ impl GapReconciler {
             self.queue
                 .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                 .await?;
+
+            self.last_dispatched_to.store(to_block, Ordering::Relaxed);
 
             return Ok(missing_count);
         }
