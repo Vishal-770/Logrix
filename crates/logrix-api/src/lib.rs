@@ -5,6 +5,7 @@
 
 pub mod dynamic_schema;
 pub mod filter_input;
+pub mod health;
 pub mod list_resolver;
 pub mod pluralize;
 pub mod query_builder;

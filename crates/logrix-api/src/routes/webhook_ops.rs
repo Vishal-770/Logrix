@@ -126,6 +126,22 @@ pub async fn list_deliveries_handler(
     Ok(Json(deliveries))
 }
 
+pub async fn delete_webhook(
+    State(state): State<super::webhooks::WebhookApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let deleted = state
+        .store
+        .delete_endpoint(id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Ok(StatusCode::NOT_FOUND)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_webhook_url;

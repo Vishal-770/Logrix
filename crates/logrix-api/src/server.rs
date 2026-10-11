@@ -1,13 +1,11 @@
 use crate::dynamic_schema::DynamicSchemaEngine;
+use crate::health::{graphiql, health_check, prometheus_metrics, readiness_check};
 use crate::schema::{build_schema, LogrixSchema};
 use crate::schema_parser::SchemaDefinition;
 use crate::subscriptions::SubscriptionBroadcaster;
-use async_graphql::http::GraphiQLSource;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
-    http::StatusCode,
-    response::{Html, IntoResponse},
     routing::{get, post},
     Router,
 };
@@ -28,44 +26,6 @@ async fn dynamic_graphql_handler(
     req: GraphQLRequest,
 ) -> GraphQLResponse {
     schema.execute(req.into_inner()).await.into()
-}
-
-async fn graphiql() -> impl IntoResponse {
-    Html(
-        GraphiQLSource::build()
-            .endpoint("/graphql")
-            .subscription_endpoint("/ws")
-            .title("Logrix Studio - GraphQL IDE")
-            .finish(),
-    )
-}
-
-async fn health_check() -> &'static str {
-    "OK"
-}
-
-async fn readiness_check(
-    store: Option<Extension<Arc<PostgresStore>>>,
-) -> (StatusCode, &'static str) {
-    if let Some(Extension(store)) = store {
-        match sqlx::query("SELECT 1").execute(store.pool()).await {
-            Ok(_) => (StatusCode::OK, "OK"),
-            Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE"),
-        }
-    } else {
-        (StatusCode::OK, "OK")
-    }
-}
-
-async fn prometheus_metrics() -> impl IntoResponse {
-    let body = "# HELP logrix_api_health API server health status\n# TYPE logrix_api_health gauge\nlogrix_api_health 1\n# HELP logrix_api_version Build version info\n# TYPE logrix_api_version info\nlogrix_api_version{version=\"0.1.0\"} 1\n";
-    (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4",
-        )],
-        body,
-    )
 }
 
 /// Create router for static LogrixSchema.
