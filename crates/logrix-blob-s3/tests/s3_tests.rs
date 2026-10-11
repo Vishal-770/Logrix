@@ -64,3 +64,33 @@ async fn test_s3_config_from_env_override() {
     assert_eq!(cfg.bucket, "my-test-bucket");
     assert_eq!(cfg.resolve_key("block.json"), "chain-1/block.json");
 }
+
+#[tokio::test]
+async fn test_s3_client_options_builder() {
+    let builder_res = S3Config::builder("production-archive")
+        .key_prefix("eth/mainnet")
+        .endpoint_url("http://127.0.0.1:9000")
+        .region("us-east-1")
+        .force_path_style(true)
+        .build()
+        .await;
+
+    assert!(builder_res.is_ok());
+    let cfg = builder_res.unwrap();
+    assert_eq!(cfg.bucket, "production-archive");
+    assert_eq!(cfg.resolve_key("100.json.zst"), "eth/mainnet/100.json.zst");
+}
+
+#[test]
+fn test_zstd_empty_and_corrupt_data() {
+    // Empty data roundtrip
+    let empty = b"";
+    let compressed_empty = compress_zstd(empty, 0).expect("compress empty");
+    let decompressed_empty = decompress_zstd(&compressed_empty).expect("decompress empty");
+    assert_eq!(decompressed_empty, empty);
+
+    // Corrupted payload fails cleanly
+    let garbage = b"this is not a valid zstd payload";
+    let result = decompress_zstd(garbage);
+    assert!(result.is_err());
+}
