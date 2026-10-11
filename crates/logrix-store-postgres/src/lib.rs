@@ -4,6 +4,7 @@
 //! boundaries across events and checkpoints, and automatic reorg rollbacks.
 
 pub mod entities;
+pub mod entity_queries;
 pub mod events;
 pub mod model;
 pub mod rollback;
@@ -11,4 +12,4 @@ pub mod store;
 pub mod transfers;
 
 pub use model::{DynamicEntityRecord, EntityInsert, TokenTransfer, TransferFilter};
-pub use store::PostgresStore;
+pub use store::{PostgresConfig, PostgresStore};

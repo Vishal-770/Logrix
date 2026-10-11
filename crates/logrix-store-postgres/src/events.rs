@@ -156,7 +156,13 @@ impl StorePort for PostgresStore {
             let hash_str: String = row.get("last_block_hash");
             let is_finalized: bool = row.get("is_finalized");
 
-            let hash = hash_str.parse().unwrap_or_default();
+            let hash = hash_str.parse().map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Integrity,
+                    ErrorSource::Database,
+                    format!("Corrupted checkpoint block hash '{hash_str}': {e}"),
+                )
+            })?;
             Ok(Some(Checkpoint::new(
                 chain_id,
                 last_block as u64,
