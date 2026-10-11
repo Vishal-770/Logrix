@@ -60,6 +60,24 @@ impl RetryPolicy {
     pub fn should_retry(&self, attempt: u32) -> bool {
         attempt < self.max_attempts
     }
+
+    #[must_use]
+    pub fn with_multiplier(mut self, multiplier: f64) -> Self {
+        self.multiplier = multiplier;
+        self
+    }
+
+    #[must_use]
+    pub fn with_jitter(mut self, jitter: bool) -> Self {
+        self.jitter = jitter;
+        self
+    }
+}
+
+#[derive(Debug)]
+struct BudgetState {
+    tokens: f64,
+    last_update: Instant,
 }
 
 /// Token-based budget to prevent retry storms from overwhelming downstream services.
@@ -68,38 +86,46 @@ impl RetryPolicy {
 #[derive(Debug, Clone)]
 pub struct RetryBudget {
     capacity: u32,
-    available_tokens: Arc<Mutex<f64>>,
     fill_rate_per_sec: f64,
-    last_update: Arc<Mutex<Instant>>,
+    state: Arc<Mutex<BudgetState>>,
 }
 
 impl RetryBudget {
     pub fn new(capacity: u32, fill_rate_per_sec: f64) -> Self {
         Self {
             capacity,
-            available_tokens: Arc::new(Mutex::new(capacity as f64)),
             fill_rate_per_sec,
-            last_update: Arc::new(Mutex::new(Instant::now())),
+            state: Arc::new(Mutex::new(BudgetState {
+                tokens: capacity as f64,
+                last_update: Instant::now(),
+            })),
         }
     }
 
     /// Try to acquire a retry token. Returns true if budget allows, false if exhausted.
     pub async fn try_acquire(&self) -> bool {
-        let mut tokens = self.available_tokens.lock().await;
-        let mut last = self.last_update.lock().await;
-
+        let mut state = self.state.lock().await;
         let now = Instant::now();
-        let elapsed = now.duration_since(*last).as_secs_f64();
-        *last = now;
+        let elapsed = now.duration_since(state.last_update).as_secs_f64();
+        state.last_update = now;
 
-        // Refill tokens
-        *tokens = (*tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
+        state.tokens = (state.tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
 
-        if *tokens >= 1.0 {
-            *tokens -= 1.0;
+        if state.tokens >= 1.0 {
+            state.tokens -= 1.0;
             true
         } else {
             false
         }
+    }
+
+    /// Count of currently available retry tokens.
+    pub async fn available_budget(&self) -> f64 {
+        let mut state = self.state.lock().await;
+        let now = Instant::now();
+        let elapsed = now.duration_since(state.last_update).as_secs_f64();
+        state.last_update = now;
+        state.tokens = (state.tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
+        state.tokens
     }
 }

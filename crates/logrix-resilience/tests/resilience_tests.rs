@@ -67,3 +67,65 @@ async fn test_circuit_breaker_state_transitions() {
     assert_eq!(breaker.state().await, CircuitState::Closed);
     assert!(breaker.can_execute().await);
 }
+
+#[tokio::test]
+async fn test_circuit_breaker_manual_overrides_and_probe_limiting() {
+    let breaker = CircuitBreaker::new(2, 2, Duration::from_millis(100));
+
+    // Manual trip
+    breaker.trip().await;
+    assert_eq!(breaker.state().await, CircuitState::Open);
+    assert!(!breaker.can_execute().await);
+
+    // Manual reset
+    breaker.reset().await;
+    assert_eq!(breaker.state().await, CircuitState::Closed);
+    assert!(breaker.can_execute().await);
+    assert_eq!(breaker.failure_count().await, 0);
+
+    // Trip again and test HalfOpen probe limiting
+    breaker.trip().await;
+    tokio::time::sleep(Duration::from_millis(110)).await;
+
+    // First request discovers timeout and becomes probe 1
+    assert!(breaker.can_execute().await);
+    assert_eq!(breaker.state().await, CircuitState::HalfOpen);
+
+    // Second request is allowed as probe 2 (success_threshold is 2)
+    assert!(breaker.can_execute().await);
+
+    // Third request exceeds success_threshold probes -> rejected to prevent thundering herd!
+    assert!(!breaker.can_execute().await);
+
+    // Successful probes restore the circuit
+    breaker.on_success().await;
+    breaker.on_success().await;
+    assert_eq!(breaker.state().await, CircuitState::Closed);
+}
+
+#[tokio::test]
+async fn test_rate_limiter_acquire_computed_wait() {
+    let limiter = RateLimiter::new(2, 100.0); // 100 tokens/sec
+    assert!(limiter.try_acquire(2.0).await);
+
+    // Acquire will calculate needed time (approx 10ms for 1 token) and succeed without spinning
+    limiter.acquire(1.0).await;
+    assert!(limiter.available_tokens().await >= 0.0);
+}
+
+#[tokio::test]
+async fn test_retry_policy_builder_and_budget_inspector() {
+    let policy = RetryPolicy::default()
+        .with_multiplier(1.5)
+        .with_jitter(false);
+
+    assert_eq!(policy.multiplier, 1.5);
+    assert!(!policy.jitter);
+    assert!(policy.should_retry(4));
+    assert!(!policy.should_retry(5));
+
+    let budget = RetryBudget::new(5, 0.0);
+    assert_eq!(budget.available_budget().await, 5.0);
+    assert!(budget.try_acquire().await);
+    assert_eq!(budget.available_budget().await, 4.0);
+}
