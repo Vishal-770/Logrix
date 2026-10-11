@@ -6,7 +6,7 @@ export const ui = {
   banner(title: string, subtitle?: string): void {
     console.log();
     const brand = pc.bold(pc.cyan("Logrix"));
-    const version = pc.dim("v0.5.0");
+    const version = pc.dim("v0.6.0");
     const titleText = pc.bold(title);
     console.log(`  ${brand} ${version} ${pc.dim("|")} ${titleText}`);
     if (subtitle) {
