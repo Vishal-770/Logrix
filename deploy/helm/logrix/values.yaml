@@ -164,3 +164,10 @@ webhook:
     minReplicas: 0
     maxReplicas: 10
     targetQueueDepth: 50
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}
+
