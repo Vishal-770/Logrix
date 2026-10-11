@@ -9,6 +9,7 @@ pub mod indexer;
 pub mod ingester;
 pub mod init;
 pub mod processor;
+pub mod processor_types;
 pub mod scaffold;
 pub mod scaffold_helm;
 pub mod scaffold_templates;
