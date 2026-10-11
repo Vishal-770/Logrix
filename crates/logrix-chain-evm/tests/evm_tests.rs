@@ -130,3 +130,25 @@ fn test_strict_envelope_rejects_missing_fields() {
     let res = parse_block_envelope(&bad_block, vec![], ChainId::new(1), 100);
     assert!(res.is_err());
 }
+
+#[test]
+fn test_decoded_transfer_amount_u256() {
+    use alloy_primitives::U256;
+    use logrix_chain_evm::DecodedTransfer;
+
+    let transfer = DecodedTransfer {
+        chain_id: 1,
+        block_number: 100,
+        block_hash: "0x123".into(),
+        tx_hash: "0x456".into(),
+        log_index: 0,
+        contract_address: "0x789".into(),
+        from_address: "0xaaa".into(),
+        to_address: "0xbbb".into(),
+        amount: "1000000000000000000".into(), // 1 ETH in wei
+        timestamp: chrono::Utc::now(),
+    };
+
+    let u256_val = transfer.amount_u256().expect("Valid U256");
+    assert_eq!(u256_val, U256::from(1_000_000_000_000_000_000u64));
+}
