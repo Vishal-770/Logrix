@@ -114,3 +114,10 @@ api:
   service:
     type: ClusterIP
     port: 4000
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}
+
