@@ -1,60 +1,49 @@
-use crate::queue::{RabbitMQQueue, DEFAULT_EXCHANGE};
+use crate::producer::{publish_many, publish_single};
+use crate::queue::RabbitMQQueue;
 use async_trait::async_trait;
 use lapin::{
-    options::{BasicAckOptions, BasicNackOptions, BasicPublishOptions, QueueDeclareOptions},
+    options::{BasicAckOptions, BasicNackOptions, QueueDeclareOptions},
     types::FieldTable,
-    BasicProperties,
 };
 use logrix_core::{
     domain::{MessageHandle, QueueMessage, QueueType},
     error::{ErrorClass, ErrorSource, LogrixError, LogrixResult},
     ports::QueuePort,
 };
-use tracing::{debug, info};
+use tracing::info;
 
 #[async_trait]
 impl QueuePort for RabbitMQQueue {
     async fn publish(&self, queue_type: QueueType, message: &QueueMessage) -> LogrixResult<()> {
-        let (_, routing_key) = Self::queue_name_and_key(queue_type);
-        let payload = serde_json::to_vec(message).map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Permanent,
-                ErrorSource::Queue,
-                format!("Failed to serialize queue message: {e}"),
-            )
-        })?;
+        let (_, routing_key) = self.topology().queue_and_key(queue_type);
+        publish_single(
+            self.channel(),
+            &self.topology().exchange,
+            routing_key,
+            queue_type,
+            message,
+        )
+        .await
+    }
 
-        self.channel()
-            .basic_publish(
-                DEFAULT_EXCHANGE,
-                routing_key,
-                BasicPublishOptions::default(),
-                &payload,
-                BasicProperties::default().with_delivery_mode(2), // Persistent message
-            )
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Queue,
-                    format!("Failed to publish message: {e}"),
-                )
-            })?
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Queue,
-                    format!("RabbitMQ publish confirmation failed: {e}"),
-                )
-            })?;
-
-        debug!(queue = ?queue_type, "Published message to RabbitMQ");
-        Ok(())
+    async fn publish_batch(
+        &self,
+        queue_type: QueueType,
+        messages: &[QueueMessage],
+    ) -> LogrixResult<()> {
+        let (_, routing_key) = self.topology().queue_and_key(queue_type);
+        publish_many(
+            self.channel(),
+            &self.topology().exchange,
+            routing_key,
+            queue_type,
+            messages,
+        )
+        .await
     }
 
     async fn consume(&self, queue_type: QueueType) -> LogrixResult<Option<MessageHandle>> {
-        let (queue_name, _) = Self::queue_name_and_key(queue_type);
+        let (queue_name, _) = self.topology().queue_and_key(queue_type);
 
         let msg = self
             .channel()
@@ -140,11 +129,8 @@ impl QueuePort for RabbitMQQueue {
     }
 
     async fn dead_letter(&self, handle: &MessageHandle, reason: &str) -> LogrixResult<()> {
-        // 1. Publish to DLQ queue with reason
         let dlq_msg = handle.message.clone();
         self.publish(QueueType::DeadLetter, &dlq_msg).await?;
-
-        // 2. Acknowledge original message to remove it from the processing queue
         self.ack(handle).await?;
 
         info!(
@@ -156,7 +142,7 @@ impl QueuePort for RabbitMQQueue {
     }
 
     async fn depth(&self, queue_type: QueueType) -> LogrixResult<u64> {
-        let (queue_name, _) = Self::queue_name_and_key(queue_type);
+        let (queue_name, _) = self.topology().queue_and_key(queue_type);
 
         let queue_state = self
             .channel()
