@@ -16,6 +16,10 @@ spec:
       app.kubernetes.io/component: api
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.api.port }}"
+        prometheus.io/path: "/metrics"
       labels:
         {{- include "logrix.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: api
