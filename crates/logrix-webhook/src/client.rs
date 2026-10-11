@@ -101,15 +101,17 @@ impl WebhookHttpClient {
                             latency_ms: start.elapsed().as_millis() as u64,
                         };
                     }
+                    let safe_url = crate::signature::sanitize_webhook_url(url);
                     last_error = Some(format!("HTTP status {status}"));
                     warn!(
-                        url,
+                        url = %safe_url,
                         status, attempt, "Webhook destination returned non-success"
                     );
                 }
                 Err(e) => {
+                    let safe_url = crate::signature::sanitize_webhook_url(url);
                     last_error = Some(e.to_string());
-                    warn!(url, error = %e, attempt, "Failed to connect to webhook URL");
+                    warn!(url = %safe_url, error = %e, attempt, "Failed to connect to webhook URL");
                 }
             }
 

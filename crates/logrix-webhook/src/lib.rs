@@ -8,9 +8,10 @@ pub mod deliveries;
 pub mod dispatcher;
 pub mod signature;
 pub mod store;
+pub mod target;
 
 pub use client::{DeliveryResult, WebhookHttpClient};
 pub use deliveries::DeliveryOps;
 pub use dispatcher::WebhookDispatcherService;
-pub use signature::{generate_secret, sign_payload, verify_signature};
+pub use signature::{generate_secret, sanitize_webhook_url, sign_payload, verify_signature};
 pub use store::WebhookStore;

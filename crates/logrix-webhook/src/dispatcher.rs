@@ -1,8 +1,7 @@
 use crate::client::WebhookHttpClient;
 use crate::store::WebhookStore;
-use chrono::Utc;
 use logrix_core::{
-    domain::{QueueMessage, QueueType, WebhookDelivery, WebhookPayload},
+    domain::{QueueMessage, QueueType, WebhookPayload},
     error::LogrixResult,
     ports::QueuePort,
 };
@@ -58,55 +57,18 @@ impl WebhookDispatcherService {
         };
 
         let webhook_payload = WebhookPayload::new(&event_type, chain_id, data);
-        let mut any_delivered = false;
-        let mut any_failed = false;
         let mut dispatched_urls = std::collections::HashSet::new();
 
         // 1. Dispatch to database-registered active endpoints
-        if let Some(store) = &self.store {
-            if let Ok(endpoints) = store.list_active_endpoints().await {
-                for ep in endpoints {
-                    if ep.events.is_empty() || ep.events.iter().any(|ev| ev == &event_type) {
-                        dispatched_urls.insert(ep.url.clone());
-                        let attempts_to_run = if ep.max_retries > 0 {
-                            ep.max_retries + 1
-                        } else {
-                            1
-                        };
-                        let res = self
-                            .client
-                            .dispatch_with_retries(
-                                &ep.url,
-                                &ep.secret,
-                                &webhook_payload,
-                                attempts_to_run,
-                            )
-                            .await;
-
-                        let delivery = WebhookDelivery {
-                            id: res.delivery_id,
-                            endpoint_id: Some(ep.id),
-                            event_type: event_type.clone(),
-                            payload: serde_json::to_value(&webhook_payload).unwrap_or_default(),
-                            status_code: res.status_code,
-                            success: res.success,
-                            attempt: res.attempts_taken,
-                            is_retry: res.attempts_taken > 1,
-                            error_message: res.error_message,
-                            latency_ms: res.latency_ms,
-                            created_at: Utc::now(),
-                        };
-                        let _ = store.record_delivery(&delivery).await;
-
-                        if res.success {
-                            any_delivered = true;
-                        } else {
-                            any_failed = true;
-                        }
-                    }
-                }
-            }
-        }
+        let (mut any_delivered, mut any_failed) =
+            crate::target::DispatchTargetOps::dispatch_endpoints(
+                &self.client,
+                &self.store,
+                &event_type,
+                &webhook_payload,
+                &mut dispatched_urls,
+            )
+            .await;
 
         // 2. Dispatch to CLI configured default URL if set and not already dispatched
         if let Some(url) = &self.default_webhook_url {
@@ -137,21 +99,54 @@ impl WebhookDispatcherService {
         Ok(true)
     }
 
-    /// Background loop for the dedicated webhook pod.
-    pub async fn run_loop(&self) {
+    /// Background loop for the dedicated webhook pod with graceful shutdown support.
+    pub async fn run_loop_with_shutdown<F>(&self, shutdown: F)
+    where
+        F: std::future::Future<Output = ()> + Send,
+    {
         info!("Starting standalone WebhookDispatcherService consumer loop");
+        tokio::pin!(shutdown);
+
         loop {
-            match self.process_one().await {
-                Ok(processed) => {
-                    if !processed {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                    }
+            tokio::select! {
+                biased;
+                _ = &mut shutdown => {
+                    info!("WebhookDispatcherService received shutdown signal, draining in-flight work");
+                    break;
                 }
-                Err(e) => {
-                    warn!(error = %e, "Error processing webhook queue item");
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                res = self.process_one() => {
+                    match res {
+                        Ok(processed) => {
+                            if !processed {
+                                tokio::select! {
+                                    biased;
+                                    _ = &mut shutdown => {
+                                        info!("WebhookDispatcherService received shutdown signal during sleep");
+                                        break;
+                                    }
+                                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Error processing webhook queue item");
+                            tokio::select! {
+                                biased;
+                                _ = &mut shutdown => {
+                                    info!("WebhookDispatcherService received shutdown signal during error backoff");
+                                    break;
+                                }
+                                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Background loop for the dedicated webhook pod.
+    pub async fn run_loop(&self) {
+        self.run_loop_with_shutdown(std::future::pending()).await;
     }
 }
