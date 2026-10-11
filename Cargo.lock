@@ -3837,6 +3837,7 @@ dependencies = [
  "logrix-core",
  "logrix-store-postgres",
  "logrix-webhook",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",

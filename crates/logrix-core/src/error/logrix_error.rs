@@ -1,4 +1,5 @@
 use super::error_class::ErrorClass;
+use crate::domain::ChainId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -13,13 +14,15 @@ pub enum ErrorSource {
     Plugin,
     Config,
     Reconciler,
+    Webhook,
+    Handler,
     Internal,
 }
 
 /// Unified error type carried across Logrix.
 ///
 /// Encapsulates the canonical `ErrorClass`, origin `ErrorSource`, message, and optional context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogrixError {
     pub class: ErrorClass,
     pub source: ErrorSource,
@@ -47,8 +50,8 @@ impl LogrixError {
 
     /// Attach chain ID to error context.
     #[must_use]
-    pub fn with_chain_id(mut self, chain_id: u64) -> Self {
-        self.chain_id = Some(chain_id);
+    pub fn with_chain_id(mut self, chain_id: impl Into<ChainId>) -> Self {
+        self.chain_id = Some(chain_id.into().as_u64());
         self
     }
 

@@ -22,6 +22,19 @@ pub trait QueuePort: Send + Sync {
     /// Move the poison message to the Dead-Letter Queue (DLQ).
     async fn dead_letter(&self, handle: &MessageHandle, reason: &str) -> LogrixResult<()>;
 
+    /// Publish a batch of messages to the specified logical queue.
+    /// Default implementation publishes messages sequentially.
+    async fn publish_batch(
+        &self,
+        queue_type: QueueType,
+        messages: &[QueueMessage],
+    ) -> LogrixResult<()> {
+        for msg in messages {
+            self.publish(queue_type, msg).await?;
+        }
+        Ok(())
+    }
+
     /// Approximate count of visible messages in the queue (for autoscaling & metrics).
     async fn depth(&self, queue_type: QueueType) -> LogrixResult<u64>;
 }

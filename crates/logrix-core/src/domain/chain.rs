@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 /// Strong newtype for an EVM chain ID (e.g. 1 for Ethereum Mainnet, 421614 for Arbitrum Sepolia).
 #[derive(
@@ -24,8 +25,29 @@ impl ChainId {
     }
 
     #[must_use]
-    pub fn as_u64(&self) -> u64 {
+    pub const fn as_u64(&self) -> u64 {
         self.0
+    }
+
+    #[must_use]
+    pub fn is_mainnet(&self) -> bool {
+        matches!(
+            *self,
+            Self::ETHEREUM
+                | Self::OPTIMISM
+                | Self::BNB
+                | Self::POLYGON
+                | Self::BASE
+                | Self::ARBITRUM_ONE
+        )
+    }
+
+    #[must_use]
+    pub fn is_testnet(&self) -> bool {
+        matches!(
+            *self,
+            Self::SEPOLIA | Self::ARBITRUM_SEPOLIA | Self::BASE_SEPOLIA
+        )
     }
 }
 
@@ -38,6 +60,15 @@ impl From<u64> for ChainId {
 impl From<ChainId> for u64 {
     fn from(id: ChainId) -> Self {
         id.0
+    }
+}
+
+impl FromStr for ChainId {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let val = s.trim().parse::<u64>()?;
+        Ok(Self(val))
     }
 }
 

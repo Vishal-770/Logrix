@@ -12,6 +12,12 @@ pub trait BlobPort: Send + Sync {
     /// Retrieve raw data buffer by key location.
     async fn get(&self, key: &str) -> LogrixResult<Option<Vec<u8>>>;
 
+    /// Check if object exists at key location.
+    /// Default implementation queries `get(key)` and checks if Some.
+    async fn exists(&self, key: &str) -> LogrixResult<bool> {
+        Ok(self.get(key).await?.is_some())
+    }
+
     /// Delete object at key location.
     async fn delete(&self, key: &str) -> LogrixResult<()>;
 }

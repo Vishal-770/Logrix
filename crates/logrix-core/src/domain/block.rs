@@ -1,6 +1,7 @@
 use super::chain::ChainId;
 use alloy_primitives::{Address, Bytes, B256};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Lightweight pointer to a specific block (number and hash).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -10,8 +11,15 @@ pub struct BlockRef {
 }
 
 impl BlockRef {
-    pub fn new(number: u64, hash: B256) -> Self {
+    #[must_use]
+    pub const fn new(number: u64, hash: B256) -> Self {
         Self { number, hash }
+    }
+}
+
+impl fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#{}:{}", self.number, self.hash)
     }
 }
 
@@ -129,5 +137,20 @@ impl BlockEnvelope {
     #[must_use]
     pub fn has_parent_mismatch(&self, expected_parent_hash: B256) -> bool {
         self.parent_hash != expected_parent_hash
+    }
+
+    #[must_use]
+    pub fn idempotency_key(&self) -> String {
+        format!("{}:{}", self.chain_id.as_u64(), self.block_hash)
+    }
+
+    #[must_use]
+    pub fn has_logs(&self) -> bool {
+        !self.logs.is_empty()
+    }
+
+    #[must_use]
+    pub fn log_count(&self) -> usize {
+        self.logs.len()
     }
 }

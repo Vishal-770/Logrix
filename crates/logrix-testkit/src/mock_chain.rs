@@ -38,6 +38,10 @@ impl MockChainPort {
 
 #[async_trait]
 impl ChainPort for MockChainPort {
+    fn chain_id(&self) -> ChainId {
+        self.chain_id
+    }
+
     async fn get_latest_block_number(&self) -> LogrixResult<u64> {
         Ok(*self.head_block.lock().await)
     }

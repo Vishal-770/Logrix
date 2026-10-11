@@ -1,3 +1,4 @@
+use super::chain::ChainId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -55,16 +56,20 @@ impl WebhookEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebhookPayload {
     pub event: String,
-    pub chain_id: u64,
+    pub chain_id: ChainId,
     pub timestamp: u64,
     pub data: serde_json::Value,
 }
 
 impl WebhookPayload {
-    pub fn new(event: impl Into<String>, chain_id: u64, data: serde_json::Value) -> Self {
+    pub fn new(
+        event: impl Into<String>,
+        chain_id: impl Into<ChainId>,
+        data: serde_json::Value,
+    ) -> Self {
         Self {
             event: event.into(),
-            chain_id,
+            chain_id: chain_id.into(),
             timestamp: Utc::now().timestamp() as u64,
             data,
         }

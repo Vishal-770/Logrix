@@ -1,4 +1,4 @@
-use crate::domain::{BlockEnvelope, BlockRef, EventLog};
+use crate::domain::{BlockEnvelope, BlockRef, ChainId, EventLog};
 use crate::error::LogrixResult;
 use alloy_primitives::Address;
 use async_trait::async_trait;
@@ -8,6 +8,9 @@ use async_trait::async_trait;
 /// Implemented by the RPC Gateway (`logrix-chain-evm`), bulk streamers, or local node clients.
 #[async_trait]
 pub trait ChainPort: Send + Sync {
+    /// Retrieve the chain ID associated with this chain port.
+    fn chain_id(&self) -> ChainId;
+
     /// Retrieve the current latest block number from the chain head.
     async fn get_latest_block_number(&self) -> LogrixResult<u64>;
 
