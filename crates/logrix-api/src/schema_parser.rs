@@ -1,4 +1,7 @@
-pub use crate::schema_types::{DerivedFrom, EntityDef, FieldDef, FieldType, SchemaDefinition};
+pub use crate::schema_types::{
+    map_scalar_name, parse_type_string, DerivedFrom, EntityDef, FieldDef, FieldType,
+    SchemaDefinition,
+};
 use async_graphql_parser::types::{BaseType, ServiceDocument, Type, TypeDefinition, TypeKind};
 use serde::Deserialize;
 use std::path::Path;
@@ -166,31 +169,5 @@ fn parse_graphql_type(ty: &Type) -> (FieldType, bool, bool) {
             let (inner_type, _, _) = parse_graphql_type(inner);
             (inner_type, is_nullable, true)
         }
-    }
-}
-
-fn parse_type_string(s: &str) -> (FieldType, bool, bool) {
-    let trimmed = s.trim();
-    let is_nullable = !trimmed.ends_with('!');
-    let base = trimmed.trim_end_matches('!');
-
-    if let Some(inner) = base.strip_prefix('[').and_then(|b| b.strip_suffix(']')) {
-        let (ft, _, _) = parse_type_string(inner);
-        (ft, is_nullable, true)
-    } else {
-        (map_scalar_name(base), is_nullable, false)
-    }
-}
-
-fn map_scalar_name(name: &str) -> FieldType {
-    match name {
-        "ID" => FieldType::Id,
-        "String" => FieldType::String,
-        "Int" | "i32" | "u32" => FieldType::Int,
-        "BigInt" | "i64" | "u64" | "U256" => FieldType::BigInt,
-        "Boolean" | "bool" => FieldType::Boolean,
-        "Bytes" | "hex" => FieldType::Bytes,
-        "Float" | "f64" => FieldType::Float,
-        other => FieldType::Custom(other.to_string()),
     }
 }

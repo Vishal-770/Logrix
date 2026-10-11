@@ -1,7 +1,7 @@
 use super::webhook_dto::*;
 use super::webhook_ops::{
-    list_deliveries_handler, rotate_secret_handler, test_webhook_handler, validate_events,
-    validate_webhook_url,
+    delete_webhook, list_deliveries_handler, rotate_secret_handler, test_webhook_handler,
+    validate_events, validate_webhook_url,
 };
 use axum::{
     extract::{Path, State},
@@ -173,20 +173,4 @@ async fn list_webhooks(
         })
         .collect();
     Ok(Json(dtos))
-}
-
-async fn delete_webhook(
-    State(state): State<WebhookApiState>,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let deleted = state
-        .store
-        .delete_endpoint(id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if deleted {
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Ok(StatusCode::NOT_FOUND)
-    }
 }
