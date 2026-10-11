@@ -57,4 +57,88 @@ impl SqsClientConfig {
                 )
             })
     }
+
+    /// Create a fluent builder for configuring SQS queue URLs and client.
+    pub fn builder() -> SqsConfigBuilder {
+        SqsConfigBuilder::default()
+    }
+}
+
+/// Fluent builder for constructing SqsClientConfig with customizable queue URLs and endpoints.
+#[derive(Debug, Default, Clone)]
+pub struct SqsConfigBuilder {
+    live_url: Option<String>,
+    backfill_url: Option<String>,
+    webhook_url: Option<String>,
+    dlq_url: Option<String>,
+    endpoint_override: Option<String>,
+    region: Option<String>,
+}
+
+impl SqsConfigBuilder {
+    #[must_use]
+    pub fn live_queue_url(mut self, url: impl Into<String>) -> Self {
+        self.live_url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn backfill_queue_url(mut self, url: impl Into<String>) -> Self {
+        self.backfill_url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn webhook_queue_url(mut self, url: impl Into<String>) -> Self {
+        self.webhook_url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn dlq_url(mut self, url: impl Into<String>) -> Self {
+        self.dlq_url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn endpoint_override(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint_override = Some(endpoint.into());
+        self
+    }
+
+    #[must_use]
+    pub fn region(mut self, region: impl Into<String>) -> Self {
+        self.region = Some(region.into());
+        self
+    }
+
+    pub async fn build(self) -> LogrixResult<SqsClientConfig> {
+        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+        if let Some(ref endpoint) = self.endpoint_override {
+            config_loader = config_loader.endpoint_url(endpoint);
+        }
+        if let Some(ref reg) = self.region {
+            config_loader = config_loader.region(aws_sdk_sqs::config::Region::new(reg.clone()));
+        }
+
+        let sdk_config = config_loader.load().await;
+        let client = SqsClient::new(&sdk_config);
+
+        let mut queue_urls = HashMap::new();
+        if let Some(live) = self.live_url {
+            queue_urls.insert(QueueType::Live, live);
+        }
+        if let Some(backfill) = self.backfill_url {
+            queue_urls.insert(QueueType::Backfill, backfill);
+        }
+        if let Some(webhook) = self.webhook_url {
+            queue_urls.insert(QueueType::Webhook, webhook);
+        }
+        if let Some(dlq) = self.dlq_url {
+            queue_urls.insert(QueueType::DeadLetter, dlq);
+        }
+
+        info!("Configured AWS SQS client via builder");
+        Ok(SqsClientConfig { client, queue_urls })
+    }
 }
