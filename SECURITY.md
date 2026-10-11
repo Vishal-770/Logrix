@@ -11,15 +11,15 @@ Security updates and critical patches are actively provided for the following re
 
 ## Reporting a Vulnerability
 
-The Logrix team takes security seriously. If you discover a security vulnerability within Logrix, please report it privately:
+If you discover a security vulnerability within Logrix, please report it privately:
 
 1. **Do not disclose the issue publicly** on GitHub issues, pull requests, discussions, or social channels.
-2. Send an email to **security@logrix.io** with details of the vulnerability, including:
+2. Open a private security advisory report via **[GitHub Security Advisories](https://github.com/Vishal-770/Logrix/security/advisories/new)** with:
    - A description of the issue and potential impact
    - Reproduction steps, proof-of-concept code, or configuration
    - Affected components, versions, or environments
-3. We will acknowledge receipt within 48 hours and provide an estimated timeline for evaluation and fix.
-4. Once a fix is verified, a patched release will be issued alongside public attribution and disclosure.
+3. We will acknowledge receipt within 48 hours and work on an evaluation and fix.
+4. Once a fix is verified, a patched release will be issued alongside public attribution and release notes.
 
 ## Security Best Practices for Operators
 
