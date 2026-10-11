@@ -1,14 +1,20 @@
-# Logrix
+<p align="center">
+  <img src="logo.png" alt="Logrix Banner" width="100%" />
+</p>
 
-> **High-performance, self-hosted, Kubernetes-native blockchain indexer built in Rust.**  
-> Write custom event indexing logic in TypeScript with [`logrix-sdk`](packages/logrix-sdk) and deploy production indexer clusters to Local Kubernetes or AWS EKS in seconds.
+<p align="center">
+  <strong>High-performance, self-hosted, Kubernetes-native blockchain indexer built in Rust.</strong><br />
+  Write custom event indexing logic in TypeScript with <a href="packages/logrix-sdk"><code>logrix-sdk</code></a> and deploy production indexer clusters to Local Kubernetes or AWS EKS in seconds.
+</p>
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/Vishal-770/Logrix/ci.yml?branch=main&label=CI)](https://github.com/Vishal-770/Logrix/actions)
-[![Docker](https://img.shields.io/badge/Docker-GHCR-blue?logo=docker)](https://github.com/Vishal-770/Logrix/pkgs/container/logrix)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Helm%20OCI-326ce5?logo=kubernetes)](https://github.com/Vishal-770/Logrix/pkgs/container/charts%2Flogrix)
-[![npm](https://img.shields.io/npm/v/@logrix/sdk?color=red&logo=npm)](https://www.npmjs.com/package/@logrix/sdk)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/language-Rust-orange.svg" alt="Language" /></a>
+  <a href="https://github.com/Vishal-770/Logrix/actions"><img src="https://img.shields.io/github/actions/workflow/status/Vishal-770/Logrix/ci.yml?branch=main&label=CI" alt="CI Status" /></a>
+  <a href="https://github.com/Vishal-770/Logrix/pkgs/container/logrix"><img src="https://img.shields.io/badge/Docker-GHCR-blue?logo=docker" alt="Docker" /></a>
+  <a href="https://github.com/Vishal-770/Logrix/pkgs/container/charts%2Flogrix"><img src="https://img.shields.io/badge/Kubernetes-Helm%20OCI-326ce5?logo=kubernetes" alt="Kubernetes" /></a>
+  <a href="https://github.com/Vishal-770/Logrix/pkgs/npm/%40logrix%2Fsdk"><img src="https://img.shields.io/badge/npm-%40logrix%2Fsdk-red?logo=npm" alt="npm" /></a>
+</p>
 
 ---
 
@@ -25,46 +31,6 @@ Most blockchain indexers force you into expensive proprietary cloud subscription
 - **RPC Billing Protection:** Multi-provider failover pool with per-provider circuit breakers, decorrelated jitter, and a built-in Compute Unit (CU) ledger that pauses backfills before exceeding your monthly budget.
 - **Dual Storage Tiering:** Hot GraphQL entities in PostgreSQL; raw full block envelopes compressed with **`zstd`** into cold AWS S3/MinIO buckets, slashing cloud database storage bills by up to 85%.
 - **Kubernetes Native (Local & AWS):** Microservice architecture with active-passive Ingester leader election (Kubernetes Leases) and event-driven worker autoscaling via **KEDA** (1 to 50+ pods).
-
----
-
-## Architecture
-
-```text
-                      EVM Blockchain (Ethereum, Arbitrum, Base, Polygon)
-                                       │
-                                       ▼
-                       ┌───────────────────────────────┐
-                       │      Logrix RPC Gateway       │
-                       │  • Multi-Provider Failover    │
-                       │  • CU Budget Ledger ($)       │
-                       │  • Singleflight Dedup         │
-                       └───────────────┬───────────────┘
-                                       │
-                                       ▼
-                         Logrix Ingester (Leader Pod)
-                                       │
-                                       ▼
-                     Message Queue (RabbitMQ / AWS SQS)
-                                       │
-                      ┌────────────────┼────────────────┐
-                      ▼                                 ▼
-           Logrix Processor (KEDA)             Webhook Dispatcher
-           • Reorg Auto-Rollback               • HMAC-SHA256 Signed
-           • @logrix/sdk WASM Handlers         • Exponential Retries
-           • Self-Healing Gap Reconciler       • Dead-Letter Queue
-                      │
-           ┌──────────┴──────────┐
-           ▼                     ▼
-     PostgreSQL               AWS S3
-     (Hot Query Tier)     (Cold zstd Blobs)
-           │
-           ▼
-     GraphQL API Server
-     • Sub-10ms Queries
-     • Live WebSockets
-     • GraphiQL Studio (:4000)
-```
 
 ---
 
