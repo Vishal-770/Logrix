@@ -51,7 +51,7 @@ async fn render_status(store: &PostgresStore) -> Result<(), Box<dyn std::error::
         .unwrap_or((0,));
 
     // 5. Fetch webhook stats
-    let webhook_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM webhook_endpoints")
+    let webhook_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM logrix_webhook_endpoints")
         .fetch_one(pool)
         .await
         .unwrap_or((0,));
