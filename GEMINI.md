@@ -55,8 +55,9 @@ These rules apply strictly across this repository on every prompt and action.
 
 ## 6. User Direction, Branching & Git Autonomy Restrictions
 
-- **Never Code on or Push to `main`**: Never write code directly on `main` or push directly to `main`. Always create a descriptive branch (e.g. `fix/...` or `feat/...`) before making changes.
-- **Pull Requests & CI/CD Gate**: Raise a pull request for the branch, verify all automated CI/CD checks pass, and wait for confirmation before merging.
+- **Never Code on or Push to `main` for Logic/Feature Code**: Never write application code, crate implementations, or architecture changes directly on `main` or push them directly to `main`. Always create a descriptive branch (e.g. `fix/...` or `feat/...`) before making code changes.
+- **Pull Requests & CI/CD Gate for Code**: For features, bug fixes, refactors, and core code changes, raise a pull request for the branch, verify all automated CI/CD checks pass, and wait for confirmation before merging.
+- **Direct Commits Allowed for Minor Docs & Assets**: For minor documentation edits, README styling, typography, banner/asset tweaks, and `GEMINI.md` rule updates, full PR overhead is not required—direct commits and pushes to `main` (or quick fast-forward merges) can be made directly when requested by the user.
 - **Never Commit or Push Without Explicit Request**: Never run `git commit` or `git push` autonomously. Only commit or push if the user explicitly instructs you to do so.
 - **Ask After Coding**: After completing any code changes or running verification tests, stop and ask the user what they want to do next. Do not take next steps on your own.
 - **Follow User Intent**: Always strictly adhere to the user's instructions.
