@@ -9,5 +9,5 @@ pub mod client;
 pub mod compression;
 
 pub use blob::S3BlobStore;
-pub use client::S3Config;
+pub use client::{S3ClientOptionsBuilder, S3Config};
 pub use compression::{compress_zstd, decompress_zstd, DEFAULT_ZSTD_LEVEL};

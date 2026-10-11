@@ -21,6 +21,35 @@ impl S3BlobStore {
     pub fn config(&self) -> &S3Config {
         &self.config
     }
+
+    /// Upload data compressed with Zstandard.
+    pub async fn put_compressed(&self, key: &str, data: &[u8], level: i32) -> LogrixResult<()> {
+        let compressed = crate::compression::compress_zstd(data, level).map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Permanent,
+                ErrorSource::BlobStore,
+                format!("Failed to compress blob with zstd: {e}"),
+            )
+        })?;
+        self.put(key, &compressed).await
+    }
+
+    /// Download and decompress data previously compressed with Zstandard.
+    pub async fn get_decompressed(&self, key: &str) -> LogrixResult<Option<Vec<u8>>> {
+        match self.get(key).await? {
+            Some(bytes) => {
+                let decompressed = crate::compression::decompress_zstd(&bytes).map_err(|e| {
+                    LogrixError::new(
+                        ErrorClass::Integrity,
+                        ErrorSource::BlobStore,
+                        format!("Failed to decompress zstd blob: {e}"),
+                    )
+                })?;
+                Ok(Some(decompressed))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[async_trait]
@@ -47,6 +76,42 @@ impl BlobPort for S3BlobStore {
 
         debug!(key = %resolved_key, "Uploaded object to S3");
         Ok(())
+    }
+
+    async fn exists(&self, key: &str) -> LogrixResult<bool> {
+        let resolved_key = self.config.resolve_key(key);
+        let resp = self
+            .config
+            .client
+            .head_object()
+            .bucket(&self.config.bucket)
+            .key(&resolved_key)
+            .send()
+            .await;
+
+        match resp {
+            Ok(_) => Ok(true),
+            Err(sdk_err) => {
+                if let Some(service_err) = sdk_err.as_service_error() {
+                    if matches!(
+                        service_err,
+                        aws_sdk_s3::operation::head_object::HeadObjectError::NotFound(_)
+                    ) {
+                        return Ok(false);
+                    }
+                }
+                if let aws_sdk_s3::error::SdkError::ServiceError(ref err) = sdk_err {
+                    if err.raw().status().as_u16() == 404 {
+                        return Ok(false);
+                    }
+                }
+                Err(LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::BlobStore,
+                    format!("Failed to head S3 object at {resolved_key}: {sdk_err}"),
+                ))
+            }
+        }
     }
 
     async fn get(&self, key: &str) -> LogrixResult<Option<Vec<u8>>> {
