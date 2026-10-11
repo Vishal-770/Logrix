@@ -190,7 +190,7 @@ function packageJsonTemplate(projectName) {
             "build:asc": "asc src/mapping.ts --config tsconfig.json -o build/mapping.wasm --optimize --exportRuntime",
         },
         dependencies: {
-            "@logrix/sdk": "^0.3.3",
+            "@logrix/sdk": "^0.4.0",
         },
         devDependencies: {
             assemblyscript: "^0.27.29",
@@ -216,7 +216,7 @@ function valuesLocalTemplate(a) {
 
 image:
   repository: ghcr.io/vishal-770/logrix
-  tag: "0.3.3"
+  tag: "0.4.0"
   pullPolicy: IfNotPresent
 
 localDev:
@@ -268,7 +268,7 @@ function valuesAwsTemplate(a) {
 
 image:
   repository: ghcr.io/vishal-770/logrix
-  tag: "0.3.3"
+  tag: "0.4.0"
   pullPolicy: IfNotPresent
 
 localDev:

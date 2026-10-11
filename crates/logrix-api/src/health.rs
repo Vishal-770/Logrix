@@ -35,7 +35,10 @@ pub async fn readiness_check(
 }
 
 pub async fn prometheus_metrics() -> impl IntoResponse {
-    let body = "# HELP logrix_api_health API server health status\n# TYPE logrix_api_health gauge\nlogrix_api_health 1\n# HELP logrix_api_version Build version info\n# TYPE logrix_api_version info\nlogrix_api_version{version=\"0.1.0\"} 1\n";
+    let version = env!("CARGO_PKG_VERSION");
+    let body = format!(
+        "# HELP logrix_api_health API server health status\n# TYPE logrix_api_health gauge\nlogrix_api_health 1\n# HELP logrix_api_version Build version info\n# TYPE logrix_api_version info\nlogrix_api_version{{version=\"{version}\"}} 1\n"
+    );
     (
         [(
             axum::http::header::CONTENT_TYPE,
