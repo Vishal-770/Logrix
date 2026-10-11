@@ -58,7 +58,7 @@ pub async fn prometheus_metrics(store: Option<Extension<Arc<PostgresStore>>>) ->
         ));
 
         let cp_row: Option<(i64,)> = sqlx::query_as(
-            "SELECT last_indexed_block FROM checkpoints ORDER BY updated_at DESC LIMIT 1",
+            "SELECT last_indexed_block FROM logrix_checkpoints ORDER BY updated_at DESC LIMIT 1",
         )
         .fetch_optional(pool)
         .await
@@ -71,7 +71,7 @@ pub async fn prometheus_metrics(store: Option<Extension<Arc<PostgresStore>>>) ->
              logrix_last_indexed_block {indexed_block}\n"
         ));
 
-        let event_cnt: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM event_logs")
+        let event_cnt: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM logrix_events")
             .fetch_one(pool)
             .await
             .unwrap_or((0,));
@@ -83,7 +83,7 @@ pub async fn prometheus_metrics(store: Option<Extension<Arc<PostgresStore>>>) ->
         ));
 
         let reorg_cnt: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM event_logs WHERE is_reverted = TRUE")
+            sqlx::query_as("SELECT COUNT(*) FROM logrix_events WHERE is_reverted = TRUE")
                 .fetch_one(pool)
                 .await
                 .unwrap_or((0,));
