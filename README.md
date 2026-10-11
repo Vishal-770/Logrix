@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>High-performance, self-hosted, Kubernetes-native blockchain indexer built in Rust.</strong><br />
-  Write custom event indexing logic in TypeScript with <a href="packages/logrix-sdk"><code>logrix-sdk</code></a> and deploy production indexer clusters to Local Kubernetes or AWS EKS in seconds.
+  <strong>Ultra-fast, self-hosted EVM indexer in Rust.</strong><br />
+  Kubernetes-native with KEDA autoscaling, reorg-safe atomic rollbacks, WASM/YAML handlers, and dynamic GraphQL.
 </p>
 
 <p align="center">
