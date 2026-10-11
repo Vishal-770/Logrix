@@ -116,21 +116,47 @@ Production architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, 
 
 ---
 
-## Monitoring & Observability
+## Monitoring & Dashboards
 
-### Terminal Status Dashboard
-Monitor sync head, lag, queue depth, and reorg history live in the terminal:
+### 1. Logrix Studio (Web Dashboard & GraphQL Explorer)
+Interactive web dashboard served directly by the API container at **`http://localhost:4000/`** (or `/graphiql`):
+- Schema explorer, interactive query builder, and entity inspection.
+- Real-time event streaming and live mutations over WebSockets (`/ws`).
+- Access via port-forward:
+  ```bash
+  kubectl port-forward svc/my-indexer-logrix-api 4000:4000
+  ```
+
+### 2. Pre-Built Grafana Dashboard
+A production-ready Grafana dashboard is included at [`deploy/dashboards/logrix-overview.json`](deploy/dashboards/logrix-overview.json). Import it directly into Grafana to monitor:
+- **Indexed Head Height**: Live block height vs chain head.
+- **Ingestion Throughput**: Rate of indexed events per second (`rate(logrix_events_indexed_total[1m])`).
+- **Database Connection Pool**: Active vs idle connections in PostgreSQL.
+- **Reorg & Rollback Activity**: Live alert counts on chain reorganizations (`logrix_reorg_events_total`).
+- **Dynamic Entity Volume**: Cumulative custom entity counts (`logrix_entities_total`).
+
+### 3. Kubernetes Cluster Inspection
+Monitor pods and streaming processing logs with standard `kubectl`:
 ```bash
-logrix status --watch
+# Check pod status and scaling
+kubectl get pods -l app.kubernetes.io/instance=my-indexer
+
+# Stream processor ingestion logs
+kubectl logs -f deployment/my-indexer-logrix-processor
+
+# View KEDA autoscaling status
+kubectl get scaledobject
 ```
 
-### Prometheus Metrics
-Exposed by default on the GraphQL API service (`:4000/metrics`):
-- `logrix_head_lag_blocks`: Distance between latest chain head and indexed tip.
-- `logrix_events_indexed_total`: Total indexed events count.
-- `logrix_queue_depth{queue="live|backfill|webhook|dlq"}`: Pending message backlog.
-- `logrix_rpc_cu_consumed_total`: Cumulative RPC Compute Units used.
-- `logrix_reorg_detected_total`: Total reorgs caught and rolled back.
+### 4. Prometheus Metrics & Operator Integration
+The API service exposes Prometheus metrics at `http://localhost:4000/metrics`.
+
+To enable automatic scraping via Prometheus Operator in your Helm values:
+```yaml
+serviceMonitor:
+  enabled: true
+  interval: 15s
+```
 
 ---
 
