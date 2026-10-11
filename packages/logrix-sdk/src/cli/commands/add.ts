@@ -2,8 +2,11 @@ import { Command } from "commander";
 import { input } from "@inquirer/prompts";
 import * as fs from "fs";
 import * as path from "path";
+import pc from "picocolors";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { ERC20_ABI } from "../templates";
+import { ui } from "../ui";
+import { CliError } from "../errors";
 
 const EXPLORER_APIS: Record<number, string> = {
   1: "https://api.etherscan.io/api",
@@ -50,7 +53,7 @@ async function fetchAbi(address: string, chainId: number = 1, apiKey?: string): 
     if (json.status === "1" && json.result) {
       const parsed = JSON.parse(json.result);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        console.log(`  Fetched verified ABI from block explorer for ${address}`);
+        ui.info("Fetched verified ABI from block explorer", address);
         return parsed;
       }
     }
@@ -66,7 +69,7 @@ async function fetchAbi(address: string, chainId: number = 1, apiKey?: string): 
       const json: any = await resp.json();
       const abi = json?.output?.abi;
       if (Array.isArray(abi) && abi.length > 0) {
-        console.log(`  Fetched verified ABI from Sourcify for ${address}`);
+        ui.info("Fetched verified ABI from Sourcify", address);
         return abi;
       }
     }
@@ -111,24 +114,31 @@ export function addCommand(): Command {
         const configPath = path.join(projectDir, "logrix.yaml");
 
         if (!fs.existsSync(configPath)) {
-          console.error("Error: logrix.yaml not found. Please run this command from the project root.");
-          process.exit(1);
+          throw new CliError(
+            "logrix.yaml not found",
+            "Project manifest is missing in current directory",
+            "Run this command from your indexer project root directory"
+          );
         }
 
         if (type !== "contract" && type !== "webhook") {
-          console.error(`Error: Unknown component type '${type}'. Supported types: contract, webhook`);
-          process.exit(1);
+          throw new CliError(
+            `Unknown component type '${type}'`,
+            "Supported component types: 'contract', 'webhook'",
+            "Example: logrix add contract Token --address 0x... or logrix add webhook https://..."
+          );
         }
 
         let config: any;
         try {
           config = parseYaml(fs.readFileSync(configPath, "utf-8"));
         } catch (e: any) {
-          console.error(`Error parsing logrix.yaml: ${e.message}`);
-          process.exit(1);
+          throw new CliError("Failed to parse logrix.yaml", e.message);
         }
 
         if (type === "webhook") {
+          ui.banner("Add Webhook", "Registering event destination");
+
           let url = nameArg;
           if (!url) {
             if (process.stdin.isTTY) {
@@ -138,13 +148,13 @@ export function addCommand(): Command {
                   /^https?:\/\/.+/.test(v.trim()) || "Must be a valid http:// or https:// URL",
               });
             } else {
-              console.error("Error: Webhook URL required. Usage: logrix add webhook <url>");
+              ui.error("Webhook URL required", "Usage: logrix add webhook <url>");
               process.exit(1);
             }
           }
           url = url.trim();
           if (!/^https?:\/\/.+/.test(url)) {
-            console.error("Error: Invalid webhook URL. Must start with http:// or https://");
+            ui.error("Invalid webhook URL", "URL must start with http:// or https://");
             process.exit(1);
           }
 
@@ -169,11 +179,17 @@ export function addCommand(): Command {
           config.webhooks.push(webhookEntry);
           fs.writeFileSync(configPath, stringifyYaml(config, { indent: 2 }));
 
-          console.log(`\nSuccessfully added webhook '${url}' to logrix.yaml!`);
-          console.log(`  Events:      ${events.join(", ")}`);
-          console.log(`  Max Retries: ${maxRetries}\n`);
+          ui.success("Webhook registered in logrix.yaml", url);
+          ui.label("Events", events.join(", "));
+          ui.label("Max Retries", String(maxRetries));
+          if (opts.secret) {
+            ui.label("Signing Secret", "*** (configured)");
+          }
+          console.log();
           return;
         }
+
+        ui.banner("Add Contract", "Registering contract data source");
 
         if (!config.dataSources) {
           config.dataSources = [];
@@ -201,7 +217,10 @@ export function addCommand(): Command {
         // Check for collision
         const exists = config.dataSources.some((ds: any) => ds.name === contractName);
         if (exists) {
-          console.error(`Error: A contract named '${contractName}' is already defined in logrix.yaml.`);
+          ui.error(
+            `Contract '${contractName}' already exists`,
+            "Duplicate contract names are not permitted in logrix.yaml."
+          );
           process.exit(1);
         }
 
@@ -240,26 +259,27 @@ export function addCommand(): Command {
         if (opts.abi) {
           const sourceAbi = path.resolve(projectDir, opts.abi);
           if (!fs.existsSync(sourceAbi)) {
-            console.error(`Error: Specified ABI file not found: ${opts.abi}`);
+            ui.error(`ABI file not found: ${opts.abi}`);
             process.exit(1);
           }
           fs.copyFileSync(sourceAbi, targetAbiFile);
-          console.log(`  Copied ABI from ${opts.abi} to abis/${contractName}.json`);
+          ui.success("Imported ABI file", `abis/${contractName}.json`);
         } else if (opts.fetchAbi) {
-          console.log(`  Fetching ABI for ${contractAddress} (Chain ID: ${chainId}) ...`);
+          ui.info(`Fetching verified ABI for ${contractAddress} (Chain ID: ${chainId}) ...`);
           const abi = await fetchAbi(contractAddress, chainId, opts.etherscanKey);
           if (abi) {
             fs.writeFileSync(targetAbiFile, JSON.stringify(abi, null, 2));
-            console.log(`  Saved fetched ABI to abis/${contractName}.json`);
+            ui.success("Verified ABI downloaded", `abis/${contractName}.json`);
           } else {
-            console.warn(
-              `  Warning: Could not fetch ABI for ${contractAddress}. Using ERC-20 placeholder.`
+            ui.warn(
+              `Could not fetch ABI for ${contractAddress}`,
+              "Using standard ERC-20 placeholder."
             );
             fs.writeFileSync(targetAbiFile, JSON.stringify(ERC20_ABI, null, 2));
           }
         } else if (!fs.existsSync(targetAbiFile)) {
           fs.writeFileSync(targetAbiFile, JSON.stringify(ERC20_ABI, null, 2));
-          console.log(`  Created default ERC-20 placeholder ABI at abis/${contractName}.json`);
+          ui.info("Created ERC-20 placeholder ABI", `abis/${contractName}.json`);
         }
 
         // 5. Append new dataSource to logrix.yaml
@@ -294,11 +314,17 @@ export function addCommand(): Command {
         config.dataSources.push(newDataSource);
         fs.writeFileSync(configPath, stringifyYaml(config, { indent: 2 }));
 
-        console.log(`\nSuccessfully added contract '${contractName}' to logrix.yaml!`);
-        console.log("Next steps:");
-        console.log(`  1. Review / replace ABI at: abis/${contractName}.json`);
-        console.log("  2. Run: logrix codegen");
-        console.log("  3. Run: logrix build\n");
+        ui.success(`Contract '${contractName}' added to logrix.yaml`);
+        ui.label("Contract Name", contractName);
+        ui.label("Address", contractAddress);
+        ui.label("Start Block", String(startBlock));
+        ui.label("Network", `${networkName} (${chainId})`);
+
+        ui.section("Next Steps");
+        console.log(`  1. Review ABI at ${pc.cyan(`abis/${contractName}.json`)}`);
+        console.log(`  2. Generate type bindings: ${pc.bold("logrix codegen")}`);
+        console.log(`  3. Compile AssemblyScript handler: ${pc.bold("logrix build")}`);
+        console.log();
       }
     );
 

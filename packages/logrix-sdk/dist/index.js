@@ -10,6 +10,13 @@ const validate_1 = require("./commands/validate");
 const export_values_1 = require("./commands/export_values");
 const test_1 = require("./commands/test");
 const status_1 = require("./commands/status");
+const errors_1 = require("./errors");
+process.on("unhandledRejection", (reason) => {
+    (0, errors_1.handleCliError)(reason);
+});
+process.on("uncaughtException", (err) => {
+    (0, errors_1.handleCliError)(err);
+});
 const program = new commander_1.Command();
 program
     .name("logrix")
@@ -23,4 +30,6 @@ program.addCommand((0, build_1.buildCommand)());
 program.addCommand((0, export_values_1.exportValuesCommand)());
 program.addCommand((0, test_1.testCommand)());
 program.addCommand((0, status_1.statusCommand)());
-program.parse(process.argv);
+program.parseAsync(process.argv).catch((err) => {
+    (0, errors_1.handleCliError)(err);
+});

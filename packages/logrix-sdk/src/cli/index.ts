@@ -8,6 +8,15 @@ import { validateCommand } from "./commands/validate";
 import { exportValuesCommand } from "./commands/export_values";
 import { testCommand } from "./commands/test";
 import { statusCommand } from "./commands/status";
+import { handleCliError } from "./errors";
+
+process.on("unhandledRejection", (reason) => {
+  handleCliError(reason);
+});
+
+process.on("uncaughtException", (err) => {
+  handleCliError(err);
+});
 
 const program = new Command();
 
@@ -25,4 +34,7 @@ program.addCommand(exportValuesCommand());
 program.addCommand(testCommand());
 program.addCommand(statusCommand());
 
-program.parse(process.argv);
+program.parseAsync(process.argv).catch((err) => {
+  handleCliError(err);
+});
+

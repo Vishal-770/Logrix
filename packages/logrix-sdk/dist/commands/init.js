@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NETWORKS = void 0;
 exports.initCommand = initCommand;
@@ -39,6 +42,9 @@ const commander_1 = require("commander");
 const prompts_1 = require("@inquirer/prompts");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const picocolors_1 = __importDefault(require("picocolors"));
+const ui_1 = require("../ui");
+const errors_1 = require("../errors");
 const templates_1 = require("../templates");
 exports.NETWORKS = {
     // Mainnets
@@ -86,7 +92,7 @@ function initCommand() {
         .option("--reorg-depth <depth>", "Reorg ring buffer depth (default: 128)")
         .option("--reconciler-interval <secs>", "Gap reconciler interval in seconds (default: 30)")
         .action(async (nameArg, opts) => {
-        console.log("\nLogrix Project Initializer\n");
+        ui_1.ui.banner("Project Scaffolding", "Scaffold a production-ready Logrix indexer");
         const isNonInteractive = opts.yes || !process.stdin.isTTY;
         // Project Name
         let projectName = nameArg || opts.name;
@@ -105,8 +111,7 @@ function initCommand() {
         projectName = projectName.trim();
         const targetDir = path.resolve(process.cwd(), projectName);
         if (fs.existsSync(targetDir)) {
-            console.error(`Error: directory '${projectName}' already exists.`);
-            process.exit(1);
+            throw new errors_1.CliError(`Directory already exists: '${projectName}'`, `Destination path ${targetDir} already contains files`, "Choose a different project name or remove the existing directory");
         }
         // Network selection
         let networkKey = opts.network;
@@ -250,7 +255,7 @@ function initCommand() {
             ringBufferDepth,
             reconcilerIntervalSecs,
         };
-        console.log(`\nScaffolding in ./${projectName}/ ...\n`);
+        ui_1.ui.banner("Project Scaffolding", `Creating new indexer in ./${projectName}`);
         // Create directories
         fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
         fs.mkdirSync(path.join(targetDir, "src"), { recursive: true });
@@ -267,16 +272,18 @@ function initCommand() {
         // Write deployment configuration profiles
         fs.writeFileSync(path.join(targetDir, "deploy", "values-aws.yaml"), (0, templates_1.valuesAwsTemplate)(answers));
         fs.writeFileSync(path.join(targetDir, "deploy", "secrets.example.yaml"), (0, templates_1.secretsExampleTemplate)(answers));
-        console.log("Done. Next steps:\n");
-        console.log(`  cd ${projectName}`);
-        console.log("  npm install");
-        console.log("  npm run codegen");
-        console.log("  npm run validate");
-        console.log("  npm run build");
-        console.log("  npm run export-values\n");
-        console.log("Deploy with Helm:\n");
-        console.log(`  Self-Hosted: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`);
-        console.log(`  AWS:         helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets\n`);
+        ui_1.ui.success("Project scaffolded", `Created indexer in ./${projectName}`);
+        ui_1.ui.section("Development Workflow");
+        console.log(`  ${picocolors_1.default.cyan("cd")} ${projectName}`);
+        console.log(`  ${picocolors_1.default.cyan("npm install")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run codegen")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run validate")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run build")}`);
+        console.log(`  ${picocolors_1.default.cyan("npm run export-values")}`);
+        ui_1.ui.section("Deployment (Helm)");
+        ui_1.ui.label("Self-Hosted:", `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`);
+        ui_1.ui.label("AWS (EKS):", `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets`);
+        console.log();
     });
     return cmd;
 }

@@ -2,6 +2,9 @@ import { Command } from "commander";
 import { input, select } from "@inquirer/prompts";
 import * as fs from "fs";
 import * as path from "path";
+import pc from "picocolors";
+import { ui } from "../ui";
+import { CliError } from "../errors";
 import {
   InitAnswers,
   logrixYamlTemplate,
@@ -72,7 +75,7 @@ export function initCommand(): Command {
     .option("--reorg-depth <depth>", "Reorg ring buffer depth (default: 128)")
     .option("--reconciler-interval <secs>", "Gap reconciler interval in seconds (default: 30)")
     .action(async (nameArg: string | undefined, opts: any) => {
-      console.log("\nLogrix Project Initializer\n");
+      ui.banner("Project Scaffolding", "Scaffold a production-ready Logrix indexer");
 
       const isNonInteractive = opts.yes || !process.stdin.isTTY;
 
@@ -93,8 +96,11 @@ export function initCommand(): Command {
 
       const targetDir = path.resolve(process.cwd(), projectName);
       if (fs.existsSync(targetDir)) {
-        console.error(`Error: directory '${projectName}' already exists.`);
-        process.exit(1);
+        throw new CliError(
+          `Directory already exists: '${projectName}'`,
+          `Destination path ${targetDir} already contains files`,
+          "Choose a different project name or remove the existing directory"
+        );
       }
 
       // Network selection
@@ -250,7 +256,7 @@ export function initCommand(): Command {
         reconcilerIntervalSecs,
       };
 
-      console.log(`\nScaffolding in ./${projectName}/ ...\n`);
+      ui.banner("Project Scaffolding", `Creating new indexer in ./${projectName}`);
 
       // Create directories
       fs.mkdirSync(path.join(targetDir, "abis"), { recursive: true });
@@ -301,20 +307,26 @@ export function initCommand(): Command {
         secretsExampleTemplate(answers)
       );
 
-      console.log("Done. Next steps:\n");
-      console.log(`  cd ${projectName}`);
-      console.log("  npm install");
-      console.log("  npm run codegen");
-      console.log("  npm run validate");
-      console.log("  npm run build");
-      console.log("  npm run export-values\n");
-      console.log("Deploy with Helm:\n");
-      console.log(
-        `  Self-Hosted: helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`
+      ui.success("Project scaffolded", `Created indexer in ./${projectName}`);
+
+      ui.section("Development Workflow");
+      console.log(`  ${pc.cyan("cd")} ${projectName}`);
+      console.log(`  ${pc.cyan("npm install")}`);
+      console.log(`  ${pc.cyan("npm run codegen")}`);
+      console.log(`  ${pc.cyan("npm run validate")}`);
+      console.log(`  ${pc.cyan("npm run build")}`);
+      console.log(`  ${pc.cyan("npm run export-values")}`);
+
+      ui.section("Deployment (Helm)");
+      ui.label(
+        "Self-Hosted:",
+        `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f indexer-values.yaml`
       );
-      console.log(
-        `  AWS:         helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets\n`
+      ui.label(
+        "AWS (EKS):",
+        `helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f indexer-values.yaml --set config.existingSecret=logrix-secrets`
       );
+      console.log();
     });
 
   return cmd;

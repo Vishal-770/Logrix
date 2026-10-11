@@ -1,5 +1,5 @@
 // Template generators for `logrix init` scaffolding.
-// Each function returns the file content string for a given template.
+import { stringify as stringifyYaml } from "yaml";
 
 export interface InitAnswers {
   projectName: string;
@@ -19,52 +19,74 @@ export interface InitAnswers {
 }
 
 export function logrixYamlTemplate(a: InitAnswers): string {
-  const fallbackRpcSection =
-    a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
-      ? `\n  fallbackRpcUrls:\n` +
-        a.fallbackRpcUrls.map((u) => `    - "${u}"`).join("\n")
-      : `\n  # Optional fallback RPC endpoints for automated gateway failover:\n  # fallbackRpcUrls:\n  #   - "https://fallback-rpc.example.com"`;
+  const doc: any = {
+    specVersion: "0.1.0",
+    network: {
+      name: a.networkName,
+      chainId: a.chainId,
+      rpcUrl: a.rpcUrl,
+    },
+    dataSources: [
+      {
+        kind: "ethereum/contract",
+        name: a.contractName,
+        network: a.networkName,
+        source: {
+          address: a.contractAddress,
+          abi: a.contractName,
+          startBlock: a.startBlock,
+        },
+        mapping: {
+          kind: "wasm/assemblyscript",
+          file: "./build/mapping.wasm",
+          abis: [
+            {
+              name: a.contractName,
+              file: `./abis/${a.contractName}.json`,
+            },
+          ],
+          eventHandlers: [
+            {
+              event: "Transfer(address indexed,address indexed,uint256)",
+              handler: "handleTransfer",
+            },
+            {
+              event: "Approval(address indexed,address indexed,uint256)",
+              handler: "handleApproval",
+            },
+          ],
+        },
+      },
+    ],
+  };
 
-  const webhookSection = a.webhookUrl
-    ? `\n# Declarative Webhooks\nwebhooks:\n  - url: "${a.webhookUrl}"\n    events:\n      - "reorg"\n      - "Transfer"\n    maxRetries: 3\n`
-    : `\n# Optional Declarative Webhooks:\n# webhooks:\n#   - url: "https://api.yourbackend.com/webhooks/logrix"\n#     events:\n#       - "reorg"\n#       - "Transfer"\n#     maxRetries: 3\n`;
+  if (a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0) {
+    doc.network.fallbackRpcUrls = a.fallbackRpcUrls;
+  }
 
-  const indexingSection = `\n# Advanced engine tuning (optional)\nindexing:\n  ringBufferDepth: ${a.ringBufferDepth ?? 128}\n  reconcilerIntervalSecs: ${a.reconcilerIntervalSecs ?? 30}\n`;
+  if (a.fuelLimit) {
+    doc.dataSources[0].mapping.fuelLimit = a.fuelLimit;
+  }
+  if (a.maxMemoryMb) {
+    doc.dataSources[0].mapping.maxMemoryMb = a.maxMemoryMb;
+  }
 
-  const fuelComment = a.fuelLimit
-    ? `\n      fuelLimit: ${a.fuelLimit}`
-    : "";
-  const memComment = a.maxMemoryMb
-    ? `\n      maxMemoryMb: ${a.maxMemoryMb}`
-    : "";
+  if (a.webhookUrl) {
+    doc.webhooks = [
+      {
+        url: a.webhookUrl,
+        events: a.webhookEvents && a.webhookEvents.length > 0 ? a.webhookEvents : ["reorg", "Transfer"],
+        maxRetries: 3,
+      },
+    ];
+  }
 
-  return `specVersion: "0.1.0"
+  doc.indexing = {
+    ringBufferDepth: a.ringBufferDepth ?? 128,
+    reconcilerIntervalSecs: a.reconcilerIntervalSecs ?? 30,
+  };
 
-network:
-  name: "${a.networkName}"
-  chainId: ${a.chainId}
-  rpcUrl: "${a.rpcUrl}"${fallbackRpcSection}
-
-dataSources:
-  - kind: ethereum/contract
-    name: "${a.contractName}"
-    network: "${a.networkName}"
-    source:
-      address: "${a.contractAddress}"
-      abi: "${a.contractName}"
-      startBlock: ${a.startBlock}
-    mapping:
-      kind: wasm/assemblyscript
-      file: ./build/mapping.wasm${fuelComment}${memComment}
-      abis:
-        - name: "${a.contractName}"
-          file: ./abis/${a.contractName}.json
-      eventHandlers:
-        - event: "Transfer(address indexed,address indexed,uint256)"
-          handler: handleTransfer
-        - event: "Approval(address indexed,address indexed,uint256)"
-          handler: handleApproval
-${webhookSection}${indexingSection}`;
+  return stringifyYaml(doc, { indent: 2 });
 }
 
 export function schemaGraphqlTemplate(): string {
@@ -91,7 +113,7 @@ type Approval @entity {
 }
 
 export function mappingTemplate(contractName: string): string {
-  return `import { EventLog, log, BigInt, Address, allocate } from "@logrix/sdk";
+  return `import { EventLog, log, allocate } from "@logrix/sdk";
 import { TransferEvent, ApprovalEvent } from "./generated/events";
 import { Transfer, Approval } from "./generated/schema";
 
@@ -106,31 +128,24 @@ export function handle_event(ptr: i32, len: i32): i32 {
   for (let i = 0; i < len; i++) {
     bytes[i] = load<u8>(ptr + i);
   }
-  const raw = String.UTF8.decode(bytes.buffer);
+  const rawJson = String.UTF8.decode(bytes.buffer);
+  const logObj = EventLog.fromJson(rawJson);
 
-  // Dispatch based on event signature topic
-  if (raw.includes('"Transfer"') || raw.includes("0xddf252ad")) {
-    return handleTransfer(raw);
+  // Dispatch based on topic0 event signature
+  // Transfer(address,address,uint256) -> 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
+  if (logObj.topics.length > 0 && logObj.topics[0].startsWith("0xddf252ad")) {
+    return handleTransfer(new TransferEvent(logObj));
   }
-  if (raw.includes('"Approval"') || raw.includes("0x8c5be1e5")) {
-    return handleApproval(raw);
+  // Approval(address,address,uint256) -> 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925
+  if (logObj.topics.length > 0 && logObj.topics[0].startsWith("0x8c5be1e5")) {
+    return handleApproval(new ApprovalEvent(logObj));
   }
 
-  log.info("handle_event: unhandled event, skipping");
+  log.info("handle_event: unhandled topic0, skipping");
   return 0;
 }
 
-function handleTransfer(raw: string): i32 {
-  const logObj = new EventLog();
-  logObj.transaction_hash = extractField(raw, "transaction_hash");
-  logObj.block_number = u64(parseInt(extractField(raw, "block_number")) as i32);
-  logObj.block_timestamp = u64(parseInt(extractField(raw, "block_timestamp")) as i32);
-
-  const event = new TransferEvent(logObj);
-  event.params.from = Address.fromString(extractField(raw, "from"));
-  event.params.to = Address.fromString(extractField(raw, "to"));
-  event.params.value = BigInt.fromString(extractField(raw, "value"));
-
+export function handleTransfer(event: TransferEvent): i32 {
   const entityId = event.transactionHash + "-" + event.logIndex.toString();
   let entity = Transfer.load(entityId);
   if (!entity) {
@@ -149,17 +164,7 @@ function handleTransfer(raw: string): i32 {
   return 0;
 }
 
-function handleApproval(raw: string): i32 {
-  const logObj = new EventLog();
-  logObj.transaction_hash = extractField(raw, "transaction_hash");
-  logObj.block_number = u64(parseInt(extractField(raw, "block_number")) as i32);
-  logObj.block_timestamp = u64(parseInt(extractField(raw, "block_timestamp")) as i32);
-
-  const event = new ApprovalEvent(logObj);
-  event.params.owner = Address.fromString(extractField(raw, "owner"));
-  event.params.spender = Address.fromString(extractField(raw, "spender"));
-  event.params.value = BigInt.fromString(extractField(raw, "value"));
-
+export function handleApproval(event: ApprovalEvent): i32 {
   const entityId = event.transactionHash + "-" + event.logIndex.toString();
   let entity = Approval.load(entityId);
   if (!entity) {
@@ -176,30 +181,6 @@ function handleApproval(raw: string): i32 {
 
   log.info("Indexed Approval entity: " + entityId);
   return 0;
-}
-
-function extractField(json: string, key: string): string {
-  const needle = '"' + key + '":';
-  const idx = json.indexOf(needle);
-  if (idx === -1) return "";
-  let start = idx + needle.length;
-  while (start < json.length && json.charAt(start) === " ") start++;
-  if (start >= json.length) return "";
-  const ch = json.charAt(start);
-  if (ch === '"') {
-    start++;
-    const end = json.indexOf('"', start);
-    if (end === -1) return "";
-    return json.slice(start, end);
-  } else {
-    let end = start;
-    while (end < json.length) {
-      const c = json.charCodeAt(end);
-      if (c === 44 || c === 125 || c === 93 || c === 32 || c === 10 || c === 13) break;
-      end++;
-    }
-    return json.slice(start, end).trim();
-  }
 }
 `;
 }
@@ -242,81 +223,74 @@ indexer-values.yaml
 
 export function valuesAwsTemplate(a: InitAnswers): string {
   const hasWebhooks = Boolean(a.webhookUrl);
-  return `# Mode 2: Production AWS EKS Profile
-# Provisions on AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3
-# Note: To provision backing AWS infrastructure (VPC, EKS, RDS Aurora, SQS, S3, IAM) from scratch,
-# clone https://github.com/Vishal-770/Logrix and run deploy/terraform/aws.
+  const doc: any = {
+    image: {
+      repository: "ghcr.io/vishal-770/logrix",
+      tag: "0.4.0",
+      pullPolicy: "IfNotPresent",
+    },
+    builtIn: {
+      enabled: false,
+      postgres: false,
+      rabbitmq: false,
+      minio: false,
+    },
+    localDev: {
+      enabled: false,
+    },
+    config: {
+      chainId: a.chainId,
+      queueDriver: "sqs",
+      reconcilerIntervalSecs: a.reconcilerIntervalSecs ?? 30,
+      ringBufferDepth: a.ringBufferDepth ?? 256,
+      existingSecret: "logrix-secrets",
+      s3Bucket: "",
+    },
+    serviceAccount: {
+      create: true,
+      name: "logrix-sa",
+      annotations: {
+        "eks.amazonaws.com/role-arn": "arn:aws:iam::ACCOUNT_ID:role/logrix-production-role",
+      },
+    },
+    ingester: {
+      replicas: 2,
+      leaderElection: {
+        enabled: true,
+        leaseName: "logrix-ingester-lease",
+      },
+      resources: {
+        requests: { cpu: "100m", memory: "128Mi" },
+        limits: { cpu: "500m", memory: "512Mi" },
+      },
+    },
+    processor: {
+      keda: {
+        enabled: true,
+        minReplicaCount: 1,
+        maxReplicaCount: 50,
+        queueType: "sqs",
+        sqs: {
+          queueUrl: "https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/logrix-live-jobs",
+          awsRegion: "us-east-1",
+        },
+      },
+      resources: {
+        requests: { cpu: "250m", memory: "256Mi" },
+        limits: { cpu: "1000m", memory: "1Gi" },
+      },
+    },
+    api: {
+      replicas: 2,
+      port: 4000,
+    },
+    webhook: {
+      enabled: hasWebhooks,
+      replicaCount: 1,
+    },
+  };
 
-image:
-  repository: ghcr.io/vishal-770/logrix
-  tag: "0.4.0"
-  pullPolicy: IfNotPresent
-
-# Disable built-in self-hosted containers (AWS provides Aurora, SQS, and S3)
-builtIn:
-  enabled: false
-  postgres: false
-  rabbitmq: false
-  minio: false
-
-localDev:
-  enabled: false
-
-config:
-  chainId: ${a.chainId}
-  queueDriver: "sqs"
-  reconcilerIntervalSecs: ${a.reconcilerIntervalSecs ?? 30}
-  ringBufferDepth: ${a.ringBufferDepth ?? 256}
-  # Name of Kubernetes Secret containing DATABASE_URL and RPC credentials
-  existingSecret: "logrix-secrets"
-  # Optional S3 block archive bucket (populate from Terraform output, or leave empty if not archiving)
-  s3Bucket: ""
-
-serviceAccount:
-  create: true
-  name: "logrix-sa"
-  annotations:
-    # AWS IAM Roles for Service Accounts (IRSA) for SQS and S3 access
-    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/logrix-production-role"
-
-ingester:
-  replicas: 2
-  leaderElection:
-    enabled: true
-    leaseName: "logrix-ingester-lease"
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-processor:
-  keda:
-    enabled: true
-    minReplicaCount: 1
-    maxReplicaCount: 50
-    queueType: sqs
-    sqs:
-      queueUrl: "https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/logrix-live-jobs"
-      awsRegion: "us-east-1"
-  resources:
-    requests:
-      cpu: 250m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-
-api:
-  replicas: 2
-  port: 4000
-
-webhook:
-  enabled: ${hasWebhooks}
-  replicaCount: 1
-`;
+  return stringifyYaml(doc, { indent: 2 });
 }
 
 export function secretsExampleTemplate(a: InitAnswers): string {
@@ -324,22 +298,22 @@ export function secretsExampleTemplate(a: InitAnswers): string {
     a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
       ? a.fallbackRpcUrls.join(",")
       : "";
-  return `# Example Kubernetes Secret for production credentials
-# Apply with: kubectl apply -f deploy/secrets.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: logrix-secrets
-  namespace: default
-type: Opaque
-stringData:
-  # Primary paid JSON-RPC endpoint
-  RPC_URL: "${a.rpcUrl}"
-  # Optional fallback JSON-RPC endpoints (comma-separated)
-  RPC_FALLBACK_URLS: "${fallbackUrlsStr}"
-  # Production database connection string (e.g. AWS Aurora PostgreSQL)
-  DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix"
-`;
+  const doc = {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name: "logrix-secrets",
+      namespace: "default",
+    },
+    type: "Opaque",
+    stringData: {
+      RPC_URL: a.rpcUrl,
+      RPC_FALLBACK_URLS: fallbackUrlsStr,
+      DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix",
+    },
+  };
+
+  return stringifyYaml(doc, { indent: 2 });
 }
 
 export function readmeTemplate(projectName: string): string {

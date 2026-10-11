@@ -1,11 +1,14 @@
 import { Command } from "commander";
 import * as fs from "fs";
 import * as path from "path";
+import pc from "picocolors";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   valuesAwsTemplate,
   secretsExampleTemplate,
 } from "../templates";
+import { ui } from "../ui";
+import { CliError } from "../errors";
 
 /**
  * logrix export-values
@@ -13,7 +16,7 @@ import {
  * Reads logrix.yaml, schema.graphql, and build/mapping.wasm then writes an
  * indexer-values.yaml that is ready to be passed to:
  *   helm install logrix oci://ghcr.io/vishal-770/charts/logrix \
- *     -f deploy/values-local.yaml -f indexer-values.yaml
+ *     -f indexer-values.yaml
  */
 export function exportValuesCommand(): Command {
   const cmd = new Command("export-values");
@@ -28,20 +31,24 @@ export function exportValuesCommand(): Command {
       "Regenerate deploy/ profiles (values-local.yaml, values-aws.yaml, secrets.example.yaml)"
     )
     .action((opts: { out: string; chainId?: string; rpc?: string; deployProfiles?: boolean }) => {
+      ui.banner("Export Helm Values", "Generating Kubernetes deployment values");
+
       const projectDir = process.cwd();
       const configPath = path.join(projectDir, "logrix.yaml");
 
       if (!fs.existsSync(configPath)) {
-        console.error("Error: logrix.yaml not found. Run this command from your project root.");
-        process.exit(1);
+        throw new CliError(
+          "logrix.yaml not found",
+          "Project manifest is missing in current working directory",
+          "Run this command from your indexer project root directory"
+        );
       }
 
       let config: any;
       try {
         config = parseYaml(fs.readFileSync(configPath, "utf-8"));
       } catch (e: any) {
-        console.error(`Error parsing logrix.yaml: ${e.message}`);
-        process.exit(1);
+        throw new CliError("Failed to parse logrix.yaml", e.message);
       }
 
       // Resolve network settings
@@ -51,8 +58,10 @@ export function exportValuesCommand(): Command {
       const rpcUrl = opts.rpc ?? config.network?.rpcUrl ?? "";
 
       if (!rpcUrl) {
-        console.error(
-          "Error: RPC URL not found in logrix.yaml (network.rpcUrl) and --rpc was not passed."
+        ui.error(
+          "RPC URL not configured",
+          "network.rpcUrl is missing in logrix.yaml and --rpc was not passed.",
+          "Specify --rpc <url> or add network.rpcUrl to logrix.yaml"
         );
         process.exit(1);
       }
@@ -118,7 +127,11 @@ export function exportValuesCommand(): Command {
       // Read schema.graphql
       const schemaPath = path.join(projectDir, "schema.graphql");
       if (!fs.existsSync(schemaPath)) {
-        console.error("Error: schema.graphql not found. Run this command from your project root.");
+        ui.error(
+          "schema.graphql not found",
+          "GraphQL entity schema is missing.",
+          "Ensure schema.graphql exists in your project root."
+        );
         process.exit(1);
       }
       const schemaContent = fs.readFileSync(schemaPath, "utf-8");
@@ -126,8 +139,10 @@ export function exportValuesCommand(): Command {
       // Read compiled WASM (base64)
       const wasmPath = path.join(projectDir, "build", "mapping.wasm");
       if (!fs.existsSync(wasmPath)) {
-        console.error(
-          "Error: build/mapping.wasm not found. Run `logrix build` first."
+        ui.error(
+          "Compiled WASM not found",
+          "build/mapping.wasm does not exist.",
+          "Run `logrix build` before exporting Helm values."
         );
         process.exit(1);
       }
@@ -192,14 +207,22 @@ export function exportValuesCommand(): Command {
         }
       }
 
-      console.log(`\nExported Helm values to: ${opts.out}`);
-      console.log("\nDeploy with Helm:");
+      ui.success("Helm values generated successfully", opts.out);
+      ui.label("Contracts", String(contracts.length));
+      ui.label("Start Block", String(minStartBlock));
+      ui.label("Chain ID", String(chainId));
+      ui.label("Webhooks", String(webhooks.length));
+      ui.label("WASM Handler Size", `${(Buffer.from(wasmBase64, "base64").length / 1024).toFixed(1)} KB`);
+
+      ui.section("Deployment Options");
+      console.log(`  ${pc.bold("Mode 1: Self-Hosted (Default In-Cluster)")}`);
+      console.log(`    helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f ${opts.out}`);
+      console.log();
+      console.log(`  ${pc.bold("Mode 2: Production AWS EKS (Aurora + SQS + IAM IRSA)")}`);
       console.log(
-        `  Self-Hosted: helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f ${opts.out}`
+        `    helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f ${opts.out} --set config.existingSecret=logrix-secrets`
       );
-      console.log(
-        `  AWS:         helm install logrix oci://ghcr.io/vishal-770/charts/logrix -f deploy/values-aws.yaml -f ${opts.out} --set config.existingSecret=logrix-secrets\n`
-      );
+      console.log();
     });
 
   return cmd;

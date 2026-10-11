@@ -2,6 +2,8 @@ import { Command } from "commander";
 import * as fs from "fs";
 import * as path from "path";
 import { parse as parseYaml } from "yaml";
+import { ui } from "../ui";
+import { CliError } from "../errors";
 
 // ---------------------------------------------------------------------------
 // Type definitions for logrix.yaml structure
@@ -384,25 +386,39 @@ export function codegenCommand(): Command {
       const projectDir = process.cwd();
       const configPath = path.join(projectDir, "logrix.yaml");
 
+      ui.banner("Code Generation", "Generating typed AssemblyScript bindings from ABIs and GraphQL schema");
+
       if (!fs.existsSync(configPath)) {
-        console.error("Error: logrix.yaml not found. Run this command from your project root.");
-        process.exit(1);
+        throw new CliError(
+          "logrix.yaml not found",
+          "Manifest file is required to discover ABIs and dataSources",
+          "Run this command from your indexer project root directory"
+        );
       }
 
-      const config: LogrixConfig = parseYaml(fs.readFileSync(configPath, "utf-8")) as LogrixConfig;
+      let config: LogrixConfig;
+      try {
+        config = parseYaml(fs.readFileSync(configPath, "utf-8")) as LogrixConfig;
+      } catch (e: any) {
+        throw new CliError("Failed to parse logrix.yaml", e.message);
+      }
 
       const generatedDir = path.join(projectDir, "src", "generated");
       fs.mkdirSync(generatedDir, { recursive: true });
 
-      console.log("Generating src/generated/events.ts ...");
+      const spinner1 = ui.spinner("Compiling ABI event definitions into src/generated/events.ts...");
       const eventsTs = generateEventsTs(config.dataSources, projectDir);
       fs.writeFileSync(path.join(generatedDir, "events.ts"), eventsTs);
+      spinner1.succeed("Compiled ABI event definitions into src/generated/events.ts");
 
-      console.log("Generating src/generated/schema.ts ...");
+      const spinner2 = ui.spinner("Compiling entity classes into src/generated/schema.ts...");
       const schemaTs = generateSchemaTs(projectDir);
       fs.writeFileSync(path.join(generatedDir, "schema.ts"), schemaTs);
+      spinner2.succeed("Compiled entity classes into src/generated/schema.ts");
 
-      console.log("Done.");
+      console.log();
+      ui.success("Bindings generated", "src/generated/events.ts and src/generated/schema.ts are up to date");
+      console.log();
     });
 
   return cmd;
