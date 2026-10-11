@@ -16,11 +16,19 @@ pub struct PostgresConfig {
 
 impl PostgresConfig {
     pub fn new(database_url: impl Into<String>, pipeline_id: impl Into<String>) -> Self {
+        let max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+        let min_connections = std::env::var("DATABASE_MIN_CONNECTIONS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2);
         Self {
             database_url: database_url.into(),
             pipeline_id: pipeline_id.into(),
-            max_connections: 30,
-            min_connections: 5,
+            max_connections,
+            min_connections,
             acquire_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(600),
         }

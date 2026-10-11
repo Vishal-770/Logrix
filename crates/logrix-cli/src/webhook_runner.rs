@@ -28,7 +28,10 @@ pub async fn run_webhook_dispatcher(
         cli.webhook_url.clone(),
         secret,
     );
-    dispatcher.run_loop().await;
+    dispatcher
+        .run_loop_with_shutdown(crate::shutdown::wait_for_shutdown_signal())
+        .await;
+    info!("Dedicated Logrix Webhook Dispatcher service stopped cleanly");
     Ok(())
 }
 

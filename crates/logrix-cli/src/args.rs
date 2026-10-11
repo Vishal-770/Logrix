@@ -19,6 +19,18 @@ pub struct Cli {
     )]
     pub database_url: String,
 
+    /// Maximum database connection pool size per process
+    #[arg(long, env = "DATABASE_MAX_CONNECTIONS", default_value_t = 10)]
+    pub database_max_connections: u32,
+
+    /// Minimum database connection pool size per process
+    #[arg(long, env = "DATABASE_MIN_CONNECTIONS", default_value_t = 2)]
+    pub database_min_connections: u32,
+
+    /// Ingester queue backpressure threshold: maximum unconsumed queue depth before throttling
+    #[arg(long, env = "MAX_QUEUE_DEPTH", default_value_t = 1000)]
+    pub max_queue_depth: u64,
+
     /// Queue driver to use: "rabbitmq" (default) or "sqs" (AWS SQS)
     #[arg(long, env = "QUEUE_DRIVER", default_value = "rabbitmq")]
     pub queue_driver: String,

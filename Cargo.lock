@@ -3892,6 +3892,7 @@ name = "logrix-cli"
 version = "0.5.0"
 dependencies = [
  "alloy-primitives",
+ "async-trait",
  "chrono",
  "clap",
  "logrix-api",
@@ -3905,6 +3906,7 @@ dependencies = [
  "logrix-resilience",
  "logrix-rpc-gateway",
  "logrix-store-postgres",
+ "logrix-testkit",
  "logrix-webhook",
  "serde",
  "serde_json",
