@@ -106,3 +106,12 @@ pub fn parse_rpc_log(item: &Value) -> EventLog {
         block_hash,
     }
 }
+
+/// Extract standard Retry-After header as Duration.
+pub fn extract_retry_after(headers: &reqwest::header::HeaderMap) -> Option<std::time::Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
+}

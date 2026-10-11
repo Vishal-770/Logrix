@@ -142,7 +142,7 @@ impl EvmChainClient {
                         ));
                     } else {
                         self.chunker.record_failure();
-                        let retry_after = extract_retry_after(resp.headers());
+                        let retry_after = crate::parser::extract_retry_after(resp.headers());
                         if attempt < self.retry_policy.max_attempts {
                             attempt += 1;
                             let delay = retry_after
@@ -181,12 +181,4 @@ impl EvmChainClient {
             }
         }
     }
-}
-
-fn extract_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
-    headers
-        .get(reqwest::header::RETRY_AFTER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(Duration::from_secs)
 }
