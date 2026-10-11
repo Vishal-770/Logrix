@@ -1,7 +1,8 @@
+use crate::ancestor::find_common_ancestor;
 use crate::buffer::RollingBlockBuffer;
 use alloy_primitives::B256;
 use logrix_core::domain::{BlockEnvelope, ChainId};
-use logrix_core::error::{ErrorClass, ErrorSource, LogrixError, LogrixResult};
+use logrix_core::error::LogrixResult;
 use logrix_core::ports::ChainPort;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -28,6 +29,7 @@ pub struct ReorgDetector {
     chain_id: ChainId,
     buffer: Arc<RwLock<RollingBlockBuffer>>,
     chain_client: Arc<dyn ChainPort>,
+    max_reorg_depth: u64,
 }
 
 impl ReorgDetector {
@@ -40,7 +42,15 @@ impl ReorgDetector {
             chain_id,
             buffer: Arc::new(RwLock::new(RollingBlockBuffer::new(buffer_capacity))),
             chain_client,
+            max_reorg_depth: (buffer_capacity * 2).max(128) as u64,
         }
+    }
+
+    /// Configure maximum reorg ancestor walk depth limit.
+    #[must_use]
+    pub fn with_max_reorg_depth(mut self, max_depth: u64) -> Self {
+        self.max_reorg_depth = max_depth;
+        self
     }
 
     /// Return the monitored chain id.
@@ -76,17 +86,17 @@ impl ReorgDetector {
                     );
 
                     let tip_number = tip.number;
-                    // Take snapshot and release write lock before making remote network RPC calls
                     let buf_snapshot = buf.clone();
                     drop(buf);
 
-                    let (fork_block, fork_hash) = self
-                        .find_common_ancestor(
-                            &buf_snapshot,
-                            envelope.block_number,
-                            envelope.parent_hash,
-                        )
-                        .await?;
+                    let (fork_block, fork_hash) = find_common_ancestor(
+                        self.chain_client.as_ref(),
+                        &buf_snapshot,
+                        envelope.block_number,
+                        envelope.parent_hash,
+                        self.max_reorg_depth,
+                    )
+                    .await?;
                     let reorg_depth = tip_number.saturating_sub(fork_block);
 
                     info!(
@@ -131,53 +141,5 @@ impl ReorgDetector {
             buf.push(envelope.block_ref());
             Ok(ContinuityStatus::Continuous)
         }
-    }
-
-    /// Walk back block headers across buffer (and fallback to RPC) to locate the fork point.
-    async fn find_common_ancestor(
-        &self,
-        buf: &RollingBlockBuffer,
-        start_block: u64,
-        mut current_parent: B256,
-    ) -> LogrixResult<(u64, B256)> {
-        let mut curr_num = start_block.saturating_sub(1);
-
-        while curr_num > 0 {
-            if let Some(buf_ref) = buf.get_by_number(curr_num) {
-                if buf_ref.hash == current_parent {
-                    return Ok((curr_num, current_parent));
-                }
-            }
-
-            // Fallback: Query remote node for parent hash of curr_num
-            match self
-                .chain_client
-                .fetch_block_envelope(curr_num, &[])
-                .await?
-            {
-                Some(remote_block) => {
-                    if let Some(buf_ref) = buf.get_by_number(curr_num) {
-                        if buf_ref.hash == remote_block.block_hash {
-                            return Ok((curr_num, remote_block.block_hash));
-                        }
-                    }
-                    current_parent = remote_block.parent_hash;
-                    // Walk one step back
-                    curr_num = curr_num.saturating_sub(1);
-                }
-                None => {
-                    return Err(LogrixError::new(
-                        ErrorClass::Integrity,
-                        ErrorSource::Reconciler,
-                        format!(
-                            "Failed to retrieve ancestor block header {curr_num} during reorg walk"
-                        ),
-                    ));
-                }
-            }
-        }
-
-        // Fork point at genesis or block 0
-        Ok((0, B256::ZERO))
     }
 }
