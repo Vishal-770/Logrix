@@ -1,0 +1,54 @@
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: 0.7.0
+  pullPolicy: IfNotPresent
+builtIn:
+  enabled: false
+  postgres: false
+  rabbitmq: false
+  minio: false
+localDev:
+  enabled: false
+config:
+  chainId: 42161
+  queueDriver: sqs
+  reconcilerIntervalSecs: 30
+  ringBufferDepth: 256
+  existingSecret: logrix-secrets
+  s3Bucket: "logrix-production-blocks-653ee8abcc82050d62461edb3e"
+  sqsLiveUrl: "https://sqs.us-east-1.amazonaws.com/206388234927/logrix-production-live"
+  sqsBackfillUrl: "https://sqs.us-east-1.amazonaws.com/206388234927/logrix-production-backfill"
+serviceAccount:
+  create: true
+  name: logrix-sa
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::206388234927:role/logrix-production-processor-irsa"
+ingester:
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: logrix-ingester-lease
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+processor:
+  replicas: 2
+  keda:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+api:
+  replicas: 2
+  port: 4000
+webhook:
+  enabled: false
+  replicaCount: 1

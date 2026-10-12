@@ -48,7 +48,7 @@ resource "aws_rds_cluster_parameter_group" "this" {
 
   parameter {
     name  = "rds.force_ssl"
-    value = "1"
+    value = "0"
   }
 
   parameter {

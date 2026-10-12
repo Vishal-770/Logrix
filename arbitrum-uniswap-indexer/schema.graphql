@@ -1,0 +1,39 @@
+type Swap @entity {
+  id: ID!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  transactionHash: String!
+  sender: String! @index
+  recipient: String! @index
+  amount0: BigInt!
+  amount1: BigInt!
+  sqrtPriceX96: BigInt!
+  liquidity: BigInt!
+  tick: BigInt!
+}
+
+# -------------------------------------------------------------------------
+# Custom Aggregate Entities (Accumulated Metrics across Swaps)
+# -------------------------------------------------------------------------
+
+type PoolDayData @entity {
+  id: ID!
+  date: BigInt! @index
+  poolAddress: String! @index
+  txCount: BigInt!
+  totalVolumeToken0: BigInt!
+  totalVolumeToken1: BigInt!
+  latestPriceSqrtX96: BigInt!
+  latestTick: BigInt!
+}
+
+type UserVolumeStats @entity {
+  id: ID!
+  userAddress: String! @index
+  totalSwaps: BigInt!
+  totalVolumeToken0: BigInt!
+  totalVolumeToken1: BigInt!
+  lastActiveBlock: BigInt!
+  lastActiveTimestamp: BigInt!
+}
+

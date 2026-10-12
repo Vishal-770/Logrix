@@ -17,14 +17,20 @@ data:
   MAX_QUEUE_DEPTH: {{ .Values.config.maxQueueDepth | default 1000 | quote }}
   {{- if or (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio) .Values.config.s3Bucket }}
   S3_BUCKET: {{ default "logrix-blocks" .Values.config.s3Bucket | quote }}
-  S3_ENDPOINT: {{ default (printf "http://%s-minio:9000" (include "logrix.fullname" .)) .Values.config.s3Endpoint | quote }}
+  {{- if .Values.config.s3Endpoint }}
+  S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
+  {{- else if and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio }}
+  S3_ENDPOINT: {{ printf "http://%s-minio:9000" (include "logrix.fullname" .) | quote }}
+  {{- end }}
   {{- end }}
   {{- if or (eq .Values.config.queueDriver "sqs") .Values.config.sqsLiveUrl }}
   SQS_LIVE_URL: {{ .Values.config.sqsLiveUrl | default "" | quote }}
   SQS_BACKFILL_URL: {{ .Values.config.sqsBackfillUrl | default "" | quote }}
   SQS_WEBHOOK_URL: {{ .Values.config.sqsWebhookUrl | default "" | quote }}
   SQS_DLQ_URL: {{ .Values.config.sqsDlqUrl | default "" | quote }}
-  SQS_ENDPOINT: {{ .Values.config.sqsEndpoint | default "" | quote }}
+  {{- if .Values.config.sqsEndpoint }}
+  SQS_ENDPOINT: {{ .Values.config.sqsEndpoint | quote }}
+  {{- end }}
   {{- end }}
   {{- if and .Values.webhook .Values.webhook.enabled }}
   ENABLE_WEBHOOKS: "true"

@@ -11,8 +11,13 @@ resource "aws_iam_role" "ingester" {
         Federated = var.oidc_provider_arn
       }
       Condition = {
+        StringLike = {
+          "${var.oidc_provider_url}:sub" = [
+            "system:serviceaccount:${var.k8s_namespace}:logrix-ingester",
+            "system:serviceaccount:${var.k8s_namespace}:logrix-sa"
+          ]
+        }
         StringEquals = {
-          "${var.oidc_provider_url}:sub" = "system:serviceaccount:${var.k8s_namespace}:logrix-ingester"
           "${var.oidc_provider_url}:aud" = "sts.amazonaws.com"
         }
       }
@@ -61,8 +66,13 @@ resource "aws_iam_role" "processor" {
         Federated = var.oidc_provider_arn
       }
       Condition = {
+        StringLike = {
+          "${var.oidc_provider_url}:sub" = [
+            "system:serviceaccount:${var.k8s_namespace}:logrix-processor",
+            "system:serviceaccount:${var.k8s_namespace}:logrix-sa"
+          ]
+        }
         StringEquals = {
-          "${var.oidc_provider_url}:sub" = "system:serviceaccount:${var.k8s_namespace}:logrix-processor"
           "${var.oidc_provider_url}:aud" = "sts.amazonaws.com"
         }
       }
@@ -123,8 +133,13 @@ resource "aws_iam_role" "api" {
         Federated = var.oidc_provider_arn
       }
       Condition = {
+        StringLike = {
+          "${var.oidc_provider_url}:sub" = [
+            "system:serviceaccount:${var.k8s_namespace}:logrix-api",
+            "system:serviceaccount:${var.k8s_namespace}:logrix-sa"
+          ]
+        }
         StringEquals = {
-          "${var.oidc_provider_url}:sub" = "system:serviceaccount:${var.k8s_namespace}:logrix-api"
           "${var.oidc_provider_url}:aud" = "sts.amazonaws.com"
         }
       }

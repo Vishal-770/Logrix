@@ -1,0 +1,18 @@
+{
+  "name": "arbitrum-uniswap-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "codegen": "logrix codegen",
+    "build": "logrix build",
+    "validate": "logrix validate",
+    "export-values": "logrix export-values",
+    "build:asc": "asc src/mapping.ts --config tsconfig.json -o build/mapping.wasm --optimize --exportRuntime"
+  },
+  "dependencies": {
+    "@logrix/sdk": "^0.6.0"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.29"
+  }
+}
