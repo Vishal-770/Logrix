@@ -103,13 +103,15 @@ impl PostgresStore {
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             results.push(DynamicEntityRecord {
-                chain_id: row.get::<i64, _>("chain_id") as u64,
-                entity_type: row.get("entity_type"),
-                entity_id: row.get("entity_id"),
-                data: row.get("data"),
-                block_number: row.get::<i64, _>("block_number") as u64,
-                is_reverted: row.get("is_reverted"),
-                updated_at: row.get("updated_at"),
+                chain_id: row.try_get::<i64, _>("chain_id").unwrap_or(0) as u64,
+                entity_type: row.try_get("entity_type").unwrap_or_default(),
+                entity_id: row.try_get("entity_id").unwrap_or_default(),
+                data: row.try_get("data").unwrap_or(serde_json::Value::Null),
+                block_number: row.try_get::<i64, _>("block_number").unwrap_or(0) as u64,
+                is_reverted: row.try_get("is_reverted").unwrap_or(false),
+                updated_at: row
+                    .try_get("updated_at")
+                    .unwrap_or_else(|_| chrono::Utc::now()),
             });
         }
         Ok(results)
