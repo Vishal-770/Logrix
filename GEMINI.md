@@ -67,6 +67,9 @@ These rules apply strictly across this repository on every prompt and action.
 
 ## 7. SDK Scope, Deployment Architecture & User-Centric Design
 
+- **Pure Containerized Deployment Only (Never Pull Code on Servers)**:
+  - Deployments must strictly run pre-built, versioned Docker container images (e.g. from container registries like GHCR or ECR).
+  - Never pull source code from GitHub, run `git clone`, or build binaries directly on remote servers or AWS nodes.
 - **TypeScript SDK Scope (Templates & Config Only, Never Deployment)**:
   - `@logrix/sdk` (and any TypeScript tooling) is strictly reserved for developer templating, schema definition, type generation, and client-side indexer configuration.
   - The SDK must never handle or trigger deployments. Production deployment is strictly infrastructure-as-code: pure Kubernetes (`deploy/k8s`, Helm) or AWS Terraform (`deploy/terraform`). Keep this separation crystal clear in code, CLI commands, and documentation.
@@ -74,3 +77,4 @@ These rules apply strictly across this repository on every prompt and action.
   - Always design interfaces, APIs, and tools from the end-user's perspective: intuitive, straightforward, and zero-friction.
   - Provide extensive, granular customization: make it effortless for users to plug in custom logic, toggle optional components on or off, and tune behaviors to their specific requirements.
   - Core/essential capabilities (e.g. data consistency, reorg safety, idempotency, typed errors) must remain solidly enabled by default, while peripheral or specialized features (custom plugins, extra sinks, verbose tracing) can be enabled or disabled cleanly without breaking core functionality.
+

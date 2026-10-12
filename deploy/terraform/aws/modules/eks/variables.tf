@@ -22,19 +22,19 @@ variable "subnet_ids" {
 variable "instance_types" {
   type        = list(string)
   description = "EC2 instance types for managed node group"
-  default     = ["m6i.xlarge"]
+  default     = ["t3.medium"]
 }
 
 variable "desired_size" {
   type        = number
   description = "Desired number of worker nodes"
-  default     = 3
+  default     = 2
 }
 
 variable "min_size" {
   type        = number
   description = "Minimum number of worker nodes"
-  default     = 2
+  default     = 1
 }
 
 variable "max_size" {
