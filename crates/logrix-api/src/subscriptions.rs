@@ -47,6 +47,10 @@ impl SubscriptionBroadcaster {
         self.sender.subscribe()
     }
 
+    pub fn receiver_count(&self) -> usize {
+        self.sender.receiver_count()
+    }
+
     pub fn event_stream(&self) -> impl Stream<Item = EntityMutationEvent> {
         use futures::StreamExt;
         BroadcastStream::new(self.subscribe()).filter_map(|res| async move { res.ok() })

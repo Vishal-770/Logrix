@@ -138,7 +138,12 @@ async fn test_subscription_chain_id_filtering() {
     let bc = broadcaster.clone();
     tokio::spawn(async move {
         let _ = ready_rx.await;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        for _ in 0..100 {
+            if bc.receiver_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
         // Broadcast for chain 42161 (should be filtered out)
         bc.broadcast(EntityMutationEvent {
             chain_id: 42161,

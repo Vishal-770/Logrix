@@ -68,6 +68,7 @@ pub async fn handle_live_block(
                         let _ = ctx.queue.ack(handle).await;
                     } else {
                         let _ = ctx.queue.nack(handle, true).await;
+                        tokio::time::sleep(Duration::from_millis(500)).await;
                     }
                 } else {
                     let gap = BlockRangeJob::new(
@@ -90,10 +91,12 @@ pub async fn handle_live_block(
                         let _ = ctx.queue.ack(handle).await;
                     } else {
                         let _ = ctx.queue.nack(handle, true).await;
+                        tokio::time::sleep(Duration::from_millis(500)).await;
                     }
                 }
             } else {
                 let _ = ctx.queue.nack(handle, true).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         Ok(ContinuityStatus::GapDetected {
@@ -111,9 +114,11 @@ pub async fn handle_live_block(
                 .publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap))
                 .await;
             let _ = ctx.queue.nack(handle, true).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
         Err(_) => {
             let _ = ctx.queue.nack(handle, true).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
     Ok(())

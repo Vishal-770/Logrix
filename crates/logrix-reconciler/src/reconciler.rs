@@ -20,6 +20,7 @@ pub struct GapReconciler {
     interval: Duration,
     lag_threshold: u64,
     last_dispatched_to: Arc<AtomicU64>,
+    last_checkpoint_seen: Arc<AtomicU64>,
 }
 
 impl GapReconciler {
@@ -38,6 +39,7 @@ impl GapReconciler {
             interval,
             lag_threshold: 10,
             last_dispatched_to: Arc::new(AtomicU64::new(0)),
+            last_checkpoint_seen: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -62,6 +64,21 @@ impl GapReconciler {
 
         let latest_block = self.chain_client.get_latest_block_number().await?;
         let last_indexed = checkpoint.last_indexed_block;
+
+        // Reset in-flight marker if a reorg rolled the checkpoint backward
+        let prev_seen = self
+            .last_checkpoint_seen
+            .swap(last_indexed, Ordering::Relaxed);
+        if prev_seen > 0 && last_indexed < prev_seen {
+            warn!(
+                chain = self.chain_id.as_u64(),
+                prev_seen,
+                last_indexed,
+                "Checkpoint rolled backward after reorg; resetting in-flight dispatch marker"
+            );
+            self.last_dispatched_to
+                .store(last_indexed, Ordering::Relaxed);
+        }
 
         // If checkpoint is far behind live chain head (> lag_threshold blocks)
         if latest_block > last_indexed + self.lag_threshold {

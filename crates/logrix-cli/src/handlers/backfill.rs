@@ -34,12 +34,13 @@ pub async fn handle_backfill_range(
         }
         Err(e) => {
             let err = e.to_string();
-            if err.contains("more than")
-                || err.contains("limit")
-                || err.contains("range")
-                || err.contains("exceeded")
-                || err.contains("10000 results")
-                || err.contains("413")
+            if job.from_block < job.to_block
+                && (err.contains("more than")
+                    || err.contains("limit")
+                    || err.contains("range")
+                    || err.contains("exceeded")
+                    || err.contains("10000 results")
+                    || err.contains("413"))
             {
                 let (first, second_opt) = job.split_half();
                 warn!(

@@ -55,27 +55,26 @@ pub fn validate_webhook_url(url: &str) -> Result<(), (StatusCode, String)> {
 
     let clean_host = host_str.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = clean_host.parse::<std::net::IpAddr>() {
-        match ip {
-            std::net::IpAddr::V4(ipv4) => {
-                if ipv4.is_loopback() || ipv4.is_private() || ipv4.is_link_local() {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "Webhook URL cannot target loopback, private, or metadata IPs".to_string(),
-                    ));
-                }
+        let is_invalid = match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast()
             }
-            std::net::IpAddr::V6(ipv6) => {
-                if ipv6.is_loopback() || ipv6.is_unicast_link_local() {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "Webhook URL cannot target loopback or link-local IPv6 addresses"
-                            .to_string(),
-                    ));
-                }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unspecified()
             }
+        };
+        if is_invalid {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Webhook URL cannot target loopback, private, or invalid IPs".into(),
+            ));
         }
     } else {
-        let lower = host_str.to_ascii_lowercase();
+        let lower = host_str.trim_end_matches('.').to_ascii_lowercase();
         if lower == "localhost"
             || lower.ends_with(".localhost")
             || lower.ends_with(".internal")
@@ -83,7 +82,7 @@ pub fn validate_webhook_url(url: &str) -> Result<(), (StatusCode, String)> {
         {
             return Err((
                 StatusCode::BAD_REQUEST,
-                "Webhook URL cannot target internal or local hosts".to_string(),
+                "Webhook URL cannot target internal or local hosts".into(),
             ));
         }
     }

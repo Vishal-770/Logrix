@@ -12,10 +12,15 @@ fn test_valid_public_webhook_urls() {
 fn test_rejects_loopback_and_local_hosts() {
     assert!(validate_webhook_url("http://127.0.0.1:8080/events").is_err());
     assert!(validate_webhook_url("http://127.0.0.2/hook").is_err());
+    assert!(validate_webhook_url("http://0.0.0.0:8080/events").is_err());
+    assert!(validate_webhook_url("http://255.255.255.255/hook").is_err());
     assert!(validate_webhook_url("http://localhost:8080/events").is_err());
+    assert!(validate_webhook_url("http://localhost.:8080/events").is_err());
     assert!(validate_webhook_url("http://sub.localhost:3000/api").is_err());
+    assert!(validate_webhook_url("http://[::]:8080/hook").is_err());
     assert!(validate_webhook_url("http://[::1]:8080/hook").is_err());
     assert!(validate_webhook_url("http://cluster.internal/webhook").is_err());
+    assert!(validate_webhook_url("http://cluster.internal./webhook").is_err());
     assert!(validate_webhook_url("http://gateway.local/webhook").is_err());
 }
 

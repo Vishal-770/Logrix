@@ -68,7 +68,7 @@ impl WebhookDispatcherService {
                 &webhook_payload,
                 &mut dispatched_urls,
             )
-            .await;
+            .await?;
 
         // 2. Dispatch to CLI configured default URL if set and not already dispatched
         if let Some(url) = &self.default_webhook_url {
