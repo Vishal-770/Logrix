@@ -31,19 +31,19 @@ variable "eks_cluster_version" {
 variable "eks_node_instance_types" {
   description = "Instance types for EKS managed worker nodes"
   type        = list(string)
-  default     = ["m6i.xlarge", "c6i.xlarge"]
+  default     = ["t3.medium"]
 }
 
 variable "eks_node_desired_size" {
   description = "Desired number of worker nodes"
   type        = number
-  default     = 3
+  default     = 2
 }
 
 variable "eks_node_min_size" {
   description = "Minimum number of worker nodes for autoscaling"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "eks_node_max_size" {
