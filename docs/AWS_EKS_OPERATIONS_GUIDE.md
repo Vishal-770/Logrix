@@ -268,7 +268,10 @@ kubectl delete pod pg-proxy -n logrix
 ### 6.1 Prometheus Metrics Endpoint
 Every Logrix service exposes real-time Prometheus metrics at /metrics on port 4000:
 ```bash
+# In Terminal 1 (or background with '&'):
 kubectl port-forward svc/logrix-api 4000:4000 -n logrix
+
+# In Terminal 2 (scrape Prometheus metrics):
 curl -s http://localhost:4000/metrics | grep logrix_
 ```
 

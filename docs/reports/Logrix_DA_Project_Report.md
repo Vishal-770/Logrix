@@ -888,9 +888,9 @@ database:
 queue:
   provider: "sqs"
   region: "us-east-1"
-  liveQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789/logrix-live.fifo"
-  backfillQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789/logrix-backfill.fifo"
-  webhookQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789/logrix-webhooks"
+  liveQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-production-live-jobs"
+  backfillQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-production-backfill-jobs"
+  webhookQueueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-production-webhook-jobs"
 
 blobStore:
   provider: "s3"
@@ -962,10 +962,10 @@ module "eks" {
 
   eks_managed_node_groups = {
     workers = {
-      min_size     = 2
-      max_size     = 10
-      desired_size = 3
-      instance_types = ["c6i.xlarge"]
+      min_size     = 1
+      max_size     = 5
+      desired_size = 2
+      instance_types = ["t3.medium"]
     }
   }
 }
