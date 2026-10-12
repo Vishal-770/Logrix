@@ -88,6 +88,43 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
 }
 
 #[tokio::test]
+async fn test_gap_reconciler_deduplicates_in_flight_ranges() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let mock_store = Arc::new(MockStorePort::new());
+    let mock_queue = Arc::new(MockQueuePort::new());
+    let mock_chain = Arc::new(MockChainPort::new(chain_id));
+
+    let cp = Checkpoint::new(chain_id, 100, B256::ZERO, true);
+    mock_store
+        .write_events_and_checkpoint(&[], &cp)
+        .await
+        .unwrap();
+
+    *mock_chain.head_block.lock().await = 125;
+
+    let reconciler = GapReconciler::new(
+        chain_id,
+        mock_store.clone(),
+        mock_queue.clone(),
+        mock_chain.clone(),
+        Duration::from_secs(10),
+    );
+
+    let scheduled = reconciler.check_and_reconcile().await.unwrap();
+    assert_eq!(scheduled, 24);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
+
+    let scheduled_again = reconciler.check_and_reconcile().await.unwrap();
+    assert_eq!(scheduled_again, 0);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
+
+    *mock_chain.head_block.lock().await = 135;
+    let scheduled_delta = reconciler.check_and_reconcile().await.unwrap();
+    assert_eq!(scheduled_delta, 10);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 2);
+}
+
+#[tokio::test]
 async fn test_gap_reconciler_graceful_shutdown() {
     let chain_id = ChainId::ARBITRUM_SEPOLIA;
     let mock_store = Arc::new(MockStorePort::new());

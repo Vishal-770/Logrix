@@ -64,7 +64,8 @@ impl SqsQueue {
             for (idx, msg) in chunk.iter().enumerate() {
                 entries.push(build_send_batch_entry(&format!("m_{idx}"), msg)?);
             }
-            self.client()
+            let output = self
+                .client()
                 .send_message_batch()
                 .queue_url(url)
                 .set_entries(Some(entries))
@@ -77,6 +78,14 @@ impl SqsQueue {
                         format!("SQS batch send failed: {e}"),
                     )
                 })?;
+            if !output.failed().is_empty() {
+                let count = output.failed().len();
+                return Err(LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Queue,
+                    format!("SQS batch send encountered {count} failed entries"),
+                ));
+            }
         }
         Ok(())
     }
@@ -96,7 +105,8 @@ impl SqsQueue {
                     &h.receipt_id,
                 )?);
             }
-            self.client()
+            let output = self
+                .client()
                 .delete_message_batch()
                 .queue_url(url)
                 .set_entries(Some(entries))
@@ -109,6 +119,14 @@ impl SqsQueue {
                         format!("SQS batch delete failed: {e}"),
                     )
                 })?;
+            if !output.failed().is_empty() {
+                let count = output.failed().len();
+                return Err(LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Queue,
+                    format!("SQS batch delete encountered {count} failed entries"),
+                ));
+            }
         }
         Ok(())
     }

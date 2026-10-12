@@ -19,6 +19,11 @@ config:
   rpcFallbackUrls: ""
   queueDriver: "rabbitmq"
   rabbitmqUrl: ""
+  sqsLiveUrl: ""
+  sqsBackfillUrl: ""
+  sqsWebhookUrl: ""
+  sqsDlqUrl: ""
+  sqsEndpoint: ""
   databaseUrl: ""
   databaseMaxConnections: 10
   databaseMinConnections: 2

@@ -61,7 +61,11 @@ impl StorePort for PostgresStore {
                     $1::bigint[], $2::bigint[], $3::varchar[], $4::varchar[], $5::bigint[],
                     $6::bigint[], $7::varchar[], $8::varchar[], $9::jsonb[], $10::bytea[]
                 )
-                ON CONFLICT (chain_id, tx_hash, log_index) DO NOTHING
+                ON CONFLICT (chain_id, tx_hash, log_index) DO UPDATE SET
+                    block_number = EXCLUDED.block_number, block_hash = EXCLUDED.block_hash,
+                    tx_index = EXCLUDED.tx_index, contract_address = EXCLUDED.contract_address,
+                    topic0 = EXCLUDED.topic0, topics = EXCLUDED.topics, data = EXCLUDED.data,
+                    is_reverted = FALSE
                 "#,
             )
             .bind(&chain_ids)
@@ -93,9 +97,9 @@ impl StorePort for PostgresStore {
             )
             VALUES ($1, $2, $3, $4, $5, NOW())
             ON CONFLICT (chain_id, pipeline_id) DO UPDATE SET
-                last_indexed_block = EXCLUDED.last_indexed_block,
-                last_block_hash = EXCLUDED.last_block_hash,
-                is_finalized = EXCLUDED.is_finalized,
+                last_indexed_block = GREATEST(logrix_checkpoints.last_indexed_block, EXCLUDED.last_indexed_block),
+                last_block_hash = CASE WHEN EXCLUDED.last_indexed_block >= logrix_checkpoints.last_indexed_block THEN EXCLUDED.last_block_hash ELSE logrix_checkpoints.last_block_hash END,
+                is_finalized = CASE WHEN EXCLUDED.last_indexed_block >= logrix_checkpoints.last_indexed_block THEN EXCLUDED.is_finalized ELSE logrix_checkpoints.is_finalized END,
                 updated_at = NOW()
             "#,
         )

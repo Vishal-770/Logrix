@@ -107,3 +107,71 @@ async fn test_dynamic_graphql_custom_configurable_limits() {
             || resp.errors[0].message.to_lowercase().contains("depth")
     );
 }
+
+#[tokio::test]
+async fn test_subscription_chain_id_filtering() {
+    let sdl = r#"
+    type Account @entity {
+        id: ID!
+        balance: String!
+    }
+    "#;
+    let schema_def = SchemaDefinition::from_graphql_sdl(sdl).unwrap();
+    let pool = sqlx::PgPool::connect_lazy("postgres://mock:mock@localhost:5432/mock").unwrap();
+    let store = Arc::new(PostgresStore::from_pool(pool, "test-pipeline"));
+    let broadcaster = Arc::new(SubscriptionBroadcaster::new(16));
+
+    let schema = DynamicSchemaEngine::build_with_config(
+        &schema_def,
+        store,
+        Some(broadcaster.clone()),
+        15,
+        1000,
+    )
+    .expect("Schema builds cleanly");
+
+    let sub_req =
+        async_graphql::Request::new("subscription { onAccount(chainId: 1) { id balance } }");
+    let mut stream = schema.execute_stream(sub_req);
+
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let bc = broadcaster.clone();
+    tokio::spawn(async move {
+        let _ = ready_rx.await;
+        for _ in 0..100 {
+            if bc.receiver_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        // Broadcast for chain 42161 (should be filtered out)
+        bc.broadcast(EntityMutationEvent {
+            chain_id: 42161,
+            entity_type: "Account".to_string(),
+            entity_id: "0xother".to_string(),
+            block_number: 10,
+            data: serde_json::json!({ "id": "0xother", "balance": "100" }),
+        });
+
+        // Broadcast for chain 1 (should match)
+        bc.broadcast(EntityMutationEvent {
+            chain_id: 1,
+            entity_type: "Account".to_string(),
+            entity_id: "0xmatch".to_string(),
+            block_number: 11,
+            data: serde_json::json!({ "id": "0xmatch", "balance": "200" }),
+        });
+    });
+
+    let _ = ready_tx.send(());
+    use futures::StreamExt;
+    let item = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
+        .await
+        .expect("Stream item received within timeout")
+        .expect("Stream has item");
+
+    assert!(item.is_ok(), "Response error: {:?}", item.errors);
+    let json = item.data.into_json().unwrap();
+    assert_eq!(json["onAccount"]["id"], "0xmatch");
+    assert_eq!(json["onAccount"]["balance"], "200");
+}
