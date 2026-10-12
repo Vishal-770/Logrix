@@ -60,11 +60,6 @@ resource "aws_rds_cluster_parameter_group" "this" {
     name  = "maintenance_work_mem"
     value = "524288"
   }
-
-  parameter {
-    name  = "checkpoint_completion_target"
-    value = "0.9"
-  }
 }
 
 resource "aws_rds_cluster" "aurora" {
