@@ -133,7 +133,13 @@ fn test_live_mapping_wasm_execution() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../arbitrum-uniswap-indexer/build/mapping.wasm"
     );
-    let wasm_bytes = std::fs::read(wasm_path).expect("read mapping.wasm");
+    let wasm_bytes = match std::fs::read(wasm_path) {
+        Ok(b) => b,
+        Err(_) => {
+            eprintln!("Skipping live mapping test: mapping.wasm not found");
+            return;
+        }
+    };
     let runtime = WasmRuntime::new().expect("WasmRuntime::new");
     let module = runtime
         .compile_module(&wasm_bytes)
