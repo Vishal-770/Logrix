@@ -138,11 +138,15 @@ fn build_single_entity_field(entity: &EntityDef, store: Arc<PostgresStore>) -> F
                 .get("id")
                 .and_then(|v| v.string().ok())
                 .unwrap_or_default();
+            let default_chain = std::env::var("CHAIN_ID")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(1);
             let chain_id = ctx
                 .args
                 .get("chainId")
                 .and_then(|v| v.u64().ok())
-                .unwrap_or(1);
+                .unwrap_or(default_chain);
 
             match store.get_entity(chain_id, &entity_type, id).await {
                 Ok(Some(record)) => {

@@ -40,6 +40,7 @@ data:
   {{- if .Values.config.startBlock }}
   START_BLOCK: {{ .Values.config.startBlock | quote }}
   {{- end }}
+  CHUNK_SIZE: {{ .Values.config.chunkSize | default 10 | quote }}
   {{- if .Values.config.cuBudget }}
   CU_BUDGET: {{ .Values.config.cuBudget | quote }}
   {{- end }}

@@ -13,10 +13,14 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 
 ## Available Subcommands
 - `logrix init`: Scaffolds a new indexer project with TypeScript/AssemblyScript handlers.
-- `logrix ingester`: Runs the chain head poller and block dispatcher.
+- `logrix ingester`: Runs the chain head poller and block dispatcher. Supports `--chunk-size` (or `CHUNK_SIZE` env, default: 10) for strict RPC provider range constraints such as Alchemy.
 - `logrix processor`: Runs the event decoding and WASM logic execution engine.
 - `logrix backfill`: Triggers historical block range extraction.
 - `logrix webhook`: Runs the dedicated asynchronous webhook dispatcher worker.
 - `logrix api`: Runs the GraphQL server, WebSocket subscriptions, and Webhook management REST API.
 - `logrix all-in-one`: Starts ingester, processor, api, and webhook runner concurrently in a single process.
 - `logrix status`: Displays live indexing sync status, block heights, and health.
+
+## Ingester Configuration
+- `--chunk-size` (`CHUNK_SIZE`, default: 10): Configures the maximum block range per `eth_getLogs` batch. Defaults to 10 to comply with Alchemy Free tier limits and avoid HTTP 400 errors.
+- `--max-queue-depth` (`MAX_QUEUE_DEPTH`, default: 1000): Threshold for pausing ingestion when downstream processors are backed up.

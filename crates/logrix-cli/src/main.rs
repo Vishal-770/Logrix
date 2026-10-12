@@ -35,7 +35,7 @@ use all_in_one::run_all_in_one;
 use args::{Cli, Commands};
 use backfill::run_backfill;
 use factory::{create_queue_adapter, create_rpc_gateway};
-use ingester::run_ingester;
+use ingester::{run_ingester, IngesterConfig};
 use processor::{run_processor, ProcessorConfig};
 use webhook_runner::run_webhook_dispatcher;
 
@@ -98,16 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 Arc::new(LocalLeaderElector::new())
             };
-            run_ingester(
-                chain_id,
-                gateway,
-                queue,
-                &cli.database_url,
-                cli.start_block,
-                leader_elector,
-                cli.max_queue_depth,
-            )
-            .await?;
+            let ingester_config = IngesterConfig::from_cli(&cli, chain_id);
+            run_ingester(ingester_config, gateway, queue, leader_elector).await?;
         }
         Commands::Processor => {
             let queue = create_queue_adapter(&cli).await?;

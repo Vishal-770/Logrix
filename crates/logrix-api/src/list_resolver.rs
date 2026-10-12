@@ -34,11 +34,15 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
             let entity_name = entity_name.clone();
             let store = store.clone();
             FieldFuture::new(async move {
+                let default_chain = std::env::var("CHAIN_ID")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(1);
                 let chain_id = ctx
                     .args
                     .get("chainId")
                     .and_then(|v| v.u64().ok())
-                    .unwrap_or(1);
+                    .unwrap_or(default_chain);
                 let first = ctx
                     .args
                     .get("first")

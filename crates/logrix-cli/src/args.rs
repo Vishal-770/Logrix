@@ -98,6 +98,10 @@ pub struct Cli {
     #[arg(long, env = "START_BLOCK")]
     pub start_block: Option<u64>,
 
+    /// Block chunk size per batch job (default 10 for Alchemy and standard EVM RPCs)
+    #[arg(long, env = "CHUNK_SIZE", default_value_t = 10)]
+    pub chunk_size: u64,
+
     /// Target Webhook URL for external reorg and event notifications
     #[arg(long, env = "WEBHOOK_URL")]
     pub webhook_url: Option<String>,

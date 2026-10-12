@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::args::Cli;
 use crate::factory::{create_queue_adapter, create_rpc_gateway};
-use crate::ingester::run_ingester;
+use crate::ingester::{run_ingester, IngesterConfig};
 use crate::processor::{run_processor, ProcessorConfig};
 
 pub async fn run_all_in_one(
@@ -24,22 +24,17 @@ pub async fn run_all_in_one(
     let queue = create_queue_adapter(&cli).await?;
     let gateway = create_rpc_gateway(&cli, chain_id).await;
 
-    let db_url = cli.database_url.clone();
-    let start = cli.start_block;
     let ingester_queue = queue.clone();
     let ingester_gw = gateway.clone();
     let ingester_leader: Arc<dyn LeaderElectionPort> = Arc::new(LocalLeaderElector::new());
+    let ingester_config = IngesterConfig::from_cli(&cli, chain_id);
 
-    let max_depth = cli.max_queue_depth;
     let ingester_handle = tokio::spawn(async move {
         if let Err(e) = run_ingester(
-            chain_id,
+            ingester_config,
             ingester_gw,
             ingester_queue,
-            &db_url,
-            start,
             ingester_leader,
-            max_depth,
         )
         .await
         {

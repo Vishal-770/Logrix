@@ -30,6 +30,7 @@ config:
   maxQueueDepth: 1000
   s3Endpoint: ""
   startBlock: ""
+  chunkSize: 10
   cuBudget: ""
   bulkStreamUrl: ""
   webhookUrl: ""

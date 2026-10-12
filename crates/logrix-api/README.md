@@ -5,6 +5,19 @@ Production GraphQL API server, real-time WebSocket subscriptions, and Webhook ma
 ## Overview
 Built with Tokio and Axum, this crate provides the developer-facing GraphQL query engine and the full REST lifecycle management API for webhooks.
 
+## GraphQL Dynamic Schema & Chain ID Resolution
+The GraphQL engine automatically serves entities indexed in PostgreSQL. When queries omit the `chainId` argument, the API defaults to the configured `CHAIN_ID` environment variable (falling back to `1` for Ethereum Mainnet if unset). This allows direct querying of non-mainnet networks (e.g. Arbitrum One `42161`) without specifying `chainId` on every field:
+```graphql
+{
+  swaps(first: 10) {
+    id
+    blockNumber
+    sender
+    recipient
+  }
+}
+```
+
 ---
 
 ## Webhook Management API (`/api/v1/webhooks`)

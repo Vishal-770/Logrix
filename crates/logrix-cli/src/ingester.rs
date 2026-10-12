@@ -9,21 +9,43 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
+#[derive(Debug, Clone)]
+pub struct IngesterConfig {
+    pub chain_id: ChainId,
+    pub database_url: String,
+    pub start_block: Option<u64>,
+    pub chunk_size: u64,
+    pub max_queue_depth: u64,
+}
+
+impl IngesterConfig {
+    pub fn from_cli(cli: &crate::args::Cli, chain_id: ChainId) -> Self {
+        Self {
+            chain_id,
+            database_url: cli.database_url.clone(),
+            start_block: cli.start_block,
+            chunk_size: cli.chunk_size,
+            max_queue_depth: cli.max_queue_depth,
+        }
+    }
+}
+
 pub async fn run_ingester(
-    chain_id: ChainId,
+    config: IngesterConfig,
     gateway: Arc<logrix_rpc_gateway::RpcGateway>,
     queue: Arc<dyn QueuePort>,
-    database_url: &str,
-    start_block: Option<u64>,
     leader_elector: Arc<dyn LeaderElectionPort>,
-    max_queue_depth: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let chain_id = config.chain_id;
+    let chunk_size = config.chunk_size.max(1);
+    let max_queue_depth = config.max_queue_depth;
+
     info!(
         chain = chain_id.as_u64(),
-        "Starting Logrix Ingester with Cost-Aware RPC Gateway"
+        chunk_size, "Starting Logrix Ingester with Cost-Aware RPC Gateway"
     );
 
-    let store = PostgresStore::connect(database_url, "default").await?;
+    let store = PostgresStore::connect(&config.database_url, "default").await?;
 
     let mut current_block = match store.get_checkpoint(chain_id).await? {
         Some(cp) => {
@@ -34,7 +56,7 @@ pub async fn run_ingester(
             cp.last_indexed_block + 1
         }
         None => {
-            if let Some(block) = start_block {
+            if let Some(block) = config.start_block {
                 info!(block, "Starting from configured start block");
                 block
             } else {
@@ -48,8 +70,6 @@ pub async fn run_ingester(
             }
         }
     };
-
-    let chunk_size = 500u64;
 
     loop {
         match leader_elector.try_acquire_or_renew().await {
