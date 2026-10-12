@@ -126,3 +126,49 @@ async fn test_wasm_transactional_rollback_on_panic() {
     assert_eq!(base_state.get("clean_key").unwrap(), "original_val");
     assert!(!base_state.contains_key("dirty_key"));
 }
+
+#[test]
+fn test_live_mapping_wasm_execution() {
+    let wasm_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../arbitrum-uniswap-indexer/build/mapping.wasm"
+    );
+    let wasm_bytes = std::fs::read(wasm_path).expect("read mapping.wasm");
+    let runtime = WasmRuntime::new().expect("WasmRuntime::new");
+    let module = runtime
+        .compile_module(&wasm_bytes)
+        .expect("compile mapping.wasm");
+    let instance = WasmHandlerInstance::new(runtime, module).with_fuel_limit(10_000_000);
+
+    let log = logrix_core::domain::EventLog {
+        address: "0xc6962004f452be9203591991d15f6b388e09e8d0"
+            .parse::<alloy_primitives::Address>()
+            .unwrap(),
+        topics: vec![
+            "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+                .parse::<alloy_primitives::B256>()
+                .unwrap(),
+            "0x000000000000000000000000e592427a0aece92de3edee1f18e0157c05861564"
+                .parse::<alloy_primitives::B256>()
+                .unwrap(),
+        ],
+        data: alloy_primitives::Bytes::from(vec![0u8; 160]),
+        tx_hash: "0x63b823ac0ec1af4ca3da5c48516dc9a0551c0fca69324cf6e08e754579c06c99"
+            .parse::<alloy_primitives::B256>()
+            .unwrap(),
+        log_index: 0,
+        tx_index: 0,
+        block_number: 514111951,
+        block_hash: alloy_primitives::B256::ZERO,
+    };
+
+    let log_json = serde_json::to_string(&log).unwrap();
+    let staging = instance
+        .execute_event(&log_json, HashMap::new())
+        .expect("Execution succeeds");
+    println!("Entities emitted: {}", staging.emitted_entities().len());
+    for e in staging.emitted_entities() {
+        println!("Emitted: {} -> {}", e.entity_type, e.payload);
+    }
+    assert_eq!(staging.emitted_entities().len(), 3);
+}

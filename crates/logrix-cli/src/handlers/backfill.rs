@@ -16,7 +16,7 @@ pub async fn handle_backfill_range(
         .await
     {
         Ok(logs) => {
-            if index_logs_batch(
+            match index_logs_batch(
                 ctx.store,
                 ctx.config.chain_id,
                 job.to_block,
@@ -24,12 +24,21 @@ pub async fn handle_backfill_range(
                 ctx.engine,
             )
             .await
-            .is_ok()
             {
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok(()) => {
+                    let _ = ctx.queue.ack(handle).await;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        from = job.from_block,
+                        to = job.to_block,
+                        logs_count = logs.len(),
+                        "Failed to index logs batch"
+                    );
+                    let _ = ctx.queue.nack(handle, true).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
             }
         }
         Err(e) => {

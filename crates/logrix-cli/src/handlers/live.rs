@@ -20,7 +20,7 @@ pub async fn handle_live_block(
 
     match ctx.detector.check_envelope(&env).await {
         Ok(ContinuityStatus::Continuous) => {
-            if index_envelope(
+            match index_envelope(
                 ctx.store,
                 ctx.blob_store,
                 ctx.config.chain_id.as_u64(),
@@ -28,12 +28,20 @@ pub async fn handle_live_block(
                 ctx.engine,
             )
             .await
-            .is_ok()
             {
-                let _ = ctx.queue.ack(handle).await;
-            } else {
-                let _ = ctx.queue.nack(handle, true).await;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok(()) => {
+                    let _ = ctx.queue.ack(handle).await;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        block = env.block_number,
+                        logs_count = env.logs.len(),
+                        "Failed to index block envelope"
+                    );
+                    let _ = ctx.queue.nack(handle, true).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
             }
         }
         Ok(ContinuityStatus::ReorgDetected {

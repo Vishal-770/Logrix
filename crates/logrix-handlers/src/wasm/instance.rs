@@ -16,10 +16,14 @@ pub struct WasmHandlerInstance {
 
 impl WasmHandlerInstance {
     pub fn new(runtime: WasmRuntime, module: Module) -> Self {
+        let fuel_limit = std::env::var("WASM_FUEL_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(25_000_000);
         Self {
             runtime,
             module,
-            fuel_limit: 1_000_000,              // 1M fuel ticks per event
+            fuel_limit,
             max_memory_bytes: 64 * 1024 * 1024, // 64 MB linear memory ceiling
         }
     }
