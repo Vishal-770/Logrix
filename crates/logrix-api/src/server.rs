@@ -17,23 +17,22 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
+#[inline]
+fn timeout_err() -> GraphQLResponse {
+    let err = async_graphql::ServerError::new("Query execution timed out", None);
+    async_graphql::Response::from_errors(vec![err]).into()
+}
+
 async fn graphql_handler(
     schema: Extension<LogrixSchema>,
     conf: Option<Extension<ApiConfig>>,
     req: GraphQLRequest,
 ) -> GraphQLResponse {
     let timeout_secs = conf.as_ref().map(|c| c.query_timeout_secs).unwrap_or(5);
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        schema.execute(req.into_inner()),
-    )
-    .await
-    {
+    let dur = std::time::Duration::from_secs(timeout_secs);
+    match tokio::time::timeout(dur, schema.execute(req.into_inner())).await {
         Ok(res) => res.into(),
-        Err(_) => async_graphql::Response::from_errors(vec![
-            async_graphql::ServerError::new("Query execution timed out", None),
-        ])
-        .into(),
+        Err(_) => timeout_err(),
     }
 }
 
@@ -43,17 +42,10 @@ async fn dynamic_graphql_handler(
     req: GraphQLRequest,
 ) -> GraphQLResponse {
     let timeout_secs = conf.as_ref().map(|c| c.query_timeout_secs).unwrap_or(5);
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        schema.execute(req.into_inner()),
-    )
-    .await
-    {
+    let dur = std::time::Duration::from_secs(timeout_secs);
+    match tokio::time::timeout(dur, schema.execute(req.into_inner())).await {
         Ok(res) => res.into(),
-        Err(_) => async_graphql::Response::from_errors(vec![
-            async_graphql::ServerError::new("Query execution timed out", None),
-        ])
-        .into(),
+        Err(_) => timeout_err(),
     }
 }
 
