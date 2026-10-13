@@ -22,18 +22,32 @@ impl RabbitMQQueue {
 
     /// Connect to RabbitMQ using user-customized configuration.
     pub async fn connect_with_config(config: &RabbitMQConfig) -> LogrixResult<Self> {
-        let conn = Connection::connect(&config.amqp_url, ConnectionProperties::default())
-            .await
-            .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Queue,
-                    format!(
-                        "Failed to connect to RabbitMQ at {}: {e}",
-                        config.redacted_url()
-                    ),
-                )
-            })?;
+        let conn = tokio::time::timeout(
+            config.connection_timeout,
+            Connection::connect(&config.amqp_url, ConnectionProperties::default()),
+        )
+        .await
+        .map_err(|_| {
+            LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::Queue,
+                format!(
+                    "Connection attempt to RabbitMQ at {} timed out after {:?}",
+                    config.redacted_url(),
+                    config.connection_timeout
+                ),
+            )
+        })?
+        .map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Transient,
+                ErrorSource::Queue,
+                format!(
+                    "Failed to connect to RabbitMQ at {}: {e}",
+                    config.redacted_url()
+                ),
+            )
+        })?;
 
         let channel = conn.create_channel().await.map_err(|e| {
             LogrixError::new(
