@@ -34,7 +34,22 @@ This crate connects to a RabbitMQ message broker using a single AMQP connection 
 
 ## Configuration & Tuning
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure channel prefetch and broker timeouts under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  rabbitmqPrefetch: 100          # Worker prefetch count for QoS flow control
+  rabbitmqTimeoutSecs: 15        # Broker connection setup and channel timeout
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.rabbitmqPrefetch` | `integer` | `100` | Optional | Channel prefetch unacknowledged messages limit |
+| `indexing.rabbitmqTimeoutSecs`| `integer` | `10` seconds | Optional | Network timeout for broker connection & channels |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -43,7 +58,7 @@ This crate connects to a RabbitMQ message broker using a single AMQP connection 
 | `RABBITMQ_TIMEOUT_SECS`| `--rabbitmq-timeout-secs`| `10` seconds | Optional | Connection attempt and channel setup timeout |
 | `QUEUE_DRIVER` | `--queue-driver` | `rabbitmq` | Optional | Set to `rabbitmq` to activate RabbitMQ AMQP driver |
 
-### Programmatic Configuration (`RabbitMQConfig`)
+### 3. Programmatic Configuration (`RabbitMQConfig`)
 
 Fine-grained control over exchanges, queues, and channel parameters:
 

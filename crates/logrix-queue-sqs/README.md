@@ -19,7 +19,22 @@ Unlike AMQP brokers (like RabbitMQ) which route through an internal exchange, AW
 
 Activate SQS by setting `QUEUE_DRIVER=sqs` or `--queue-driver sqs`.
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure SQS long polling and batch sizes under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  sqsWaitTimeSeconds: 5          # Long-polling duration per receive call (0-20)
+  sqsMaxMessages: 10             # Maximum message batch size per receive call (1-10)
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.sqsWaitTimeSeconds` | `integer` | `2` (range: 0-20) | Optional | SQS long-polling wait duration per receive call |
+| `indexing.sqsMaxMessages` | `integer` | `1` (range: 1-10) | Optional | Maximum messages fetched per receive call |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -45,7 +60,7 @@ SQS_WAIT_TIME_SECONDS=2
 SQS_MAX_MESSAGES=10
 ```
 
-## Programmatic Configuration
+### 3. Programmatic Configuration (`SqsClientConfig`)
 
 Configure `SqsClientConfig` using standard environment variables or the fluent `SqsConfigBuilder`:
 

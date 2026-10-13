@@ -105,7 +105,38 @@ The crate includes exhaustive unit and integration tests under `tests/`:
 
 ## Configuration & Tuning
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure the RPC Gateway via the `network:` and `indexing:` blocks in `logrix.yaml`:
+
+```yaml
+network:
+  name: "arbitrum-one"
+  chainId: 42161
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+  fallbackRpcUrls:
+    - "https://arb1.arbitrum.io/rpc"
+    - "https://rpc.ankr.com/arbitrum"
+
+indexing:
+  rpcTimeoutSecs: 15        # Timeout per JSON-RPC HTTP request
+  rpcCbThreshold: 5         # Failures before circuit-breaker trips provider
+  rpcCooldownSecs: 30       # Initial recovery cooldown delay in seconds
+  cuBudget: 10000000        # Compute unit budget ceiling (optional)
+  bulkStreamUrl: "https://v2.archive.subsquid.io/network/arbitrum-one"
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `network.rpcUrl` | `string` | `https://sepolia-rollup.arbitrum.io/rpc` | Required | Primary Tier-1 JSON-RPC endpoint |
+| `network.fallbackRpcUrls` | `string[]` | `[]` | Optional | Tier-2/3 fallback endpoints for automatic failover |
+| `indexing.rpcTimeoutSecs` | `integer` | `10` (CLI) / `15` (Direct) | Optional | Network timeout for JSON-RPC requests |
+| `indexing.rpcCbThreshold` | `integer` | `5` (CLI) / `3` (Direct) | Optional | Consecutive failures before tripping provider circuit breaker |
+| `indexing.rpcCooldownSecs`| `integer` | `30` (CLI) / `10` (Direct) | Optional | Cooldown period before half-open health probe |
+| `indexing.cuBudget` | `integer` | None (Unlimited) | Optional | Compute Unit budget quota before halting calls |
+| `indexing.bulkStreamUrl` | `string` | Chain default | Optional | SQD / HyperSync archive endpoint |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Description | Default | Required? | Example |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -118,7 +149,7 @@ The crate includes exhaustive unit and integration tests under `tests/`:
 | `RPC_COOLDOWN_SECS` | `--rpc-cooldown-secs` | Initial circuit breaker cooldown duration in seconds | `30` (CLI) / `10` (Direct) | Optional | `60` |
 | `BULK_STREAM_URL` | `--bulk-stream-url` | Custom SQD / HyperSync archive endpoint | Chain default | Optional | `https://v2.archive.subsquid.io/network/arbitrum-one` |
 
-### Programmatic Configuration (`GatewayConfig`)
+### 3. Programmatic Configuration (`GatewayConfig`)
 
 When embedding `RpcGateway` directly in custom code, fine-grained behavior is configured via `GatewayConfig`:
 

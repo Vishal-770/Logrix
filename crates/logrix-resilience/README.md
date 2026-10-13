@@ -25,7 +25,24 @@ Provides zero-allocation, thread-safe resilience utilities used across RPC clien
 
 ## Configuration & Tuning
 
-All resilience primitives are configurable at initialization time with sensible production defaults:
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure resilience policies (circuit breakers, timeouts, rate limiting) under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  rpcTimeoutSecs: 15        # Maximum request duration before timing out
+  rpcCbThreshold: 5         # Consecutive failures before tripping circuit breaker
+  rpcCooldownSecs: 30       # Circuit breaker recovery cooldown in seconds
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.rpcTimeoutSecs` | `integer` | `10` (CLI) / `15` (Direct) | Optional | Request timeout before cancellation |
+| `indexing.rpcCbThreshold` | `integer` | `5` (CLI) / `3` (Direct) | Optional | Consecutive failures to trip circuit breaker |
+| `indexing.rpcCooldownSecs`| `integer` | `30` (CLI) / `10` (Direct) | Optional | Half-open recovery probing delay |
+
+### 2. Programmatic Primitive Tuning
 
 ### 1. `CircuitBreaker`
 

@@ -23,7 +23,26 @@ Ensures deterministic data integrity in the face of blockchain forks, temporary 
 
 ## Configuration & Tuning
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure gap reconciliation and chain reorganization detection parameters under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  ringBufferDepth: 128            # Rolling parent-hash ring buffer size for reorg detection
+  reconcilerIntervalSecs: 30      # Periodic background gap audit interval in seconds
+  reconcilerChunkSize: 50         # Chunk size when backfilling discovered block gaps
+  reconcilerLagThreshold: 25      # Block lag behind chain head required to trigger backfill
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.ringBufferDepth` | `integer` | `128` blocks | Optional | Rolling buffer depth for ancestor tracking & reorg detection |
+| `indexing.reconcilerIntervalSecs` | `integer` | `30` seconds | Optional | Background gap inspection interval |
+| `indexing.reconcilerChunkSize` | `integer` | `10` blocks | Optional | Sliced job size when reconciling gap intervals |
+| `indexing.reconcilerLagThreshold` | `integer` | `50` (CLI) / `10` (Direct) | Optional | Block distance behind chain head before scheduling backfill |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -32,7 +51,7 @@ Ensures deterministic data integrity in the face of blockchain forks, temporary 
 | `RECONCILER_LAG_THRESHOLD` | `--reconciler-lag-threshold` | `50` blocks (CLI) / `10` (Direct) | Optional | Minimum block lag behind chain head required to trigger gap filling |
 | `RING_BUFFER_DEPTH` | `--ring-buffer-depth` | `128` blocks | Optional | In-memory parent-hash ring buffer size for reorg detection |
 
-### Programmatic Configuration
+### 3. Programmatic Configuration
 
 ```rust
 use logrix_reconciler::{GapReconciler, ReorgDetector};

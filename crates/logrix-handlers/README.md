@@ -18,49 +18,62 @@ Executes user-defined indexing logic via a two-tier architecture:
 
 ## Configuration & Tuning
 
-Configuration is supported across two levels: global runtime defaults via environment variables / CLI flags, and granular per-contract overrides inside `logrix.yaml`.
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
 
-### Global Runtime Configuration
-
-| Variable | CLI Flag | Default Value | Required? | Description |
-|---|---|---|---|---|
-| `WASM_FUEL_LIMIT` | `--wasm-fuel-limit` | `1,000,000` (CLI) / `25,000,000` (WASM host) | Optional | Default fuel instruction budget per contract event execution |
-| `WASM_MAX_MEMORY_MB` | `--wasm-max-memory-mb` | `128` MB (CLI) / `64` MB (WASM host) | Optional | Linear memory allocation upper bound per WASM instance |
-| `MANIFEST_PATH` | `--manifest-path` | None | Optional | Path to YAML manifest file defining contracts and handlers |
-| `SCHEMA_PATH` | `--schema-path` | None | Optional | Path to GraphQL or YAML entity schema file |
-
-### Manifest Contract Configuration (`logrix.yaml`)
-
-Every contract declared in `contracts:` can override resource limits and execution state:
-
-| Field | Type | Default Value | Required? | Description |
-|---|---|---|---|---|
-| `name` | `string` | N/A | Required | Human-readable contract name |
-| `address` | `string` | N/A | Required | Target smart contract Ethereum address (`0x...`) |
-| `events` | `string[]` | `[]` | Optional | Event signatures subscribed to by this contract |
-| `declarative` | `rule[]` | `[]` | Optional | Zero-code event-to-entity mapping rules |
-| `wasm_handler` | `string` | None | Optional | Path to compiled WebAssembly handler binary (`.wasm`) |
-| `enabled` | `boolean` | `true` | Optional | Toggle to pause indexing for this contract without removing config |
-| `fuel_limit` | `integer` | Global default | Optional | Per-contract fuel instruction ceiling |
-| `max_memory_mb` | `integer` | Global default | Optional | Per-contract WASM linear memory ceiling in megabytes |
-
-### Manifest Example
+Configure contract rules, execution limits, and global handler parameters inside `logrix.yaml`:
 
 ```yaml
 schema_version: "1.0.0"
 chain_id: 421614
 
+indexing:
+  wasmFuelLimit: 5000000        # Global default fuel instruction limit
+  wasmMaxMemoryMb: 256          # Global default WASM memory upper bound
+
 contracts:
   - name: "UsdcToken"
     address: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
     enabled: true
-    fuel_limit: 5000000
-    max_memory_mb: 256
+    fuel_limit: 10000000        # Per-contract fuel limit override
+    max_memory_mb: 512          # Per-contract memory limit override
     wasm_handler: "./build/mapping.wasm"
     events:
       - "Transfer(address,address,uint256)"
 
   - name: "LegacyPool"
     address: "0x1111111111111111111111111111111111111111"
-    enabled: false # Temporarily disabled
+    enabled: false              # Temporarily disabled
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.wasmFuelLimit` | `integer` | `1,000,000` | Optional | Default fuel instruction limit per execution |
+| `indexing.wasmMaxMemoryMb` | `integer` | `128` MB | Optional | Default WASM linear memory ceiling |
+| `contracts[].name` | `string` | N/A | Required | Human-readable contract name |
+| `contracts[].address` | `string` | N/A | Required | Target smart contract Ethereum address (`0x...`) |
+| `contracts[].events` | `string[]` | `[]` | Optional | Event signatures subscribed to by this contract |
+| `contracts[].declarative` | `rule[]` | `[]` | Optional | Zero-code event-to-entity mapping rules |
+| `contracts[].wasm_handler` | `string` | None | Optional | Path to compiled WebAssembly handler binary (`.wasm`) |
+| `contracts[].enabled` | `boolean` | `true` | Optional | Toggle to pause indexing for this contract |
+| `contracts[].fuel_limit` | `integer` | Global default | Optional | Per-contract fuel instruction ceiling |
+| `contracts[].max_memory_mb`| `integer` | Global default | Optional | Per-contract WASM linear memory ceiling in MB |
+
+### 2. Environment Variables & CLI Options
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `WASM_FUEL_LIMIT` | `--wasm-fuel-limit` | `1,000,000` (CLI) / `25,000,000` (Host) | Optional | Default fuel instruction budget per execution |
+| `WASM_MAX_MEMORY_MB` | `--wasm-max-memory-mb` | `128` MB (CLI) / `64` MB (Host) | Optional | Linear memory allocation upper bound per instance |
+| `MANIFEST_PATH` | `--manifest-path` | None | Optional | Path to YAML manifest file defining contracts |
+| `SCHEMA_PATH` | `--schema-path` | None | Optional | Path to GraphQL or YAML entity schema file |
+
+### 3. Programmatic Configuration (`WasmRuntimeConfig`)
+
+```rust
+use logrix_handlers::wasm::WasmRuntimeConfig;
+
+let config = WasmRuntimeConfig {
+    fuel_limit: 10_000_000,
+    max_memory_mb: 256,
+};
 ```
