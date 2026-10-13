@@ -14,6 +14,7 @@ pub enum Commands {
     /// Run Processor consumer worker
     Processor,
     /// Run Webhook Dispatcher service
+    #[command(alias = "webhook")]
     WebhookDispatcher,
     /// Run historical range backfill
     Backfill {
