@@ -13,6 +13,22 @@ pub struct Manifest {
     pub contracts: Vec<ContractManifest>,
     #[serde(default)]
     pub webhooks: Vec<ManifestWebhook>,
+    #[serde(default)]
+    pub indexing: Option<ManifestIndexing>,
+}
+
+/// Operational and tuning options configured in manifest YAML.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ManifestIndexing {
+    pub ring_buffer_depth: Option<usize>,
+    pub reconciler_interval_secs: Option<u64>,
+    pub reconciler_chunk_size: Option<u64>,
+    pub reconciler_lag_threshold: Option<u64>,
+    pub chunk_size: Option<u64>,
+    pub chain_head_poll_ms: Option<u64>,
+    pub max_queue_depth: Option<u64>,
+    pub wasm_fuel_limit: Option<u64>,
+    pub wasm_max_memory_mb: Option<usize>,
 }
 
 /// Declarative webhook subscription from manifest.
