@@ -17,19 +17,53 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-async fn graphql_handler(schema: Extension<LogrixSchema>, req: GraphQLRequest) -> GraphQLResponse {
-    schema.execute(req.into_inner()).await.into()
+async fn graphql_handler(
+    schema: Extension<LogrixSchema>,
+    conf: Option<Extension<ApiConfig>>,
+    req: GraphQLRequest,
+) -> GraphQLResponse {
+    let timeout_secs = conf.as_ref().map(|c| c.query_timeout_secs).unwrap_or(5);
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        schema.execute(req.into_inner()),
+    )
+    .await
+    {
+        Ok(res) => res.into(),
+        Err(_) => async_graphql::Response::from_errors(vec![
+            async_graphql::ServerError::new("Query execution timed out", None),
+        ])
+        .into(),
+    }
 }
 
 async fn dynamic_graphql_handler(
     schema: Extension<async_graphql::dynamic::Schema>,
+    conf: Option<Extension<ApiConfig>>,
     req: GraphQLRequest,
 ) -> GraphQLResponse {
-    schema.execute(req.into_inner()).await.into()
+    let timeout_secs = conf.as_ref().map(|c| c.query_timeout_secs).unwrap_or(5);
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        schema.execute(req.into_inner()),
+    )
+    .await
+    {
+        Ok(res) => res.into(),
+        Err(_) => async_graphql::Response::from_errors(vec![
+            async_graphql::ServerError::new("Query execution timed out", None),
+        ])
+        .into(),
+    }
 }
 
 /// Create router for static LogrixSchema.
 pub fn create_router(schema: LogrixSchema) -> Router {
+    create_router_with_config(schema, ApiConfig::default())
+}
+
+/// Create router for static LogrixSchema with ApiConfig.
+pub fn create_router_with_config(schema: LogrixSchema, config: ApiConfig) -> Router {
     Router::new()
         .route("/", get(graphiql))
         .route("/graphiql", get(graphiql))
@@ -40,12 +74,22 @@ pub fn create_router(schema: LogrixSchema) -> Router {
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new())
         .layer(Extension(schema))
+        .layer(Extension(config))
 }
 
 /// Create router for dynamic schema with optional WebSocket subscription endpoint.
 pub fn create_dynamic_router(
     schema: async_graphql::dynamic::Schema,
     broadcaster: Option<Arc<SubscriptionBroadcaster>>,
+) -> Router {
+    create_dynamic_router_with_config(schema, broadcaster, ApiConfig::default())
+}
+
+/// Create router for dynamic schema with optional WebSocket subscription endpoint and ApiConfig.
+pub fn create_dynamic_router_with_config(
+    schema: async_graphql::dynamic::Schema,
+    broadcaster: Option<Arc<SubscriptionBroadcaster>>,
+    config: ApiConfig,
 ) -> Router {
     let mut router = Router::new()
         .route("/", get(graphiql))
@@ -62,6 +106,7 @@ pub fn create_dynamic_router(
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new())
         .layer(Extension(schema))
+        .layer(Extension(config))
 }
 
 /// Configuration for the Logrix GraphQL API server and query guardrails.
@@ -131,13 +176,13 @@ pub async fn start_api_server_with_schema(
                 &conf,
             )
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-            create_dynamic_router(dynamic_schema, broadcaster)
+            create_dynamic_router_with_config(dynamic_schema, broadcaster, conf)
         } else {
             info!("Schema path does not exist; using core schema");
-            create_router(build_schema(store.clone()))
+            create_router_with_config(build_schema(store.clone()), conf)
         }
     } else {
-        create_router(build_schema(store.clone()))
+        create_router_with_config(build_schema(store.clone()), conf)
     };
 
     let webhook_state = crate::routes::WebhookApiState::new(
