@@ -53,6 +53,10 @@ data:
   RPC_COOLDOWN_SECS: {{ .Values.config.rpcCooldownSecs | default 30 | quote }}
   WEBHOOK_TIMEOUT_SECS: {{ .Values.config.webhookTimeoutSecs | default 5 | quote }}
   WEBHOOK_MAX_RETRIES: {{ .Values.config.webhookMaxRetries | default 1 | quote }}
+  GRAPHQL_MAX_DEPTH: {{ .Values.config.graphqlMaxDepth | default 7 | quote }}
+  GRAPHQL_MAX_COMPLEXITY: {{ .Values.config.graphqlMaxComplexity | default 200 | quote }}
+  GRAPHQL_DEFAULT_LIMIT: {{ .Values.config.graphqlDefaultLimit | default 100 | quote }}
+  GRAPHQL_MAX_LIMIT: {{ .Values.config.graphqlMaxLimit | default 1000 | quote }}
   GRAPHQL_QUERY_TIMEOUT_SECS: {{ .Values.config.graphqlQueryTimeoutSecs | default 5 | quote }}
   {{- if .Values.config.startBlock }}
   START_BLOCK: {{ .Values.config.startBlock | quote }}

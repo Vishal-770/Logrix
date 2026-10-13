@@ -51,6 +51,10 @@ config:
   rpcCooldownSecs: 30
   webhookTimeoutSecs: 5
   webhookMaxRetries: 1
+  graphqlMaxDepth: 7
+  graphqlMaxComplexity: 200
+  graphqlDefaultLimit: 100
+  graphqlMaxLimit: 1000
   graphqlQueryTimeoutSecs: 5
   manifestPath: ""
   schemaPath: ""
