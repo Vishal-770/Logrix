@@ -93,7 +93,12 @@ impl WebhookDispatcherService {
             if !dispatched_urls.contains(url) {
                 let res = self
                     .client
-                    .dispatch(url, &self.default_secret, &webhook_payload)
+                    .dispatch_with_retries(
+                        url,
+                        &self.default_secret,
+                        &webhook_payload,
+                        self.config.max_retries,
+                    )
                     .await;
                 if res.success {
                     any_delivered = true;
