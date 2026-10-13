@@ -44,6 +44,16 @@ impl UserLogicEngine {
         contract: Address,
         mut instance: WasmHandlerInstance,
     ) -> WasmHandlerInstance {
+        // Precedence: Contract override -> Manifest indexing block -> Default/Env
+        if let Some(ref idx) = self.manifest.indexing {
+            if let Some(fuel) = idx.wasm_fuel_limit {
+                instance = instance.with_fuel_limit(fuel);
+            }
+            if let Some(mb) = idx.wasm_max_memory_mb {
+                instance = instance.with_max_memory(mb * 1024 * 1024);
+            }
+        }
+
         if let Some(c) = self
             .manifest
             .contracts

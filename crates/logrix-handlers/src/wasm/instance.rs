@@ -16,7 +16,11 @@ impl WasmHandlerInstance {
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(25_000_000);
-        Self::with_limits(runtime, module, fuel_limit, 64 * 1024 * 1024)
+        let max_memory_mb = std::env::var("WASM_MAX_MEMORY_MB")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(64);
+        Self::with_limits(runtime, module, fuel_limit, max_memory_mb * 1024 * 1024)
     }
 
     pub fn with_limits(
