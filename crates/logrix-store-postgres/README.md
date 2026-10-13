@@ -17,7 +17,22 @@ Implements `StorePort` using `sqlx` and PostgreSQL for transactionally safe, aud
 
 ## Configuration & Tuning (`PostgresConfig`)
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure database pool bounds under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  databaseMaxConnections: 50     # Connection pool upper limit
+  databaseMinConnections: 5      # Connection pool idle lower bound
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.databaseMaxConnections` | `integer` | `10` connections | Optional | Connection pool concurrency ceiling |
+| `indexing.databaseMinConnections` | `integer` | `2` connections | Optional | Minimum idle database connections maintained |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -25,7 +40,7 @@ Implements `StorePort` using `sqlx` and PostgreSQL for transactionally safe, aud
 | `DATABASE_MAX_CONNECTIONS` | `--db-max-connections` | `10` connections | Optional | Maximum concurrent connections allocated in pool |
 | `DATABASE_MIN_CONNECTIONS` | `--db-min-connections` | `2` connections | Optional | Minimum idle connections preserved in pool |
 
-### Programmatic Configuration
+### 3. Programmatic Configuration (`PostgresConfig`)
 
 | Field | Builder Method | Default Value | Required? | Description |
 |---|---|---|---|---|

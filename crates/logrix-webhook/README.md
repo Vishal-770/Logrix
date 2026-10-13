@@ -149,7 +149,37 @@ function verifyLogrixSignature(
 
 ## Configuration & Tuning
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+Declare webhooks and runtime delivery parameters directly in `logrix.yaml`:
+
+```yaml
+indexing:
+  webhookTimeoutSecs: 5          # Outgoing HTTP POST request timeout in seconds
+  webhookMaxRetries: 3           # Default retry attempts for webhook deliveries
+
+webhooks:
+  # Fast at-most-once delivery
+  - url: "https://api.mybackend.com/webhooks/transfers"
+    events: ["Transfer"]
+
+  # Retry-enabled delivery with custom attempts and secret from env
+  - url: "https://critical.mybackend.com/webhooks/reorgs"
+    secret: "${CRITICAL_WEBHOOK_SECRET}"
+    events: ["reorg"]
+    max_retries: 5
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.webhookTimeoutSecs` | `integer` | `5` seconds | Optional | Outgoing delivery HTTP request timeout |
+| `indexing.webhookMaxRetries` | `integer` | `1` attempt | Optional | Global retry attempts ceiling |
+| `webhooks[].url` | `string` | N/A | Required | Destination HTTP/HTTPS callback endpoint |
+| `webhooks[].events` | `string[]` | `["reorg"]` | Optional | Subscribed event filters |
+| `webhooks[].secret` | `string` | None | Optional | HMAC-SHA256 signature signing secret |
+| `webhooks[].max_retries` | `integer` | `1` | Optional | Per-endpoint retry count override |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -159,7 +189,7 @@ function verifyLogrixSignature(
 | `WEBHOOK_TIMEOUT_SECS`| `--webhook-timeout-secs`| `5` seconds | Optional | Outgoing HTTP POST request timeout |
 | `WEBHOOK_MAX_RETRIES` | `--webhook-max-retries` | `1` attempt | Optional | Maximum retry delivery attempts before logging failure |
 
-### Programmatic Configuration (`WebhookConfig`)
+### 3. Programmatic Configuration (`WebhookConfig`)
 
 | Field | Default Value | Required? | Description |
 |---|---|---|---|
@@ -170,30 +200,9 @@ function verifyLogrixSignature(
 
 ---
 
-## Configuration Methods
+## Alternative Dispatch Methods
 
-### 1. Declarative Manifest Seeding (`logrix.yaml`)
-Declare webhooks directly in your indexer manifest. Logrix seeds them into the database on startup:
-
-```yaml
-schema: "./schema.graphql"
-network: "arbitrum-one"
-contracts:
-  - name: "UsdcToken"
-    address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
-webhooks:
-  # At-most-once delivery (fast, default)
-  - url: "https://api.mybackend.com/webhooks/transfers"
-    events: ["Transfer"]
-
-  # Retry-enabled delivery with custom attempts and secret from env
-  - url: "https://critical.mybackend.com/webhooks/reorgs"
-    secret: "${CRITICAL_WEBHOOK_SECRET}"
-    events: ["reorg"]
-    max_retries: 3
-```
-
-### 2. Static CLI Flag (Single Fallback)
+### CLI Standalone Runner
 ```bash
 logrix webhook \
   --database-url postgres://logrix:logrix@localhost:5432/logrix \
@@ -204,7 +213,7 @@ logrix webhook \
   --webhook-max-retries 3
 ```
 
-### 3. Dynamic Management REST API
+### Dynamic Management REST API
 Manage webhooks dynamically at runtime via `logrix-api` (Port 8080).
 See `crates/logrix-api/README.md` for complete endpoint curl examples.
 

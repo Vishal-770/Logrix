@@ -22,7 +22,28 @@ The GraphQL engine automatically serves entities indexed in PostgreSQL. When que
 
 ## Configuration & Tuning (`ApiConfig`)
 
-The API server and GraphQL execution guardrails are configurable via CLI arguments, environment variables, or programmatically:
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure GraphQL limits and timeouts under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  graphqlMaxDepth: 7             # Max nested field depth allowed in GraphQL queries
+  graphqlMaxComplexity: 200      # Max query complexity calculation budget
+  graphqlDefaultLimit: 100       # Default pagination page size when first: omitted
+  graphqlMaxLimit: 1000          # Ceiling cap on first: argument
+  graphqlQueryTimeoutSecs: 5     # Query execution timeout in seconds
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.graphqlMaxDepth` | `integer` | `7` | Optional | Maximum nested query selection depth |
+| `indexing.graphqlMaxComplexity`| `integer` | `200` | Optional | Computational complexity budget per GraphQL query |
+| `indexing.graphqlDefaultLimit` | `integer` | `100` | Optional | Fallback entity limit if `first:` is omitted |
+| `indexing.graphqlMaxLimit` | `integer` | `100` | Optional | Upper bound ceiling on `first:` pagination parameter |
+| `indexing.graphqlQueryTimeoutSecs`| `integer` | `5` seconds | Optional | Maximum execution time before aborting query |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -35,7 +56,7 @@ The API server and GraphQL execution guardrails are configurable via CLI argumen
 | `GRAPHQL_QUERY_TIMEOUT_SECS`| `--graphql-query-timeout-secs`| `5` seconds | Optional | Maximum execution time before canceling query |
 | `PORT` | `--port` | `8080` (or `4000` in container) | Optional | HTTP listen port for GraphQL server and Webhook REST API |
 
-### Programmatic Usage
+### 3. Programmatic Configuration (`ApiConfig`)
 
 ```rust
 use logrix_api::{server::start_api_server_with_schema, ApiConfig};

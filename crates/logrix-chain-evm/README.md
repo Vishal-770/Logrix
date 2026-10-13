@@ -16,7 +16,30 @@ Connects to EVM execution nodes and archive nodes to extract logs matching index
 
 ## Configuration & Tuning (`EvmClientConfig`)
 
-The EVM client runtime is configured via `EvmClientConfig`. All options provide production defaults, making manual tuning optional:
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure chunking and event extraction via the `indexing:` block in `logrix.yaml`:
+
+```yaml
+indexing:
+  chunkSize: 500             # Initial block range size for adaptive chunking queries
+  chainHeadPollMs: 1500      # Poll interval when ingester reaches chain head
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.chunkSize` | `integer` | `10` (CLI) / `500` (Direct) | Optional | Block range query size per `eth_getLogs` batch |
+| `indexing.chainHeadPollMs` | `integer` | `1500` ms | Optional | Chain head polling interval when caught up |
+
+### 2. Environment Variables & CLI Options
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `CHUNK_SIZE` | `--chunk-size` | `10` blocks | Optional | Maximum block query range per batch |
+| `CHAIN_HEAD_POLL_MS` | `--chain-head-poll-ms` | `1500` ms | Optional | Polling interval in ms when ingester reaches chain head |
+| `RPC_TIMEOUT_SECS` | `--rpc-timeout-secs` | `10` seconds | Optional | Network timeout for JSON-RPC requests |
+
+### 3. Programmatic Configuration (`EvmClientConfig`)
 
 | Field | Builder Method | Default Value | Required? | Description |
 |---|---|---|---|---|

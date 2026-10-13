@@ -144,8 +144,8 @@ KEDA scales on this metric, ensuring the cluster **never scales into an outage**
 | :--- | :--- | :--- |
 | **How it works** | KEDA queries SQS/RabbitMQ API directly | KEDA queries Prometheus for the Controller's calculation |
 | **Dependencies** | Requires only KEDA operator | Requires KEDA + Prometheus + active Controller |
-| **Budget Awareness** | ❌ None (blind to DB and RPC limits) | ✅ Full awareness of DB write pool and RPC CU budgets |
-| **Multi-Queue / Plugins**| Must configure separate scaler per queue tech | ✅ Unified signal regardless of queue driver |
+| **Budget Awareness** | [No] None (blind to DB and RPC limits) | [Yes] Full awareness of DB write pool and RPC CU budgets |
+| **Multi-Queue / Plugins**| Must configure separate scaler per queue tech | [Yes] Unified signal regardless of queue driver |
 | **Recommended Use** | Simpler setups or fallback | **Production default** for backfill decoders |
 
 ### Queue-Specific Traps Handled

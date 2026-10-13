@@ -32,7 +32,54 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 
 ## Unified Configuration Reference
 
-Every assignable value can be configured via environment variable or CLI flag. Defaults are provided for all optional settings:
+Configuration can be specified in three ways:
+1. **Declarative Manifest (`logrix.yaml`)**: User-facing project configuration translated into Helm values or consumed directly via `--manifest-path`.
+2. **Environment Variables**: Overrides injected by Kubernetes ConfigMaps, Secrets, or Docker Compose.
+3. **CLI Arguments**: Explicit flags passed directly to `logrix` binary subcommands.
+
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+```yaml
+specVersion: "0.1.0"
+name: "my-indexer"
+
+network:
+  name: "arbitrum-one"
+  chainId: 42161
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/${API_KEY}"
+  fallbackRpcUrls:
+    - "https://arb1.arbitrum.io/rpc"
+
+indexing:
+  # Ingestion & Polling
+  chunkSize: 1000
+  chainHeadPollMs: 1500
+  maxQueueDepth: 1000
+
+  # Reorg & Gap Reconciliation
+  ringBufferDepth: 128
+  reconcilerIntervalSecs: 30
+  reconcilerChunkSize: 50
+  reconcilerLagThreshold: 50
+
+  # Gateway & RPC Resilience
+  rpcTimeoutSecs: 15
+  rpcCbThreshold: 5
+  rpcCooldownSecs: 30
+
+  # Store & Queues
+  databaseMaxConnections: 25
+  rabbitmqPrefetch: 100
+
+  # WASM & API
+  wasmFuelLimit: 5000000
+  wasmMaxMemoryMb: 256
+  graphqlMaxDepth: 7
+```
+
+---
+
+### 2. Environment Variables & CLI Options Reference
 
 ### 1. Database & Persistence (PostgreSQL)
 

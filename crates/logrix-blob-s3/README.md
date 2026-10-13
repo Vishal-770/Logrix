@@ -15,7 +15,24 @@ Stores compressed historical block logs, transaction receipts, and entity snapsh
 
 ## Configuration & Tuning (`S3Config`)
 
-### Environment Variables & CLI Options
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure archive storage parameters under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  s3Bucket: "my-logrix-archives"
+  s3Prefix: "arbitrum-one/blocks"
+  s3Endpoint: "http://minio:9000"     # Optional MinIO / LocalStack override
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.s3Bucket` | `string` | None | Required if S3 active | S3 bucket for cold block data and event storage |
+| `indexing.s3Prefix` | `string` | None (`""`) | Optional | Key prefix prepended to all stored blobs |
+| `indexing.s3Endpoint` | `string` | None (AWS standard) | Optional | MinIO or LocalStack custom endpoint |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -26,7 +43,7 @@ Stores compressed historical block logs, transaction receipts, and entity snapsh
 
 > Note: When `S3_ENDPOINT` is provided (e.g. LocalStack or MinIO), `force_path_style(true)` is automatically activated to ensure compatibility with non-AWS object stores.
 
-### Programmatic Configuration
+### 3. Programmatic Configuration (`S3Config`)
 
 ```rust
 use logrix_blob_s3::S3Config;
