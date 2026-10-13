@@ -31,6 +31,8 @@ indexing:
 | `indexing.chunkSize` | `integer` | `10` (CLI) / `500` (Direct) | Optional | Block range query size per `eth_getLogs` batch |
 | `indexing.chainHeadPollMs` | `integer` | `1500` ms | Optional | Chain head polling interval when caught up |
 
+> **Note on Adaptive Chunking**: The internal `AdaptiveChunker` dynamically monitors response latencies and success/failure rates for telemetry and programmatic clients. At runtime, the indexer ingestion range is bounded by `--chunk-size` / `indexing.chunkSize` to maintain deterministic queue payload limits.
+
 ### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Default Value | Required? | Description |
@@ -61,7 +63,8 @@ indexing:
 ### Programmatic Usage
 
 ```rust
-use logrix_chain_evm::{EvmClient, EvmClientConfig};
+use logrix_chain_evm::{EvmChainClient, EvmClientConfig};
+use logrix_core::domain::ChainId;
 use std::time::Duration;
 
 // 1. Using default configuration
@@ -74,5 +77,9 @@ let custom_config = EvmClientConfig::default()
     .with_rate_limit(50, 25.0)
     .with_retries(5, Duration::from_millis(500), Duration::from_secs(10));
 
-let client = EvmClient::new_with_config("https://arb1.arbitrum.io/rpc", custom_config)?;
+let client = EvmChainClient::new_with_config(
+    ChainId::new(42161),
+    "https://arb1.arbitrum.io/rpc",
+    custom_config,
+);
 ```

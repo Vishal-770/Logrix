@@ -67,13 +67,21 @@ contracts:
 | `MANIFEST_PATH` | `--manifest-path` | None | Optional | Path to YAML manifest file defining contracts |
 | `SCHEMA_PATH` | `--schema-path` | None | Optional | Path to GraphQL or YAML entity schema file |
 
-### 3. Programmatic Configuration (`WasmRuntimeConfig`)
+### 3. Programmatic Configuration (`WasmHandlerInstance`)
 
 ```rust
-use logrix_handlers::wasm::WasmRuntimeConfig;
+use logrix_handlers::wasm::{WasmHandlerInstance, WasmRuntime};
+use wasmtime::Module;
 
-let config = WasmRuntimeConfig {
-    fuel_limit: 10_000_000,
-    max_memory_mb: 256,
-};
+// Initialize WASM runtime and compile handler module
+let runtime = WasmRuntime::new()?;
+let module = Module::from_file(runtime.engine(), "handlers.wasm")?;
+
+// Configure instance with custom fuel instruction limit and memory ceiling (in bytes)
+let instance = WasmHandlerInstance::with_limits(
+    runtime,
+    module,
+    10_000_000,          // fuel limit
+    256 * 1024 * 1024,   // max memory (256 MB)
+);
 ```

@@ -32,10 +32,12 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 
 ## Unified Configuration Reference
 
-Configuration can be specified in three ways:
-1. **Declarative Manifest (`logrix.yaml`)**: User-facing project configuration translated into Helm values or consumed directly via `--manifest-path`.
-2. **Environment Variables**: Overrides injected by Kubernetes ConfigMaps, Secrets, or Docker Compose.
-3. **CLI Arguments**: Explicit flags passed directly to `logrix` binary subcommands.
+Configuration is resolved across multiple layers according to the following precedence order (highest to lowest priority):
+
+1. **CLI Arguments**: Explicit flags passed directly to `logrix` binary subcommands (e.g. `--wasm-fuel-limit 5000000`).
+2. **Environment Variables**: Overrides injected by Kubernetes ConfigMaps, Secrets, `.env`, or Docker Compose (e.g. `WASM_FUEL_LIMIT=5000000`).
+3. **Declarative Manifest (`logrix.yaml`)**: Project-level configuration file loaded via `--manifest-path` (supports both SDK project format and runtime manifest format), or translated into Helm values via `logrix export-values`.
+4. **Built-in System Defaults**: Sane, production-hardened defaults embedded within the core crates.
 
 ### 1. Declarative Manifest Configuration (`logrix.yaml`)
 

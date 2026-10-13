@@ -40,7 +40,7 @@ indexing:
 | `indexing.graphqlMaxDepth` | `integer` | `7` | Optional | Maximum nested query selection depth |
 | `indexing.graphqlMaxComplexity`| `integer` | `200` | Optional | Computational complexity budget per GraphQL query |
 | `indexing.graphqlDefaultLimit` | `integer` | `100` | Optional | Fallback entity limit if `first:` is omitted |
-| `indexing.graphqlMaxLimit` | `integer` | `100` | Optional | Upper bound ceiling on `first:` pagination parameter |
+| `indexing.graphqlMaxLimit` | `integer` | `1000` | Optional | Upper bound ceiling on `first:` pagination parameter |
 | `indexing.graphqlQueryTimeoutSecs`| `integer` | `5` seconds | Optional | Maximum execution time before aborting query |
 
 ### 2. Environment Variables & CLI Options
