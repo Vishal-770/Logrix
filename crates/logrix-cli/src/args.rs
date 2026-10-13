@@ -173,4 +173,8 @@ pub struct Cli {
     /// Optional S3 key prefix for archived blobs
     #[arg(long, env = "S3_PREFIX")]
     pub s3_prefix: Option<String>,
+
+    /// Extended tuning parameters
+    #[command(flatten)]
+    pub tuning: crate::args_tuning::ExtendedArgs,
 }

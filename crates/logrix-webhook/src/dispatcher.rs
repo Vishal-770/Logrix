@@ -6,7 +6,6 @@ use logrix_core::{
     ports::QueuePort,
 };
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{error, info, warn};
 
 /// Standalone worker service for consuming and dispatching webhooks.
@@ -17,6 +16,7 @@ pub struct WebhookDispatcherService {
     client: WebhookHttpClient,
     default_webhook_url: Option<String>,
     default_secret: String,
+    config: crate::config::WebhookConfig,
 }
 
 impl WebhookDispatcherService {
@@ -26,12 +26,30 @@ impl WebhookDispatcherService {
         default_webhook_url: Option<String>,
         default_secret: impl Into<String>,
     ) -> Self {
+        Self::new_with_config(
+            queue,
+            store,
+            default_webhook_url,
+            default_secret,
+            crate::config::WebhookConfig::default(),
+        )
+    }
+
+    pub fn new_with_config(
+        queue: Arc<dyn QueuePort>,
+        store: Option<WebhookStore>,
+        default_webhook_url: Option<String>,
+        default_secret: impl Into<String>,
+        config: crate::config::WebhookConfig,
+    ) -> Self {
+        let client = WebhookHttpClient::new(config.timeout, config.max_retries);
         Self {
             queue,
             store,
-            client: WebhookHttpClient::default(),
+            client,
             default_webhook_url,
             default_secret: default_secret.into(),
+            config,
         }
     }
 
@@ -121,11 +139,11 @@ impl WebhookDispatcherService {
                                 tokio::select! {
                                     biased;
                                     _ = &mut shutdown => {
-                                        info!("WebhookDispatcherService received shutdown signal during sleep");
-                                        break;
-                                    }
-                                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-                                }
+                                         info!("WebhookDispatcherService received shutdown signal during sleep");
+                                         break;
+                                     }
+                                     _ = tokio::time::sleep(self.config.worker_idle_sleep) => {}
+                                 }
                             }
                         }
                         Err(e) => {
@@ -136,7 +154,7 @@ impl WebhookDispatcherService {
                                     info!("WebhookDispatcherService received shutdown signal during error backoff");
                                     break;
                                 }
-                                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                                _ = tokio::time::sleep(self.config.worker_error_backoff) => {}
                             }
                         }
                     }

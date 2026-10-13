@@ -24,3 +24,20 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 ## Ingester Configuration
 - `--chunk-size` (`CHUNK_SIZE`, default: 10): Configures the maximum block range per `eth_getLogs` batch. Defaults to 10 to comply with Alchemy Free tier limits and avoid HTTP 400 errors.
 - `--max-queue-depth` (`MAX_QUEUE_DEPTH`, default: 1000): Threshold for pausing ingestion when downstream processors are backed up.
+- `--chain-head-poll-ms` (`CHAIN_HEAD_POLL_MS`, default: 1500): Polling interval in milliseconds when ingester reaches chain head.
+
+## Tuning & Resilience Configuration
+- `--reconciler-chunk-size` (`RECONCILER_CHUNK_SIZE`): Block chunk size when reconciler splits missing block ranges.
+- `--reconciler-lag-threshold` (`RECONCILER_LAG_THRESHOLD`, default: 50): Block lag threshold before reconciliation kicks in.
+- `--rabbitmq-prefetch` (`RABBITMQ_PREFETCH`, default: 100): Consumer prefetch QoS limit.
+- `--rabbitmq-timeout-secs` (`RABBITMQ_TIMEOUT_SECS`, default: 10): RabbitMQ connection timeout.
+- `--sqs-wait-time-seconds` (`SQS_WAIT_TIME_SECONDS`, default: 2): SQS receive message long polling wait time (0-20s).
+- `--sqs-max-messages` (`SQS_MAX_MESSAGES`, default: 1): SQS receive message maximum batch count (1-10).
+- `--wasm-fuel-limit` (`WASM_FUEL_LIMIT`, default: 1,000,000): Fuel instruction budget per WASM event execution.
+- `--wasm-max-memory-mb` (`WASM_MAX_MEMORY_MB`, default: 128): WASM linear memory upper limit in megabytes.
+- `--rpc-timeout-secs` (`RPC_TIMEOUT_SECS`, default: 10): JSON-RPC HTTP client timeout.
+- `--rpc-cb-threshold` (`RPC_CB_THRESHOLD`, default: 5): Consecutive RPC failure circuit breaker trip threshold.
+- `--rpc-cooldown-secs` (`RPC_COOLDOWN_SECS`, default: 30): Circuit breaker recovery and cooldown duration.
+- `--webhook-timeout-secs` (`WEBHOOK_TIMEOUT_SECS`, default: 5): Outgoing Webhook HTTP delivery request timeout.
+- `--webhook-max-retries` (`WEBHOOK_MAX_RETRIES`, default: 1): Outgoing Webhook max delivery retry attempts.
+- `--graphql-query-timeout-secs` (`GRAPHQL_QUERY_TIMEOUT_SECS`, default: 5): GraphQL query execution timeout.

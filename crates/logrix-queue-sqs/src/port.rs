@@ -53,8 +53,8 @@ impl QueuePort for SqsQueue {
             .client()
             .receive_message()
             .queue_url(url)
-            .max_number_of_messages(1)
-            .wait_time_seconds(2)
+            .max_number_of_messages(self.config().max_number_of_messages)
+            .wait_time_seconds(self.config().wait_time_seconds)
             .send()
             .await
             .map_err(|e| {

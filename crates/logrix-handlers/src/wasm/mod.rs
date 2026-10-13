@@ -1,3 +1,4 @@
+pub mod executor;
 pub mod host_funcs;
 pub mod host_state;
 pub mod instance;

@@ -11,6 +11,7 @@ pub mod ancestor;
 pub mod buffer;
 pub mod detector;
 pub mod reconciler;
+pub mod reconciler_loop;
 pub mod rollback;
 
 pub use buffer::RollingBlockBuffer;

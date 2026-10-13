@@ -1,4 +1,5 @@
-use crate::filter_input::{build_filter_input, map_type_ref};
+use crate::entity_object::build_entity_object;
+use crate::filter_input::build_filter_input;
 use crate::list_resolver::build_entity_list_field;
 use crate::schema_types::{EntityDef, SchemaDefinition};
 use crate::subscriptions::{build_subscription_type, SubscriptionBroadcaster};
@@ -36,6 +37,21 @@ impl DynamicSchemaEngine {
         max_depth: usize,
         max_complexity: usize,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
+        let cfg = crate::server::ApiConfig {
+            max_depth,
+            max_complexity,
+            ..Default::default()
+        };
+        Self::build_with_api_config(schema_def, store, broadcaster, &cfg)
+    }
+
+    /// Build dynamic schema with full ApiConfig settings.
+    pub fn build_with_api_config(
+        schema_def: &SchemaDefinition,
+        store: Arc<PostgresStore>,
+        broadcaster: Option<Arc<SubscriptionBroadcaster>>,
+        cfg: &crate::server::ApiConfig,
+    ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
         let has_subscriptions = broadcaster.is_some();
         let mut builder = if has_subscriptions {
             Schema::build("Query", None, Some("Subscription"))
@@ -50,6 +66,10 @@ impl DynamicSchemaEngine {
             |_| FieldFuture::new(async { Ok(Some(FieldValue::value("OK"))) }),
         ));
 
+        let default_chain = cfg.chain_id.unwrap_or(1);
+        let default_limit = cfg.default_limit;
+        let max_limit = cfg.max_limit;
+
         for entity in &schema_def.entities {
             let entity_obj = build_entity_object(entity);
             let filter_input = build_filter_input(entity);
@@ -57,10 +77,16 @@ impl DynamicSchemaEngine {
             builder = builder.register(entity_obj);
             builder = builder.register(filter_input);
 
-            let single_field = build_single_entity_field(entity, store.clone());
+            let single_field = build_single_entity_field(entity, store.clone(), default_chain);
             query = query.field(single_field);
 
-            let list_field = build_entity_list_field(entity, store.clone());
+            let list_field = build_entity_list_field(
+                entity,
+                store.clone(),
+                default_chain,
+                default_limit,
+                max_limit,
+            );
             query = query.field(list_field);
         }
 
@@ -73,59 +99,17 @@ impl DynamicSchemaEngine {
 
         builder
             .data(store)
-            .limit_depth(max_depth)
-            .limit_complexity(max_complexity)
+            .limit_depth(cfg.max_depth)
+            .limit_complexity(cfg.max_complexity)
             .finish()
     }
 }
 
-fn build_entity_object(entity: &EntityDef) -> Object {
-    let mut obj = Object::new(&entity.name);
-
-    obj = obj.field(Field::new("id", TypeRef::named_nn(TypeRef::ID), |ctx| {
-        FieldFuture::new(async move {
-            let row = ctx.parent_value.try_downcast_ref::<serde_json::Value>()?;
-            let id = row.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            Ok(Some(FieldValue::value(id.to_string())))
-        })
-    }));
-
-    for field in &entity.fields {
-        if field.derived_from.is_some() || field.name == "id" {
-            continue;
-        }
-        let f_name = field.name.clone();
-        let f_type = map_type_ref(&field.field_type, field.is_nullable);
-        let field_key = f_name.clone();
-
-        obj = obj.field(Field::new(f_name, f_type, move |ctx| {
-            let key = field_key.clone();
-            FieldFuture::new(async move {
-                let row = ctx.parent_value.try_downcast_ref::<serde_json::Value>()?;
-                let val = row.get(&key);
-                match val {
-                    Some(serde_json::Value::Null) | None => Ok(None),
-                    Some(serde_json::Value::String(s)) => Ok(Some(FieldValue::value(s.clone()))),
-                    Some(serde_json::Value::Number(n)) => {
-                        if let Some(i) = n.as_i64() {
-                            Ok(Some(FieldValue::value(i)))
-                        } else if let Some(f) = n.as_f64() {
-                            Ok(Some(FieldValue::value(f)))
-                        } else {
-                            Ok(Some(FieldValue::value(n.to_string())))
-                        }
-                    }
-                    Some(serde_json::Value::Bool(b)) => Ok(Some(FieldValue::value(*b))),
-                    Some(other) => Ok(Some(FieldValue::value(other.to_string()))),
-                }
-            })
-        }));
-    }
-
-    obj
-}
-
-fn build_single_entity_field(entity: &EntityDef, store: Arc<PostgresStore>) -> Field {
+fn build_single_entity_field(
+    entity: &EntityDef,
+    store: Arc<PostgresStore>,
+    default_chain: u64,
+) -> Field {
     let query_name = entity.name.to_lowercase();
     let entity_type = entity.name.clone();
 
@@ -138,10 +122,6 @@ fn build_single_entity_field(entity: &EntityDef, store: Arc<PostgresStore>) -> F
                 .get("id")
                 .and_then(|v| v.string().ok())
                 .unwrap_or_default();
-            let default_chain = std::env::var("CHAIN_ID")
-                .ok()
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(1);
             let chain_id = ctx
                 .args
                 .get("chainId")

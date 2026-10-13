@@ -1,5 +1,6 @@
 pub mod all_in_one;
 pub mod args;
+pub mod args_tuning;
 pub mod backfill;
 pub mod commands;
 pub mod deploy;
@@ -80,7 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Migrate => {
             info!("Connecting to PostgreSQL and running migrations...");
-            let store = PostgresStore::connect(&cli.database_url, "default").await?;
+            let pg_cfg = logrix_store_postgres::PostgresConfig::new(&cli.database_url, "default")
+                .max_connections(cli.database_max_connections)
+                .min_connections(cli.database_min_connections);
+            let store = PostgresStore::connect_with_config(&pg_cfg).await?;
             store.migrate().await?;
             info!("Migrations finished successfully.");
         }
@@ -128,7 +132,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         }
         Commands::Api { port } => {
-            let store = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
+            let pg_cfg = logrix_store_postgres::PostgresConfig::new(&cli.database_url, "default")
+                .max_connections(cli.database_max_connections)
+                .min_connections(cli.database_min_connections);
+            let store = Arc::new(PostgresStore::connect_with_config(&pg_cfg).await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
             let broadcaster = Arc::new(logrix_api::SubscriptionBroadcaster::default());
             broadcaster
@@ -139,7 +146,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_complexity: cli.graphql_max_complexity,
                 default_limit: cli.graphql_default_limit,
                 max_limit: cli.graphql_max_limit,
-                query_timeout_secs: 5,
+                query_timeout_secs: cli.tuning.graphql_query_timeout_secs,
+                chain_id: Some(cli.chain_id),
             };
             start_api_server_with_schema(
                 store,

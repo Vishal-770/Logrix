@@ -28,7 +28,29 @@ impl SqsQueue {
         dlq_url: impl Into<String>,
         endpoint_override: Option<&str>,
     ) -> LogrixResult<Self> {
-        let config = SqsClientConfig::from_env(
+        Self::from_env_with_params(
+            live_queue_url,
+            backfill_queue_url,
+            webhook_queue_url,
+            dlq_url,
+            endpoint_override,
+            2,
+            1,
+        )
+        .await
+    }
+
+    /// Convenience initializer with custom long polling wait time and batch count.
+    pub async fn from_env_with_params(
+        live_queue_url: impl Into<String>,
+        backfill_queue_url: impl Into<String>,
+        webhook_queue_url: impl Into<String>,
+        dlq_url: impl Into<String>,
+        endpoint_override: Option<&str>,
+        wait_time_seconds: i32,
+        max_number_of_messages: i32,
+    ) -> LogrixResult<Self> {
+        let mut config = SqsClientConfig::from_env(
             live_queue_url,
             backfill_queue_url,
             webhook_queue_url,
@@ -36,6 +58,8 @@ impl SqsQueue {
             endpoint_override,
         )
         .await?;
+        config.wait_time_seconds = wait_time_seconds;
+        config.max_number_of_messages = max_number_of_messages;
         Ok(Self::new(config))
     }
 }

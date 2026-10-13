@@ -4,6 +4,7 @@
 //! and standalone consumer service for dedicated Kubernetes webhook pods.
 
 pub mod client;
+pub mod config;
 pub mod deliveries;
 pub mod dispatcher;
 pub mod signature;
@@ -11,6 +12,7 @@ pub mod store;
 pub mod target;
 
 pub use client::{DeliveryResult, WebhookHttpClient};
+pub use config::WebhookConfig;
 pub use deliveries::DeliveryOps;
 pub use dispatcher::WebhookDispatcherService;
 pub use signature::{generate_secret, sanitize_webhook_url, sign_payload, verify_signature};

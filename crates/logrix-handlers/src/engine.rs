@@ -39,10 +39,32 @@ impl UserLogicEngine {
         &self.manifest
     }
 
+    fn configure_instance(
+        &self,
+        contract: Address,
+        mut instance: WasmHandlerInstance,
+    ) -> WasmHandlerInstance {
+        if let Some(c) = self
+            .manifest
+            .contracts
+            .iter()
+            .find(|c| c.address == contract)
+        {
+            if let Some(fuel) = c.fuel_limit {
+                instance = instance.with_fuel_limit(fuel);
+            }
+            if let Some(mb) = c.max_memory_mb {
+                instance = instance.with_max_memory(mb * 1024 * 1024);
+            }
+        }
+        instance
+    }
+
     /// Load and register a compiled WASM handler for a specific contract.
     pub fn load_wasm_handler(&mut self, contract: Address, wasm_bytes: &[u8]) -> LogrixResult<()> {
         let module = self.wasm_runtime.compile_module(wasm_bytes)?;
         let instance = WasmHandlerInstance::new(self.wasm_runtime.clone(), module);
+        let instance = self.configure_instance(contract, instance);
         info!(%contract, "Registered sandboxed WASM handler for contract");
         self.wasm_handlers.insert(contract, instance);
         Ok(())
@@ -56,6 +78,7 @@ impl UserLogicEngine {
     ) -> LogrixResult<()> {
         let module = self.wasm_runtime.compile_module_file(path)?;
         let instance = WasmHandlerInstance::new(self.wasm_runtime.clone(), module);
+        let instance = self.configure_instance(contract, instance);
         info!(%contract, "Registered sandboxed WASM handler from file");
         self.wasm_handlers.insert(contract, instance);
         Ok(())

@@ -13,9 +13,12 @@ use tracing::{debug, info, warn};
 pub struct IngesterConfig {
     pub chain_id: ChainId,
     pub database_url: String,
+    pub database_max_connections: u32,
+    pub database_min_connections: u32,
     pub start_block: Option<u64>,
     pub chunk_size: u64,
     pub max_queue_depth: u64,
+    pub chain_head_poll_ms: u64,
 }
 
 impl IngesterConfig {
@@ -23,9 +26,12 @@ impl IngesterConfig {
         Self {
             chain_id,
             database_url: cli.database_url.clone(),
+            database_max_connections: cli.database_max_connections,
+            database_min_connections: cli.database_min_connections,
             start_block: cli.start_block,
             chunk_size: cli.chunk_size,
             max_queue_depth: cli.max_queue_depth,
+            chain_head_poll_ms: cli.tuning.chain_head_poll_ms,
         }
     }
 }
@@ -45,7 +51,10 @@ pub async fn run_ingester(
         chunk_size, "Starting Logrix Ingester with Cost-Aware RPC Gateway"
     );
 
-    let store = PostgresStore::connect(&config.database_url, "default").await?;
+    let pg_cfg = logrix_store_postgres::PostgresConfig::new(&config.database_url, "default")
+        .max_connections(config.database_max_connections)
+        .min_connections(config.database_min_connections);
+    let store = PostgresStore::connect_with_config(&pg_cfg).await?;
 
     let mut current_block = match store.get_checkpoint(chain_id).await? {
         Some(cp) => {
@@ -166,7 +175,7 @@ pub async fn run_ingester(
                     info!("Shutdown received while at chain head; exiting cleanly");
                     break;
                 }
-                _ = tokio::time::sleep(Duration::from_millis(1500)) => {}
+                _ = tokio::time::sleep(Duration::from_millis(config.chain_head_poll_ms)) => {}
             }
         }
     }

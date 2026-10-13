@@ -13,8 +13,10 @@ pub struct ManagedProvider {
     priority: u32,
     client: EvmChainClient,
     breaker: Arc<CircuitBreaker>,
-    /// Exponential cooldown multiplier in seconds: 10, 20, 40, max 120
+    /// Exponential cooldown multiplier in seconds
     cooldown_secs: Arc<AtomicU64>,
+    initial_cooldown_secs: u64,
+    max_cooldown_secs: u64,
     /// Moving average latency in milliseconds
     avg_latency_ms: Arc<AtomicU64>,
     /// Highest block height observed on this provider
@@ -28,12 +30,35 @@ impl ManagedProvider {
         priority: u32,
         chain_id: ChainId,
     ) -> Self {
+        Self::new_with_config(
+            name,
+            url,
+            priority,
+            chain_id,
+            &crate::config::GatewayConfig::default(),
+            None,
+        )
+    }
+
+    pub fn new_with_config(
+        name: impl Into<String>,
+        url: impl Into<String>,
+        priority: u32,
+        chain_id: ChainId,
+        cfg: &crate::config::GatewayConfig,
+        evm_cfg: Option<logrix_chain_evm::EvmClientConfig>,
+    ) -> Self {
         let url_str = url.into();
         let name_str = name.into();
-        // Supervised client with fast failover for gateway
-        let client = EvmChainClient::new_supervised(chain_id, &url_str);
-        // Failure threshold: 3, success threshold to close: 2, recovery timeout: 10s
-        let breaker = Arc::new(CircuitBreaker::new(3, 2, Duration::from_secs(10)));
+        let client = match evm_cfg {
+            Some(ec) => EvmChainClient::new_supervised_with_config(chain_id, &url_str, ec),
+            None => EvmChainClient::new_supervised(chain_id, &url_str),
+        };
+        let breaker = Arc::new(CircuitBreaker::new(
+            cfg.circuit_breaker_failure_threshold,
+            cfg.circuit_breaker_success_threshold,
+            cfg.circuit_breaker_recovery_timeout,
+        ));
 
         Self {
             name: name_str,
@@ -41,8 +66,10 @@ impl ManagedProvider {
             priority,
             client,
             breaker,
-            cooldown_secs: Arc::new(AtomicU64::new(10)),
-            avg_latency_ms: Arc::new(AtomicU64::new(50)), // seed initial 50ms
+            cooldown_secs: Arc::new(AtomicU64::new(cfg.initial_cooldown_secs)),
+            initial_cooldown_secs: cfg.initial_cooldown_secs,
+            max_cooldown_secs: cfg.max_cooldown_secs,
+            avg_latency_ms: Arc::new(AtomicU64::new(50)),
             latest_block: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -80,8 +107,9 @@ impl ManagedProvider {
     /// Record a successful call with measured roundtrip latency.
     pub async fn record_success(&self, latency: Duration) {
         self.breaker.on_success().await;
-        // Reset exponential cooldown back to initial 10s
-        self.cooldown_secs.store(10, Ordering::Relaxed);
+        // Reset exponential cooldown back to configured initial
+        self.cooldown_secs
+            .store(self.initial_cooldown_secs, Ordering::Relaxed);
 
         // Exponential moving average for latency: 80% old + 20% new
         let ms = latency.as_millis() as u64;
@@ -94,9 +122,9 @@ impl ManagedProvider {
     pub async fn record_failure(&self) {
         self.breaker.on_failure().await;
 
-        // Increment exponential cooldown: 10 -> 20 -> 40 -> 80 -> max 120s
+        // Increment exponential cooldown: double up to max
         let current = self.cooldown_secs.load(Ordering::Relaxed);
-        let next = (current * 2).min(120);
+        let next = (current * 2).min(self.max_cooldown_secs);
         self.cooldown_secs.store(next, Ordering::Relaxed);
     }
 

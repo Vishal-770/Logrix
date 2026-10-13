@@ -4,7 +4,7 @@ use logrix_core::ports::{ChainPort, QueuePort, StorePort};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Self-healing continuous gap reconciler.
 ///
@@ -13,14 +13,15 @@ use tracing::{debug, info, warn};
 /// range jobs to refill dropped messages.
 #[derive(Clone)]
 pub struct GapReconciler {
-    chain_id: ChainId,
-    store: Arc<dyn StorePort>,
-    queue: Arc<dyn QueuePort>,
-    chain_client: Arc<dyn ChainPort>,
-    interval: Duration,
-    lag_threshold: u64,
-    last_dispatched_to: Arc<AtomicU64>,
-    last_checkpoint_seen: Arc<AtomicU64>,
+    pub(crate) chain_id: ChainId,
+    pub(crate) store: Arc<dyn StorePort>,
+    pub(crate) queue: Arc<dyn QueuePort>,
+    pub(crate) chain_client: Arc<dyn ChainPort>,
+    pub(crate) interval: Duration,
+    pub(crate) lag_threshold: u64,
+    pub(crate) chunk_size: Option<u64>,
+    pub(crate) last_dispatched_to: Arc<AtomicU64>,
+    pub(crate) last_checkpoint_seen: Arc<AtomicU64>,
 }
 
 impl GapReconciler {
@@ -38,6 +39,7 @@ impl GapReconciler {
             chain_client,
             interval,
             lag_threshold: 10,
+            chunk_size: None,
             last_dispatched_to: Arc::new(AtomicU64::new(0)),
             last_checkpoint_seen: Arc::new(AtomicU64::new(0)),
         }
@@ -47,6 +49,13 @@ impl GapReconciler {
     #[must_use]
     pub fn with_lag_threshold(mut self, lag_threshold: u64) -> Self {
         self.lag_threshold = lag_threshold;
+        self
+    }
+
+    /// Configure chunk size per backfill range job dispatched by reconciler.
+    #[must_use]
+    pub fn with_chunk_size(mut self, chunk_size: u64) -> Self {
+        self.chunk_size = Some(chunk_size.max(1));
         self
     }
 
@@ -112,19 +121,36 @@ impl GapReconciler {
                 to_block,
                 missing_count,
                 lag_threshold = self.lag_threshold,
-                "Gap reconciler detected lagging checkpoint behind chain head. Dispatching refill job."
+                chunk_size = ?self.chunk_size,
+                "Gap reconciler detected lagging checkpoint behind chain head. Dispatching refill jobs."
             );
 
-            let job = BlockRangeJob::new(
-                self.chain_id,
-                from_block,
-                to_block,
-                format!("{}:{}-{}", self.chain_id, from_block, to_block),
-            );
-
-            self.queue
-                .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
-                .await?;
+            if let Some(chunk_size) = self.chunk_size {
+                let mut cur = from_block;
+                while cur <= to_block {
+                    let chunk_end = (cur + chunk_size - 1).min(to_block);
+                    let job = BlockRangeJob::new(
+                        self.chain_id,
+                        cur,
+                        chunk_end,
+                        format!("{}:{}-{}", self.chain_id, cur, chunk_end),
+                    );
+                    self.queue
+                        .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
+                        .await?;
+                    cur = chunk_end + 1;
+                }
+            } else {
+                let job = BlockRangeJob::new(
+                    self.chain_id,
+                    from_block,
+                    to_block,
+                    format!("{}:{}-{}", self.chain_id, from_block, to_block),
+                );
+                self.queue
+                    .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
+                    .await?;
+            }
 
             self.last_dispatched_to.store(to_block, Ordering::Relaxed);
 
@@ -132,40 +158,5 @@ impl GapReconciler {
         }
 
         Ok(0)
-    }
-
-    /// Run the continuous reconciliation loop until cancellation.
-    pub async fn run_loop(&self) {
-        self.run_loop_with_shutdown(std::future::pending()).await;
-    }
-
-    /// Run the continuous reconciliation loop with graceful shutdown signal.
-    pub async fn run_loop_with_shutdown<F>(&self, shutdown: F)
-    where
-        F: std::future::Future<Output = ()> + Send,
-    {
-        info!(
-            chain = self.chain_id.as_u64(),
-            interval_secs = self.interval.as_secs(),
-            lag_threshold = self.lag_threshold,
-            "Starting self-healing GapReconciler background loop"
-        );
-
-        let mut timer = tokio::time::interval(self.interval);
-        tokio::pin!(shutdown);
-
-        loop {
-            tokio::select! {
-                _ = &mut shutdown => {
-                    info!(chain = self.chain_id.as_u64(), "GapReconciler received shutdown signal, exiting cleanly");
-                    break;
-                }
-                _ = timer.tick() => {
-                    if let Err(e) = self.check_and_reconcile().await {
-                        warn!(error = %e, "Error occurred during gap reconciliation check");
-                    }
-                }
-            }
-        }
     }
 }

@@ -72,6 +72,7 @@ pub struct ApiConfig {
     pub default_limit: usize,
     pub max_limit: usize,
     pub query_timeout_secs: u64,
+    pub chain_id: Option<u64>,
 }
 
 impl Default for ApiConfig {
@@ -82,6 +83,7 @@ impl Default for ApiConfig {
             default_limit: 100,
             max_limit: 1000,
             query_timeout_secs: 5,
+            chain_id: None,
         }
     }
 }
@@ -122,12 +124,11 @@ pub async fn start_api_server_with_schema(
             for entity in &schema_def.entities {
                 known_events.insert(entity.name.clone());
             }
-            let dynamic_schema = DynamicSchemaEngine::build_with_config(
+            let dynamic_schema = DynamicSchemaEngine::build_with_api_config(
                 &schema_def,
                 store.clone(),
                 broadcaster.clone(),
-                conf.max_depth,
-                conf.max_complexity,
+                &conf,
             )
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             create_dynamic_router(dynamic_schema, broadcaster)
