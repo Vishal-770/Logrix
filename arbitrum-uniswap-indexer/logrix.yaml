@@ -2,10 +2,10 @@ specVersion: 0.1.0
 network:
   name: arbitrum-one
   chainId: 42161
-  rpcUrl: https://arb-mainnet.g.alchemy.com/v2/Fc1p2d1g6C3jJ_JEM9Qqo
+  rpcUrl: https://arb1.arbitrum.io/rpc
   fallbackRpcUrls:
-    - https://arb-mainnet.g.alchemy.com/v2/alch_Hv124VlaLZqOSH12K-5KL
-    - https://arb1.arbitrum.io/rpc
+    - https://rpc.ankr.com/arbitrum
+    - https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
 dataSources:
   - kind: ethereum/contract
     name: UniswapV3Pool
