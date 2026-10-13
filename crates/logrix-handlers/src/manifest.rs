@@ -52,10 +52,11 @@ impl Manifest {
 
         if let Ok(sdk) = serde_yaml::from_str::<crate::sdk_manifest::SdkProjectManifest>(yaml_str) {
             let (schema_version, chain_id, contracts) = sdk.into_contracts();
-            let indexing: Option<ManifestIndexing> = serde_yaml::from_str::<serde_yaml::Value>(yaml_str)
-                .ok()
-                .and_then(|v| v.get("indexing").cloned())
-                .and_then(|idx| serde_yaml::from_value(idx).ok());
+            let indexing: Option<ManifestIndexing> =
+                serde_yaml::from_str::<serde_yaml::Value>(yaml_str)
+                    .ok()
+                    .and_then(|v| v.get("indexing").cloned())
+                    .and_then(|idx| serde_yaml::from_value(idx).ok());
 
             return Ok(Self {
                 schema_version,
