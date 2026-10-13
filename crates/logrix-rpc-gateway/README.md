@@ -163,7 +163,8 @@ When embedding `RpcGateway` directly in custom code, fine-grained behavior is co
 | `max_cooldown_secs` | `.with_cooldown_bounds()` | `120s` | Optional | Maximum ceiling for exponential cooldown backoff |
 
 ```rust
-use logrix_rpc_gateway::{GatewayConfig, RpcGateway};
+use logrix_core::domain::ChainId;
+use logrix_rpc_gateway::{GatewayConfig, ProviderPool, RpcGateway};
 use std::time::Duration;
 
 let config = GatewayConfig::default()
@@ -171,7 +172,17 @@ let config = GatewayConfig::default()
     .with_circuit_breaker(5, 3, Duration::from_secs(15))
     .with_cooldown_bounds(15, 180);
 
-let gateway = RpcGateway::new_with_config(providers, config)?;
+let chain_id = ChainId::new(42161);
+let pool = ProviderPool::new(chain_id);
+// Add providers to pool as needed...
+
+let gateway = RpcGateway::new_with_config(
+    chain_id,
+    pool,
+    None, // max_cu_budget
+    None, // bulk_endpoint
+    &config,
+);
 ```
 
 ---

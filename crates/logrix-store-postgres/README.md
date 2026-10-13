@@ -37,7 +37,7 @@ indexing:
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
 | `DATABASE_URL` | `--database-url` | `postgres://logrix:logrix@localhost:5432/logrix` | Required | PostgreSQL connection string |
-| `DATABASE_MAX_CONNECTIONS` | `--db-max-connections` | `10` connections | Optional | Maximum concurrent connections allocated in pool |
+| `DATABASE_MAX_CONNECTIONS` | `--database-max-connections` | `10` connections | Optional | Maximum concurrent connections allocated in pool |
 | `DATABASE_MIN_CONNECTIONS` | `--db-min-connections` | `2` connections | Optional | Minimum idle connections preserved in pool |
 
 ### 3. Programmatic Configuration (`PostgresConfig`)
@@ -61,5 +61,5 @@ let config = PostgresConfig::new("postgres://user:pass@localhost:5432/logrix", "
     .acquire_timeout(Duration::from_secs(15))
     .idle_timeout(Duration::from_secs(300));
 
-let store = PostgresStore::connect_with_config(config).await?;
+let store = PostgresStore::connect_with_config(&config).await?;
 ```

@@ -40,9 +40,9 @@ indexing:
 |---|---|---|---|---|
 | `QUEUE_DRIVER` | `--queue-driver` | `rabbitmq` | Optional | Set to `sqs` to activate AWS SQS driver |
 | `SQS_LIVE_URL` | `--sqs-live-url` | `""` | Required if SQS active | SQS Queue URL for real-time live block indexing |
-| `SQS_BACKFILL_URL` | `--sqs-backfill-url` | `""` (falls back to live) | Optional | SQS Queue URL for historical backfill jobs |
-| `SQS_WEBHOOK_URL` | `--sqs-webhook-url` | `""` (falls back to live) | Optional | SQS Queue URL for outgoing webhook event jobs |
-| `SQS_DLQ_URL` | `--sqs-dlq-url` | `""` (falls back to live) | Optional | SQS Queue URL for poison message quarantine |
+| `SQS_BACKFILL_URL` | `--sqs-backfill-url` | `""` | Required for backfill | SQS Queue URL for historical backfill jobs |
+| `SQS_WEBHOOK_URL` | `--sqs-webhook-url` | `""` | Required for webhooks | SQS Queue URL for outgoing webhook event jobs |
+| `SQS_DLQ_URL` | `--sqs-dlq-url` | `""` | Required for DLQ | SQS Queue URL for poison message quarantine |
 | `SQS_ENDPOINT` | `--sqs-endpoint` | None | Optional | Custom AWS endpoint override (e.g. `http://localhost:4566` for LocalStack) |
 | `SQS_WAIT_TIME_SECONDS` | `--sqs-wait-time-seconds` | `2` (range: 0-20) | Optional | SQS long-polling wait duration per receive call |
 | `SQS_MAX_MESSAGES` | `--sqs-max-messages` | `1` (range: 1-10) | Optional | Maximum message batch count fetched per receive call |
@@ -57,7 +57,7 @@ SQS_BACKFILL_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-backfil
 SQS_WEBHOOK_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-webhook
 SQS_DLQ_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-dlq
 SQS_WAIT_TIME_SECONDS=2
-SQS_MAX_MESSAGES=10
+SQS_MAX_MESSAGES=1
 ```
 
 ### 3. Programmatic Configuration (`SqsClientConfig`)
@@ -69,12 +69,13 @@ use logrix_queue_sqs::SqsClientConfig;
 
 let config = SqsClientConfig::builder()
     .region("us-west-2")
-    .endpoint_url("http://localhost:4566") // Optional LocalStack override
-    .live_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-live")
-    .backfill_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-backfill")
-    .webhook_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-webhook")
+    .endpoint_override("http://localhost:4566") // Optional LocalStack override
+    .live_queue_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-live")
+    .backfill_queue_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-backfill")
+    .webhook_queue_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-webhook")
     .dlq_url("https://sqs.us-west-2.amazonaws.com/123456789012/logrix-dlq")
-    .build();
+    .build()
+    .await?;
 ```
 
 ## Batch Publishing Performance

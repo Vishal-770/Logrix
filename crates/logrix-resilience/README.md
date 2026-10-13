@@ -73,7 +73,7 @@ if cb.can_execute().await {
 use logrix_resilience::RateLimiter;
 
 let limiter = RateLimiter::new(100, 50.0);
-limiter.acquire().await; // Waits if tokens exhausted
+limiter.acquire(1.0).await; // Waits if tokens exhausted
 ```
 
 ### 3. `RetryPolicy`
