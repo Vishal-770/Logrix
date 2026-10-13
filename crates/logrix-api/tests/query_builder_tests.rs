@@ -24,6 +24,8 @@ fn test_query_builder_equality_and_comparison_filters() {
         first: Some(50),
         skip: Some(10),
         after: Some("0xabc".to_string()),
+        default_limit: 100,
+        max_limit: 1000,
     };
 
     let builder = params.build_query().expect("Valid query builder");
@@ -63,6 +65,8 @@ fn test_query_builder_string_operators() {
         first: None,
         skip: None,
         after: None,
+        default_limit: 100,
+        max_limit: 1000,
     };
 
     let builder = params.build_query().expect("Valid query builder");
@@ -98,6 +102,8 @@ fn test_query_builder_bigint_arbitrary_precision() {
         first: None,
         skip: None,
         after: None,
+        default_limit: 100,
+        max_limit: 1000,
     };
 
     let builder = params.build_query().expect("Valid query builder");

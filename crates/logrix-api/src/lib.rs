@@ -4,6 +4,7 @@
 //! dynamic schema generation, and Kubernetes liveness/readiness probes.
 
 pub mod dynamic_schema;
+pub mod entity_object;
 pub mod filter_input;
 pub mod health;
 pub mod list_resolver;
@@ -15,6 +16,7 @@ pub mod schema_parser;
 pub mod schema_types;
 pub mod server;
 pub mod subscriptions;
+pub mod validation;
 
 pub use dynamic_schema::DynamicSchemaEngine;
 pub use pluralize::pluralize_entity_name;

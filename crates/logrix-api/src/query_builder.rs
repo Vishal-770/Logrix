@@ -1,3 +1,5 @@
+pub use crate::validation::validate_identifier;
+use crate::validation::validate_numeric_str;
 use sqlx::{Postgres, QueryBuilder};
 
 /// Supported filter comparison operators in GraphQL queries.
@@ -23,7 +25,7 @@ pub struct FieldFilter {
 }
 
 /// Dynamic query parameters parsed from GraphQL arguments.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DynamicQueryParams {
     pub chain_id: u64,
     pub entity_type: String,
@@ -33,6 +35,25 @@ pub struct DynamicQueryParams {
     pub first: Option<usize>,
     pub skip: Option<usize>,
     pub after: Option<String>,
+    pub default_limit: usize,
+    pub max_limit: usize,
+}
+
+impl Default for DynamicQueryParams {
+    fn default() -> Self {
+        Self {
+            chain_id: 1,
+            entity_type: String::new(),
+            filters: Vec::new(),
+            order_by: None,
+            order_direction: None,
+            first: None,
+            skip: None,
+            after: None,
+            default_limit: 100,
+            max_limit: 1000,
+        }
+    }
 }
 
 impl DynamicQueryParams {
@@ -133,8 +154,8 @@ impl DynamicQueryParams {
             builder.push(" ORDER BY block_number DESC, entity_id ASC");
         }
 
-        // Pagination guardrails: default 100, max 1000
-        let limit = self.first.unwrap_or(100).min(1000) as i64;
+        // Pagination guardrails: configured default and max limit
+        let limit = self.first.unwrap_or(self.default_limit).min(self.max_limit) as i64;
         builder.push(" LIMIT ");
         builder.push_bind(limit);
 
@@ -145,40 +166,4 @@ impl DynamicQueryParams {
 
         Ok(builder)
     }
-}
-
-/// Sanitize field identifiers to strictly allow only alphanumeric chars and underscores.
-pub fn validate_identifier(ident: &str) -> Result<(), String> {
-    if ident.is_empty() {
-        return Err("Identifier cannot be empty".to_string());
-    }
-    if !ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!(
-            "Invalid identifier contains unsafe characters: {ident}"
-        ));
-    }
-    Ok(())
-}
-
-/// Validate numeric string representation for safe, exact-precision SQL evaluation.
-pub fn validate_numeric_str(s: &str) -> Result<(), String> {
-    if s.is_empty() {
-        return Err("Numeric filter value cannot be empty".to_string());
-    }
-    let trimmed = s.trim();
-    let num_str = trimmed.strip_prefix('-').unwrap_or(trimmed);
-    if num_str.is_empty() {
-        return Err("Invalid numeric format".to_string());
-    }
-    let mut parts = num_str.splitn(2, '.');
-    let int_part = parts.next().unwrap();
-    if !int_part.chars().all(|c| c.is_ascii_digit()) || int_part.is_empty() {
-        return Err(format!("Invalid integer part in numeric filter: {s}"));
-    }
-    if let Some(frac_part) = parts.next() {
-        if !frac_part.chars().all(|c| c.is_ascii_digit()) || frac_part.is_empty() {
-            return Err(format!("Invalid fractional part in numeric filter: {s}"));
-        }
-    }
-    Ok(())
 }

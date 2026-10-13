@@ -22,11 +22,18 @@ pub async fn run_webhook_dispatcher(
     } else {
         cli.webhook_secret.clone()
     };
-    let dispatcher = logrix_webhook::WebhookDispatcherService::new(
+    let wh_cfg = logrix_webhook::WebhookConfig::new(
+        std::time::Duration::from_secs(cli.tuning.webhook_timeout_secs),
+        cli.tuning.webhook_max_retries,
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_millis(500),
+    );
+    let dispatcher = logrix_webhook::WebhookDispatcherService::new_with_config(
         queue,
         store,
         cli.webhook_url.clone(),
         secret,
+        wh_cfg,
     );
     dispatcher
         .run_loop_with_shutdown(crate::shutdown::wait_for_shutdown_signal())

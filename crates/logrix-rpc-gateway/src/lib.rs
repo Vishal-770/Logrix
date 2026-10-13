@@ -10,6 +10,7 @@
 pub mod budget;
 pub mod bulk;
 pub mod chain_port;
+pub mod config;
 pub mod gateway;
 pub mod pool;
 pub mod provider;
@@ -17,6 +18,7 @@ pub mod singleflight;
 
 pub use budget::CuBudgetTracker;
 pub use bulk::BulkStreamClient;
+pub use config::GatewayConfig;
 pub use gateway::RpcGateway;
 pub use pool::ProviderPool;
 pub use provider::{redact_rpc_url, ManagedProvider};

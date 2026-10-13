@@ -4,9 +4,11 @@
 //! and LocalStack endpoint override for local testing.
 
 pub mod batch;
+pub mod builder;
 pub mod client;
 pub mod port;
 pub mod queue;
 
-pub use client::{SqsClientConfig, SqsConfigBuilder};
+pub use builder::SqsConfigBuilder;
+pub use client::SqsClientConfig;
 pub use queue::SqsQueue;

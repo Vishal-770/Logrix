@@ -22,7 +22,13 @@ fn extract_filter_value(val: &async_graphql::dynamic::ValueAccessor<'_>) -> Opti
 }
 
 /// Build dynamic collection query field: e.g. accounts(where: AccountFilter, first: Int, ...)
-pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) -> Field {
+pub fn build_entity_list_field(
+    entity: &EntityDef,
+    store: Arc<PostgresStore>,
+    default_chain: u64,
+    default_limit: usize,
+    max_limit: usize,
+) -> Field {
     let list_query_name = crate::pluralize::pluralize_entity_name(&entity.name);
     let entity_name = entity.name.clone();
     let filter_name = format!("{}Filter", entity.name);
@@ -34,10 +40,6 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
             let entity_name = entity_name.clone();
             let store = store.clone();
             FieldFuture::new(async move {
-                let default_chain = std::env::var("CHAIN_ID")
-                    .ok()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(1);
                 let chain_id = ctx
                     .args
                     .get("chainId")
@@ -94,6 +96,8 @@ pub fn build_entity_list_field(entity: &EntityDef, store: Arc<PostgresStore>) ->
                     first,
                     skip,
                     after,
+                    default_limit,
+                    max_limit,
                 };
 
                 let mut builder = match params.build_query() {

@@ -30,6 +30,25 @@ impl AdaptiveChunker {
         }
     }
 
+    pub fn with_growth_params(
+        initial_size: u64,
+        min_size: u64,
+        max_size: u64,
+        additive_step: u64,
+        success_threshold_to_grow: u64,
+        target_latency: Duration,
+    ) -> Self {
+        Self {
+            current_size: AtomicU64::new(initial_size.clamp(min_size, max_size)),
+            min_size,
+            max_size,
+            additive_step,
+            consecutive_successes: AtomicU64::new(0),
+            success_threshold_to_grow,
+            target_latency,
+        }
+    }
+
     /// Retrieve the current recommended block chunk size.
     pub fn chunk_size(&self) -> u64 {
         self.current_size.load(Ordering::Relaxed)

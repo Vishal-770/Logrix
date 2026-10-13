@@ -21,7 +21,10 @@ pub async fn run_processor(
     queue: Arc<dyn QueuePort>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Logrix Processor with Reorg Engine & Self-Healing Reconciler");
-    let store = Arc::new(PostgresStore::connect(&config.database_url, "default").await?);
+    let pg_cfg = logrix_store_postgres::PostgresConfig::new(&config.database_url, "default")
+        .max_connections(config.database_max_connections)
+        .min_connections(config.database_min_connections);
+    let store = Arc::new(PostgresStore::connect_with_config(&pg_cfg).await?);
     let blob_store = if let Some(ref bucket) = config.s3_bucket {
         let s3_conf = S3Config::from_env(
             bucket,
@@ -41,13 +44,17 @@ pub async fn run_processor(
         queue.clone(),
         detector.clone(),
     );
-    let reconciler = GapReconciler::new(
+    let mut reconciler = GapReconciler::new(
         config.chain_id,
         store.clone(),
         queue.clone(),
         gateway.clone(),
         Duration::from_secs(config.reconciler_interval_secs),
-    );
+    )
+    .with_lag_threshold(config.reconciler_lag_threshold);
+    if let Some(cs) = config.reconciler_chunk_size {
+        reconciler = reconciler.with_chunk_size(cs);
+    }
     let (shutdown_tx, shutdown_rx) = crate::shutdown::shutdown_channel();
     let reconciler_rx = shutdown_rx.clone();
     tokio::spawn(async move {
@@ -63,11 +70,18 @@ pub async fn run_processor(
         } else {
             config.webhook_secret.clone()
         };
-        let wh_dispatcher = WebhookDispatcherService::new(
+        let wh_cfg = logrix_webhook::WebhookConfig::new(
+            Duration::from_secs(config.webhook_timeout_secs),
+            config.webhook_max_retries,
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+        );
+        let wh_dispatcher = WebhookDispatcherService::new_with_config(
             queue.clone(),
             Some(wh_store),
             config.webhook_url.clone(),
             secret,
+            wh_cfg,
         );
         let wh_rx = shutdown_rx.clone();
         tokio::spawn(async move {

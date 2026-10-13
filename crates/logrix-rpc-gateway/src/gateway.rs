@@ -19,6 +19,7 @@ pub struct RpcGateway {
     pub(crate) singleflight: Arc<SingleFlight>,
     pub(crate) bulk_stream: Arc<BulkStreamClient>,
     pub(crate) block_cache: Arc<RwLock<Option<(u64, Instant)>>>,
+    pub(crate) cache_ttl: Duration,
 }
 
 impl RpcGateway {
@@ -28,6 +29,22 @@ impl RpcGateway {
         max_cu_budget: Option<u64>,
         bulk_endpoint: Option<String>,
     ) -> Self {
+        Self::new_with_config(
+            chain_id,
+            pool,
+            max_cu_budget,
+            bulk_endpoint,
+            &crate::config::GatewayConfig::default(),
+        )
+    }
+
+    pub fn new_with_config(
+        chain_id: ChainId,
+        pool: ProviderPool,
+        max_cu_budget: Option<u64>,
+        bulk_endpoint: Option<String>,
+        cfg: &crate::config::GatewayConfig,
+    ) -> Self {
         Self {
             chain_id,
             pool,
@@ -35,6 +52,7 @@ impl RpcGateway {
             singleflight: Arc::new(SingleFlight::new()),
             bulk_stream: Arc::new(BulkStreamClient::new(chain_id, bulk_endpoint)),
             block_cache: Arc::new(RwLock::new(None)),
+            cache_ttl: cfg.block_cache_ttl,
         }
     }
 
@@ -48,11 +66,11 @@ impl RpcGateway {
         &self.pool
     }
 
-    /// Read unexpired latest block height from 500ms micro-cache.
+    /// Read unexpired latest block height from micro-cache.
     pub async fn get_cached_block(&self) -> Option<u64> {
         let guard = self.block_cache.read().await;
         if let Some((block, ts)) = *guard {
-            if ts.elapsed() < Duration::from_millis(500) {
+            if ts.elapsed() < self.cache_ttl {
                 return Some(block);
             }
         }

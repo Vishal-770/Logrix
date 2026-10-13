@@ -10,16 +10,24 @@ use std::sync::Arc;
 pub struct ProcessorConfig {
     pub chain_id: ChainId,
     pub database_url: String,
+    pub database_max_connections: u32,
+    pub database_min_connections: u32,
     pub target_contract: Address,
     pub ring_buffer_depth: usize,
     pub webhook_url: Option<String>,
     pub webhook_secret: String,
     pub reconciler_interval_secs: u64,
+    pub reconciler_chunk_size: Option<u64>,
+    pub reconciler_lag_threshold: u64,
     pub manifest_path: Option<String>,
     pub enable_webhooks: bool,
     pub s3_bucket: Option<String>,
     pub s3_endpoint: Option<String>,
     pub s3_prefix: Option<String>,
+    pub wasm_fuel_limit: u64,
+    pub wasm_max_memory_mb: u32,
+    pub webhook_timeout_secs: u64,
+    pub webhook_max_retries: u32,
 }
 
 impl ProcessorConfig {
@@ -27,16 +35,24 @@ impl ProcessorConfig {
         Self {
             chain_id,
             database_url: cli.database_url.clone(),
+            database_max_connections: cli.database_max_connections,
+            database_min_connections: cli.database_min_connections,
             target_contract,
             ring_buffer_depth: cli.ring_buffer_depth,
             webhook_url: cli.webhook_url.clone(),
             webhook_secret: cli.webhook_secret.clone(),
             reconciler_interval_secs: cli.reconciler_interval_secs,
+            reconciler_chunk_size: cli.tuning.reconciler_chunk_size,
+            reconciler_lag_threshold: cli.tuning.reconciler_lag_threshold,
             manifest_path: cli.manifest_path.clone(),
             enable_webhooks: cli.enable_webhooks,
             s3_bucket: cli.s3_bucket.clone(),
             s3_endpoint: cli.s3_endpoint.clone(),
             s3_prefix: cli.s3_prefix.clone(),
+            wasm_fuel_limit: cli.tuning.wasm_fuel_limit,
+            wasm_max_memory_mb: cli.tuning.wasm_max_memory_mb,
+            webhook_timeout_secs: cli.tuning.webhook_timeout_secs,
+            webhook_max_retries: cli.tuning.webhook_max_retries,
         }
     }
 }
