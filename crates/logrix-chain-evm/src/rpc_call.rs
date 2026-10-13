@@ -94,6 +94,14 @@ impl EvmChainClient {
                             format!("RPC HTTP error status: {status}"),
                         ));
                     }
+
+                    // Non-retryable client errors (400, 401, 403, 404, etc.)
+                    self.chunker.record_failure();
+                    return Err(LogrixError::new(
+                        ErrorClass::Permanent,
+                        ErrorSource::ChainRpc,
+                        format!("RPC client HTTP error status: {status}"),
+                    ));
                 }
                 Err(e) => {
                     self.chunker.record_failure();
