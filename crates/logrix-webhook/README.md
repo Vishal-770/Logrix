@@ -147,6 +147,29 @@ function verifyLogrixSignature(
 
 ---
 
+## Configuration & Tuning
+
+### Environment Variables & CLI Options
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `ENABLE_WEBHOOKS` | `--enable-webhooks` | `false` | Optional | Opt-in toggle to activate webhook worker loop in all-in-one runner |
+| `WEBHOOK_URL` | `--webhook-url` | None | Optional | Static fallback URL for external reorg and event notifications |
+| `WEBHOOK_SECRET` | `--webhook-secret` | `""` | Optional | Webhook HMAC-SHA256 signing secret for default fallback URL |
+| `WEBHOOK_TIMEOUT_SECS`| `--webhook-timeout-secs`| `5` seconds | Optional | Outgoing HTTP POST request timeout |
+| `WEBHOOK_MAX_RETRIES` | `--webhook-max-retries` | `1` attempt | Optional | Maximum retry delivery attempts before logging failure |
+
+### Programmatic Configuration (`WebhookConfig`)
+
+| Field | Default Value | Required? | Description |
+|---|---|---|---|
+| `timeout` | `5s` | Optional | Outgoing delivery HTTP client request timeout |
+| `max_retries` | `1` | Optional | Max consecutive delivery retries |
+| `worker_idle_sleep` | `100ms` | Optional | Sleep duration when webhook queue is empty |
+| `worker_error_backoff`| `500ms` | Optional | Backoff delay before retrying polling after network error |
+
+---
+
 ## Configuration Methods
 
 ### 1. Declarative Manifest Seeding (`logrix.yaml`)
@@ -176,7 +199,9 @@ logrix webhook \
   --database-url postgres://logrix:logrix@localhost:5432/logrix \
   --rabbitmq-url amqp://logrix:logrix@localhost:5672/%2f \
   --webhook-url https://api.mybackend.com/webhooks/default \
-  --webhook-secret whsec_my_custom_secret
+  --webhook-secret whsec_my_custom_secret \
+  --webhook-timeout-secs 10 \
+  --webhook-max-retries 3
 ```
 
 ### 3. Dynamic Management REST API

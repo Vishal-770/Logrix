@@ -15,8 +15,25 @@ Unlike AMQP brokers (like RabbitMQ) which route through an internal exchange, AW
 | `QueueType::Webhook` | `SQS_WEBHOOK_URL` | Outgoing HTTP webhook events delivered asynchronously |
 | `QueueType::DeadLetter` | `SQS_DLQ_URL` | Poison message quarantine for inspecting failures |
 
-## Configuration
-Activate SQS by setting the queue driver:
+## Configuration & Tuning
+
+Activate SQS by setting `QUEUE_DRIVER=sqs` or `--queue-driver sqs`.
+
+### Environment Variables & CLI Options
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `QUEUE_DRIVER` | `--queue-driver` | `rabbitmq` | Optional | Set to `sqs` to activate AWS SQS driver |
+| `SQS_LIVE_URL` | `--sqs-live-url` | `""` | Required if SQS active | SQS Queue URL for real-time live block indexing |
+| `SQS_BACKFILL_URL` | `--sqs-backfill-url` | `""` (falls back to live) | Optional | SQS Queue URL for historical backfill jobs |
+| `SQS_WEBHOOK_URL` | `--sqs-webhook-url` | `""` (falls back to live) | Optional | SQS Queue URL for outgoing webhook event jobs |
+| `SQS_DLQ_URL` | `--sqs-dlq-url` | `""` (falls back to live) | Optional | SQS Queue URL for poison message quarantine |
+| `SQS_ENDPOINT` | `--sqs-endpoint` | None | Optional | Custom AWS endpoint override (e.g. `http://localhost:4566` for LocalStack) |
+| `SQS_WAIT_TIME_SECONDS` | `--sqs-wait-time-seconds` | `2` (range: 0-20) | Optional | SQS long-polling wait duration per receive call |
+| `SQS_MAX_MESSAGES` | `--sqs-max-messages` | `1` (range: 1-10) | Optional | Maximum message batch count fetched per receive call |
+| `AWS_REGION` | N/A | `us-east-1` (or AWS default) | Optional | AWS region for SQS client connection |
+
+### Environment Configuration Example
 
 ```bash
 QUEUE_DRIVER=sqs
@@ -24,6 +41,8 @@ SQS_LIVE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-live
 SQS_BACKFILL_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-backfill
 SQS_WEBHOOK_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-webhook
 SQS_DLQ_URL=https://sqs.us-east-1.amazonaws.com/123456789012/logrix-dlq
+SQS_WAIT_TIME_SECONDS=2
+SQS_MAX_MESSAGES=10
 ```
 
 ## Programmatic Configuration

@@ -170,6 +170,33 @@ export function exportValuesCommand(): Command {
         },
       };
 
+      const idx = config.indexing ?? {};
+      if (idx.chunkSize !== undefined) values.config.chunkSize = idx.chunkSize;
+      if (idx.reconcilerChunkSize !== undefined) values.config.reconcilerChunkSize = idx.reconcilerChunkSize;
+      if (idx.reconcilerLagThreshold !== undefined) values.config.reconcilerLagThreshold = idx.reconcilerLagThreshold;
+      if (idx.chainHeadPollMs !== undefined) values.config.chainHeadPollMs = idx.chainHeadPollMs;
+      if (idx.maxQueueDepth !== undefined) values.config.maxQueueDepth = idx.maxQueueDepth;
+      if (idx.rpcTimeoutSecs !== undefined) values.config.rpcTimeoutSecs = idx.rpcTimeoutSecs;
+      if (idx.rpcCbThreshold !== undefined) values.config.rpcCbThreshold = idx.rpcCbThreshold;
+      if (idx.rpcCooldownSecs !== undefined) values.config.rpcCooldownSecs = idx.rpcCooldownSecs;
+      if (idx.cuBudget !== undefined) values.config.cuBudget = idx.cuBudget;
+      if (idx.bulkStreamUrl !== undefined) values.config.bulkStreamUrl = idx.bulkStreamUrl;
+      if (idx.databaseMaxConnections !== undefined) values.config.databaseMaxConnections = idx.databaseMaxConnections;
+      if (idx.databaseMinConnections !== undefined) values.config.databaseMinConnections = idx.databaseMinConnections;
+      if (idx.rabbitmqPrefetch !== undefined) values.config.rabbitmqPrefetch = idx.rabbitmqPrefetch;
+      if (idx.rabbitmqTimeoutSecs !== undefined) values.config.rabbitmqTimeoutSecs = idx.rabbitmqTimeoutSecs;
+      if (idx.sqsWaitTimeSeconds !== undefined) values.config.sqsWaitTimeSeconds = idx.sqsWaitTimeSeconds;
+      if (idx.sqsMaxMessages !== undefined) values.config.sqsMaxMessages = idx.sqsMaxMessages;
+      if (idx.wasmFuelLimit !== undefined) values.config.wasmFuelLimit = idx.wasmFuelLimit;
+      if (idx.wasmMaxMemoryMb !== undefined) values.config.wasmMaxMemoryMb = idx.wasmMaxMemoryMb;
+      if (idx.graphqlMaxDepth !== undefined) values.config.graphqlMaxDepth = idx.graphqlMaxDepth;
+      if (idx.graphqlMaxComplexity !== undefined) values.config.graphqlMaxComplexity = idx.graphqlMaxComplexity;
+      if (idx.graphqlDefaultLimit !== undefined) values.config.graphqlDefaultLimit = idx.graphqlDefaultLimit;
+      if (idx.graphqlMaxLimit !== undefined) values.config.graphqlMaxLimit = idx.graphqlMaxLimit;
+      if (idx.graphqlQueryTimeoutSecs !== undefined) values.config.graphqlQueryTimeoutSecs = idx.graphqlQueryTimeoutSecs;
+      if (idx.webhookTimeoutSecs !== undefined) values.config.webhookTimeoutSecs = idx.webhookTimeoutSecs;
+      if (idx.webhookMaxRetries !== undefined) values.config.webhookMaxRetries = idx.webhookMaxRetries;
+
       if (webhooks.length > 0) {
         values.config.webhookUrl = webhooks[0].url;
         values.webhook = {

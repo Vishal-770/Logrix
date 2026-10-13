@@ -13,3 +13,38 @@ Implements `StorePort` using `sqlx` and PostgreSQL for transactionally safe, aud
 - **Liveness & Readiness Pings**: Built-in `.ping()` method supports container health checks and Kubernetes readiness probes.
 - **Embedded Migrations**: Versioned database migrations executed automatically on boot.
 
+---
+
+## Configuration & Tuning (`PostgresConfig`)
+
+### Environment Variables & CLI Options
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `DATABASE_URL` | `--database-url` | `postgres://logrix:logrix@localhost:5432/logrix` | Required | PostgreSQL connection string |
+| `DATABASE_MAX_CONNECTIONS` | `--db-max-connections` | `10` connections | Optional | Maximum concurrent connections allocated in pool |
+| `DATABASE_MIN_CONNECTIONS` | `--db-min-connections` | `2` connections | Optional | Minimum idle connections preserved in pool |
+
+### Programmatic Configuration
+
+| Field | Builder Method | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `database_url` | `PostgresConfig::new()` | N/A | Required | Target database URL |
+| `pipeline_id` | `PostgresConfig::new()` | N/A | Required | Unique indexer pipeline namespace identifier |
+| `max_connections` | `.max_connections()` | `10` | Optional | Connection pool upper bound |
+| `min_connections` | `.min_connections()` | `2` | Optional | Connection pool lower bound |
+| `acquire_timeout` | `.acquire_timeout()` | `10s` | Optional | Maximum wait duration to checkout a pool connection |
+| `idle_timeout` | `.idle_timeout()` | `600s` (10m) | Optional | Duration before idle connections are closed |
+
+```rust
+use logrix_store_postgres::{PostgresConfig, PostgresStore};
+use std::time::Duration;
+
+let config = PostgresConfig::new("postgres://user:pass@localhost:5432/logrix", "mainnet-pipeline")
+    .max_connections(25)
+    .min_connections(5)
+    .acquire_timeout(Duration::from_secs(15))
+    .idle_timeout(Duration::from_secs(300));
+
+let store = PostgresStore::connect_with_config(config).await?;
+```

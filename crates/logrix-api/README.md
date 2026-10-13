@@ -20,6 +20,47 @@ The GraphQL engine automatically serves entities indexed in PostgreSQL. When que
 
 ---
 
+## Configuration & Tuning (`ApiConfig`)
+
+The API server and GraphQL execution guardrails are configurable via CLI arguments, environment variables, or programmatically:
+
+| Variable | CLI Flag | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `DATABASE_URL` | `--database-url` | `postgres://logrix:logrix@localhost:5432/logrix` | Required | PostgreSQL connection string |
+| `CHAIN_ID` | `--chain-id` | `421614` (CLI) / `None` (Direct, falls back to 1) | Optional | Default network chain ID injected when queries omit `chainId` |
+| `GRAPHQL_MAX_DEPTH` | `--graphql-max-depth` | `7` | Optional | Maximum nested field depth allowed in GraphQL queries |
+| `GRAPHQL_MAX_COMPLEXITY` | `--graphql-max-complexity` | `200` | Optional | Maximum query complexity calculation budget |
+| `GRAPHQL_DEFAULT_LIMIT` | `--graphql-default-limit` | `100` | Optional | Default entity list limit if `first:` argument is omitted |
+| `GRAPHQL_MAX_LIMIT` | `--graphql-max-limit` | `1000` | Optional | Maximum upper bound for `first:` pagination parameter |
+| `GRAPHQL_QUERY_TIMEOUT_SECS`| `--graphql-query-timeout-secs`| `5` seconds | Optional | Maximum execution time before canceling query |
+| `PORT` | `--port` | `8080` (or `4000` in container) | Optional | HTTP listen port for GraphQL server and Webhook REST API |
+
+### Programmatic Usage
+
+```rust
+use logrix_api::{server::start_api_server_with_schema, ApiConfig};
+use std::net::SocketAddr;
+
+let config = ApiConfig {
+    max_depth: 10,
+    max_complexity: 300,
+    default_limit: 50,
+    max_limit: 500,
+    query_timeout_secs: 10,
+    chain_id: Some(42161),
+};
+
+start_api_server_with_schema(
+    store,
+    Some("schema.graphql"),
+    Some(config),
+    Some(broadcaster),
+    SocketAddr::from(([0, 0, 0, 0], 8080)),
+).await?;
+```
+
+---
+
 ## Webhook Management API (`/api/v1/webhooks`)
 
 ### 1. Register a New Webhook Endpoint

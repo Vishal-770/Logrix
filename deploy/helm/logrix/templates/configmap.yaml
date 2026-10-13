@@ -37,6 +37,23 @@ data:
   {{- end }}
   RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | quote }}
   RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | quote }}
+  {{- if .Values.config.reconcilerChunkSize }}
+  RECONCILER_CHUNK_SIZE: {{ .Values.config.reconcilerChunkSize | quote }}
+  {{- end }}
+  RECONCILER_LAG_THRESHOLD: {{ .Values.config.reconcilerLagThreshold | default 50 | quote }}
+  CHAIN_HEAD_POLL_MS: {{ .Values.config.chainHeadPollMs | default 1500 | quote }}
+  RABBITMQ_PREFETCH: {{ .Values.config.rabbitmqPrefetch | default 100 | quote }}
+  RABBITMQ_TIMEOUT_SECS: {{ .Values.config.rabbitmqTimeoutSecs | default 10 | quote }}
+  SQS_WAIT_TIME_SECONDS: {{ .Values.config.sqsWaitTimeSeconds | default 2 | quote }}
+  SQS_MAX_MESSAGES: {{ .Values.config.sqsMaxMessages | default 1 | quote }}
+  WASM_FUEL_LIMIT: {{ .Values.config.wasmFuelLimit | default 1000000 | quote }}
+  WASM_MAX_MEMORY_MB: {{ .Values.config.wasmMaxMemoryMb | default 128 | quote }}
+  RPC_TIMEOUT_SECS: {{ .Values.config.rpcTimeoutSecs | default 10 | quote }}
+  RPC_CB_THRESHOLD: {{ .Values.config.rpcCbThreshold | default 5 | quote }}
+  RPC_COOLDOWN_SECS: {{ .Values.config.rpcCooldownSecs | default 30 | quote }}
+  WEBHOOK_TIMEOUT_SECS: {{ .Values.config.webhookTimeoutSecs | default 5 | quote }}
+  WEBHOOK_MAX_RETRIES: {{ .Values.config.webhookMaxRetries | default 1 | quote }}
+  GRAPHQL_QUERY_TIMEOUT_SECS: {{ .Values.config.graphqlQueryTimeoutSecs | default 5 | quote }}
   {{- if .Values.config.startBlock }}
   START_BLOCK: {{ .Values.config.startBlock | quote }}
   {{- end }}

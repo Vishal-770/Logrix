@@ -103,16 +103,45 @@ The crate includes exhaustive unit and integration tests under `tests/`:
 
 ---
 
-## Configuration & Environment Variables
+## Configuration & Tuning
 
-| Variable | Description | Default | Example |
-| :--- | :--- | :--- | :--- |
-| `RPC_URL` | Primary JSON-RPC endpoint (Tier 1) | Required | `https://arb-mainnet.g.alchemy.com/v2/KEY` |
-| `RPC_FALLBACK_URLS` | Comma-delimited fallback endpoints (Tier 2/3) | None | `https://rpc.ankr.com/arbitrum,https://arb1.arbitrum.io/rpc` |
-| `CU_BUDGET` | Maximum Compute Units allowed before halting queries | Unlimited | `10000000` |
-| `RPC_MAX_RETRIES` | Maximum retry attempts per request across providers | `3` | `5` |
-| `RPC_TIMEOUT_SECS` | Network request timeout in seconds | `15` | `30` |
-| `BULK_STREAM_URL` | Custom SQD / HyperSync archive endpoint | Chain default | `https://v2.archive.subsquid.io/network/arbitrum-one` |
+### Environment Variables & CLI Options
+
+| Variable | CLI Flag | Description | Default | Required? | Example |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `RPC_URL` | `--rpc-url` | Primary JSON-RPC endpoint (Tier 1) | `https://sepolia-rollup.arbitrum.io/rpc` | Required | `https://arb-mainnet.g.alchemy.com/v2/KEY` |
+| `RPC_FALLBACK_URLS` | `--rpc-fallback-urls` | Comma-delimited fallback endpoints (Tier 2/3) | None | Optional | `https://rpc.ankr.com/arbitrum,https://arb1.arbitrum.io/rpc` |
+| `CU_BUDGET` | `--cu-budget` | Maximum Compute Units allowed before halting queries | None (Unlimited) | Optional | `10000000` |
+| `RPC_MAX_RETRIES` | N/A | Maximum retry attempts per request across providers | `3` | Optional | `5` |
+| `RPC_TIMEOUT_SECS` | `--rpc-timeout-secs` | Network request timeout in seconds | `10` (CLI) / `15` (Direct) | Optional | `30` |
+| `RPC_CB_THRESHOLD` | `--rpc-cb-threshold` | Consecutive failures before tripping provider circuit breaker | `5` (CLI) / `3` (Direct) | Optional | `3` |
+| `RPC_COOLDOWN_SECS` | `--rpc-cooldown-secs` | Initial circuit breaker cooldown duration in seconds | `30` (CLI) / `10` (Direct) | Optional | `60` |
+| `BULK_STREAM_URL` | `--bulk-stream-url` | Custom SQD / HyperSync archive endpoint | Chain default | Optional | `https://v2.archive.subsquid.io/network/arbitrum-one` |
+
+### Programmatic Configuration (`GatewayConfig`)
+
+When embedding `RpcGateway` directly in custom code, fine-grained behavior is configured via `GatewayConfig`:
+
+| Field | Builder Method | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `block_cache_ttl` | `.with_block_cache_ttl()` | `500ms` | Optional | TTL for caching latest block height queries |
+| `circuit_breaker_failure_threshold` | `.with_circuit_breaker()` | `3` | Optional | Consecutive errors required to trip circuit breaker |
+| `circuit_breaker_success_threshold` | `.with_circuit_breaker()` | `2` | Optional | Consecutive successful probes to close circuit breaker |
+| `circuit_breaker_recovery_timeout` | `.with_circuit_breaker()` | `10s` | Optional | Cooldown duration before attempting half-open probe |
+| `initial_cooldown_secs` | `.with_cooldown_bounds()` | `10s` | Optional | Initial backoff cooldown period |
+| `max_cooldown_secs` | `.with_cooldown_bounds()` | `120s` | Optional | Maximum ceiling for exponential cooldown backoff |
+
+```rust
+use logrix_rpc_gateway::{GatewayConfig, RpcGateway};
+use std::time::Duration;
+
+let config = GatewayConfig::default()
+    .with_block_cache_ttl(Duration::from_millis(1000))
+    .with_circuit_breaker(5, 3, Duration::from_secs(15))
+    .with_cooldown_bounds(15, 180);
+
+let gateway = RpcGateway::new_with_config(providers, config)?;
+```
 
 ---
 

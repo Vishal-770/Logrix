@@ -20,6 +20,97 @@ npm test
 
 ---
 
+## Manifest Configuration (`logrix.yaml`)
+
+`logrix.yaml` is the single source of truth for your indexer project. Users do not need to author or edit Helm charts directly—all contract logic, event mappings, and operational tuning parameters are defined directly in `logrix.yaml`.
+
+Running `npx @logrix/sdk export-values` automatically compiles `logrix.yaml` into a production-ready `indexer-values.yaml` bundle configured for deployment to the published Logrix Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
+
+### Complete `logrix.yaml` Example
+
+```yaml
+specVersion: 0.1.0
+
+# 1. Target Blockchain Network
+network:
+  name: arbitrum-one
+  chainId: 42161
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+  fallbackRpcUrls:
+    - "https://arb1.arbitrum.io/rpc"
+
+# 2. Smart Contracts & Mapping Handlers
+dataSources:
+  - kind: ethereum/contract
+    name: UniswapV3Pool
+    network: arbitrum-one
+    source:
+      address: "0xC6962004f452bE9203591991D15f6b388e09E8D0"
+      abi: UniswapV3Pool
+      startBlock: 514022000
+    mapping:
+      kind: wasm/assemblyscript
+      file: ./build/mapping.wasm
+      # Per-contract resource limits & toggles:
+      enabled: true                  # Toggle to pause indexing without deleting config (default: true)
+      fuelLimit: 5000000             # Instruction fuel budget override
+      maxMemoryMb: 256               # WASM linear memory ceiling in MB
+      abis:
+        - name: UniswapV3Pool
+          file: ./abis/UniswapV3Pool.json
+      eventHandlers:
+        - event: Swap(address indexed,address indexed,int256,int256,uint160,uint128,int24)
+          handler: handleSwap
+        - event: Mint(address,address indexed,int24 indexed,int24 indexed,uint128,uint256,uint256)
+          handler: handleMint
+        - event: Burn(address indexed,int24 indexed,int24 indexed,uint128,uint256,uint256)
+          handler: handleBurn
+
+# 3. Outbound Webhook Subscriptions
+webhooks:
+  - url: "https://api.mybackend.com/webhooks/reorgs"
+    events: ["reorg"]
+    maxRetries: 3
+    secret: "${CRITICAL_WEBHOOK_SECRET}"
+
+# 4. Operational & Engine Tuning (Optional - Sensible Defaults Applied)
+indexing:
+  # Ingestion & RPC Tuning
+  chunkSize: 10                      # Maximum blocks queried per eth_getLogs batch (default: 10)
+  chainHeadPollMs: 1500              # Polling interval at chain head in ms (default: 1500)
+  maxQueueDepth: 1000                # Queue backpressure threshold before pausing (default: 1000)
+  rpcTimeoutSecs: 10                 # RPC HTTP client timeout in seconds (default: 10)
+  rpcCbThreshold: 5                  # Circuit breaker consecutive failure trip threshold (default: 5)
+  rpcCooldownSecs: 30                # Circuit breaker cooldown in seconds (default: 30)
+
+  # Reorg & Gap Reconciler Tuning
+  ringBufferDepth: 128               # Rolling parent-hash ring buffer size (default: 128)
+  reconcilerIntervalSecs: 30         # Periodic gap check interval in seconds (default: 30)
+  reconcilerChunkSize: 10            # Chunk size when filling missing block ranges (default: 10)
+  reconcilerLagThreshold: 50         # Blocks behind head before reconciling (default: 50)
+
+  # Database Connection Limits
+  databaseMaxConnections: 10         # Max PostgreSQL pool connections per pod (default: 10)
+  databaseMinConnections: 2          # Min idle PostgreSQL pool connections (default: 2)
+
+  # Queue Driver Parameters
+  rabbitmqPrefetch: 100              # RabbitMQ consumer channel QoS prefetch (default: 100)
+  rabbitmqTimeoutSecs: 10            # RabbitMQ connection timeout (default: 10)
+  sqsWaitTimeSeconds: 2              # SQS receive message long polling wait (0-20s, default: 2)
+  sqsMaxMessages: 1                  # SQS batch receive count (1-10, default: 1)
+
+  # Webhook & GraphQL Guardrails
+  webhookTimeoutSecs: 5              # Outgoing webhook HTTP request timeout (default: 5)
+  webhookMaxRetries: 1               # Default delivery retry attempts (default: 1)
+  graphqlMaxDepth: 7                 # GraphQL query max nesting depth (default: 7)
+  graphqlMaxComplexity: 200          # GraphQL query complexity limit (default: 200)
+  graphqlDefaultLimit: 100           # Default query result count (default: 100)
+  graphqlMaxLimit: 1000              # Max query pagination size (default: 1000)
+  graphqlQueryTimeoutSecs: 5         # Query execution timeout in seconds (default: 5)
+```
+
+---
+
 ## CLI Commands
 
 ### `logrix init [name]`

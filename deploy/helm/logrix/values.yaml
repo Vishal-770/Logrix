@@ -36,6 +36,22 @@ config:
   webhookUrl: ""
   reconcilerIntervalSecs: 30
   ringBufferDepth: 128
+  # Extended runtime tuning & resilience parameters
+  reconcilerChunkSize: ""
+  reconcilerLagThreshold: 50
+  chainHeadPollMs: 1500
+  rabbitmqPrefetch: 100
+  rabbitmqTimeoutSecs: 10
+  sqsWaitTimeSeconds: 2
+  sqsMaxMessages: 1
+  wasmFuelLimit: 1000000
+  wasmMaxMemoryMb: 128
+  rpcTimeoutSecs: 10
+  rpcCbThreshold: 5
+  rpcCooldownSecs: 30
+  webhookTimeoutSecs: 5
+  webhookMaxRetries: 1
+  graphqlQueryTimeoutSecs: 5
   manifestPath: ""
   schemaPath: ""
   # Inline manifest.yaml content for pure Kubernetes / zero-code deployments

@@ -30,3 +30,9 @@ dataSources:
 indexing:
   ringBufferDepth: 128
   reconcilerIntervalSecs: 30
+  chunkSize: 10
+  reconcilerChunkSize: 10
+  reconcilerLagThreshold: 50
+  chainHeadPollMs: 1500
+  rpcTimeoutSecs: 15
+  databaseMaxConnections: 20

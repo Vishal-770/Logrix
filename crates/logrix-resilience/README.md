@@ -20,3 +20,60 @@ Provides zero-allocation, thread-safe resilience utilities used across RPC clien
 - **`RetryBudget`**:
   - Token-bucket budget guarding against retry storms and downstream cascade failures.
   - Atomic state tracking with `available_budget()` inspection.
+
+---
+
+## Configuration & Tuning
+
+All resilience primitives are configurable at initialization time with sensible production defaults:
+
+### 1. `CircuitBreaker`
+
+| Parameter | Type | Default in Gateway | Default in CLI | Description |
+|---|---|---|---|---|
+| `failure_threshold` | `u32` | `3` errors | `5` errors (`RPC_CB_THRESHOLD`) | Consecutive errors before tripping circuit to `Open` |
+| `success_threshold` | `u32` | `2` successes | `2` successes | Consecutive successful probes to restore to `Closed` |
+| `reset_timeout` | `Duration` | `10s` | `30s` (`RPC_COOLDOWN_SECS`) | Duration spent in `Open` before probing in `HalfOpen` |
+
+```rust
+use logrix_resilience::CircuitBreaker;
+use std::time::Duration;
+
+let cb = CircuitBreaker::new(5, 2, Duration::from_secs(30));
+if cb.can_execute().await {
+    // Perform network call
+}
+```
+
+### 2. `RateLimiter`
+
+| Parameter | Type | Default in EVM Client | Description |
+|---|---|---|---|
+| `capacity` | `u32` | `100` tokens | Maximum bucket burst capacity |
+| `refill_rate` | `f64` | `50.0` tokens/sec | Tokens added back per second |
+
+```rust
+use logrix_resilience::RateLimiter;
+
+let limiter = RateLimiter::new(100, 50.0);
+limiter.acquire().await; // Waits if tokens exhausted
+```
+
+### 3. `RetryPolicy`
+
+| Parameter | Type | Default in EVM Client | Description |
+|---|---|---|---|
+| `max_retries` | `u32` | `3` attempts | Maximum retry attempts |
+| `initial_backoff` | `Duration` | `200ms` | Initial backoff duration before first retry |
+| `max_backoff` | `Duration` | `5s` | Maximum capped backoff ceiling |
+| `multiplier` | `f64` | `2.0` | Exponential backoff growth factor |
+| `jitter` | `bool` | `true` | Full jitter randomization to decorrelate retries |
+
+```rust
+use logrix_resilience::RetryPolicy;
+use std::time::Duration;
+
+let policy = RetryPolicy::new(3, Duration::from_millis(200), Duration::from_secs(5))
+    .with_multiplier(2.0)
+    .with_jitter(true);
+```

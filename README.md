@@ -116,6 +116,29 @@ Production architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, 
 
 ---
 
+## Configuration & Tuning Reference
+
+All Logrix components are fully configurable through environment variables, CLI flags, and YAML manifests with sensible production defaults.
+
+| Subsystem | Key Environment Variables | Default Value | Crate Documentation |
+|---|---|---|---|
+| **PostgreSQL Database** | `DATABASE_URL`<br>`DATABASE_MAX_CONNECTIONS`<br>`DATABASE_MIN_CONNECTIONS` | `postgres://logrix:logrix@localhost:5432/logrix`<br>`10`<br>`2` | [`logrix-store-postgres`](crates/logrix-store-postgres) |
+| **RabbitMQ Queue** | `RABBITMQ_URL`<br>`RABBITMQ_PREFETCH`<br>`RABBITMQ_TIMEOUT_SECS` | `amqp://logrix:logrix@localhost:5672/%2f`<br>`100`<br>`10s` | [`logrix-queue-rabbitmq`](crates/logrix-queue-rabbitmq) |
+| **AWS SQS Queue** | `QUEUE_DRIVER=sqs`<br>`SQS_LIVE_URL`<br>`SQS_WAIT_TIME_SECONDS`<br>`SQS_MAX_MESSAGES` | `rabbitmq`<br>`""` (Required if SQS)<br>`2s`<br>`1` | [`logrix-queue-sqs`](crates/logrix-queue-sqs) |
+| **JSON-RPC Gateway** | `RPC_URL`<br>`RPC_FALLBACK_URLS`<br>`RPC_TIMEOUT_SECS`<br>`RPC_CB_THRESHOLD`<br>`RPC_COOLDOWN_SECS` | `https://sepolia-rollup.arbitrum.io/rpc`<br>None<br>`10s`<br>`5`<br>`30s` | [`logrix-rpc-gateway`](crates/logrix-rpc-gateway) |
+| **EVM Log Extraction** | `CHAIN_ID`<br>`CHUNK_SIZE`<br>`CHAIN_HEAD_POLL_MS`<br>`MAX_QUEUE_DEPTH` | `421614`<br>`10`<br>`1500ms`<br>`1000` | [`logrix-chain-evm`](crates/logrix-chain-evm) |
+| **Gap Reconciler & Reorg** | `RING_BUFFER_DEPTH`<br>`RECONCILER_INTERVAL_SECS`<br>`RECONCILER_CHUNK_SIZE`<br>`RECONCILER_LAG_THRESHOLD` | `128`<br>`30s`<br>`10`<br>`50` | [`logrix-reconciler`](crates/logrix-reconciler) |
+| **WASM Handlers** | `WASM_FUEL_LIMIT`<br>`WASM_MAX_MEMORY_MB`<br>`MANIFEST_PATH` | `1,000,000`<br>`128 MB`<br>None | [`logrix-handlers`](crates/logrix-handlers) |
+| **GraphQL API Server** | `GRAPHQL_MAX_DEPTH`<br>`GRAPHQL_MAX_COMPLEXITY`<br>`GRAPHQL_DEFAULT_LIMIT`<br>`GRAPHQL_MAX_LIMIT`<br>`GRAPHQL_QUERY_TIMEOUT_SECS` | `7`<br>`200`<br>`100`<br>`1000`<br>`5s` | [`logrix-api`](crates/logrix-api) |
+| **Webhook Dispatcher** | `ENABLE_WEBHOOKS`<br>`WEBHOOK_URL`<br>`WEBHOOK_SECRET`<br>`WEBHOOK_TIMEOUT_SECS`<br>`WEBHOOK_MAX_RETRIES` | `false`<br>None<br>`""`<br>`5s`<br>`1` | [`logrix-webhook`](crates/logrix-webhook) |
+| **Cloud Object Storage** | `S3_BUCKET`<br>`S3_ENDPOINT`<br>`S3_PREFIX` | None<br>None<br>None | [`logrix-blob-s3`](crates/logrix-blob-s3) |
+| **Fault Tolerance Primitives** | Circuit breakers, Token bucket rate limiting, Jitter backoff | Tuned per subsystem | [`logrix-resilience`](crates/logrix-resilience) |
+| **Unified CLI Runner** | Full flag & subcommand reference | See CLI guide | [`logrix-cli`](crates/logrix-cli) |
+
+For complete per-crate options, custom programmatic builders, and architecture details, refer to each individual crate README linked above.
+
+---
+
 ## Monitoring & Dashboards
 
 ### 1. Logrix Studio (Web Dashboard & GraphQL Explorer)
