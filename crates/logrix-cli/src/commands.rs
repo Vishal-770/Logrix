@@ -2,23 +2,6 @@ use clap::Subcommand;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
-    /// Initialize a new indexer project with interactive wizard
-    Init {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        profile: Option<String>,
-        #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        contract: Option<String>,
-        #[arg(long)]
-        start_block: Option<u64>,
-        #[arg(long)]
-        logic: Option<String>,
-        #[arg(long, default_value_t = false)]
-        non_interactive: bool,
-    },
     /// Live terminal status dashboard monitoring indexer health
     Status {
         #[arg(long, default_value_t = false)]
@@ -50,14 +33,5 @@ pub enum Commands {
     AllInOne {
         #[arg(long, env = "PORT", default_value_t = 4000)]
         port: u16,
-    },
-    /// 1-Click deployment for Local Docker or AWS EKS with auto-compiled WASM handlers
-    Deploy {
-        /// Deploy to local Docker environment (PostgreSQL, RabbitMQ, and indexer engine)
-        #[arg(long)]
-        local: bool,
-        /// Deploy to AWS production environment (Terraform + EKS Helm)
-        #[arg(long)]
-        aws: bool,
     },
 }
