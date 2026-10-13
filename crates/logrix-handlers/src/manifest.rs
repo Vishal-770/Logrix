@@ -44,8 +44,28 @@ pub struct ManifestWebhook {
 }
 
 impl Manifest {
-    /// Parse manifest from YAML string.
+    /// Parse manifest from YAML string (supports both runtime and SDK project formats).
     pub fn from_yaml_str(yaml_str: &str) -> LogrixResult<Self> {
+        if let Ok(m) = serde_yaml::from_str::<Manifest>(yaml_str) {
+            return Ok(m);
+        }
+
+        if let Ok(sdk) = serde_yaml::from_str::<crate::sdk_manifest::SdkProjectManifest>(yaml_str) {
+            let (schema_version, chain_id, contracts) = sdk.into_contracts();
+            let indexing: Option<ManifestIndexing> = serde_yaml::from_str::<serde_yaml::Value>(yaml_str)
+                .ok()
+                .and_then(|v| v.get("indexing").cloned())
+                .and_then(|idx| serde_yaml::from_value(idx).ok());
+
+            return Ok(Self {
+                schema_version,
+                chain_id,
+                contracts,
+                webhooks: Vec::new(),
+                indexing,
+            });
+        }
+
         serde_yaml::from_str(yaml_str).map_err(|e| {
             LogrixError::new(
                 ErrorClass::Permanent,

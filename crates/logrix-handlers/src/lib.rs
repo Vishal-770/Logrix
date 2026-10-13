@@ -4,6 +4,7 @@
 pub mod declarative;
 pub mod engine;
 pub mod manifest;
+pub mod sdk_manifest;
 pub mod staging;
 pub mod wasm;
 
