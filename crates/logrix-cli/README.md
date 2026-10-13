@@ -11,15 +11,17 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 - **Ingestion Backpressure Throttling**: The ingester monitors total queue backlog (`Live` + `Backfill`) via `QueuePort::depth()`. If the backlog exceeds `--max-queue-depth` (default: 1,000 jobs), it pauses ingestion until processor pods burn down the queue, preventing RabbitMQ/SQS memory and disk overflow.
 - **Database Saturation Protection**: Processors enforce bounded connection pools (`DATABASE_MAX_CONNECTIONS = 10`), preventing horizontally scaled pods (e.g. up to 50 pods via KEDA) from saturating PostgreSQL connection limits. Store write failures back off before nacking to prevent hot CPU spin loops.
 
-## Available Subcommands
-- `logrix init`: Scaffolds a new indexer project with TypeScript/AssemblyScript handlers.
+## Available Subcommands (Production Runtime Node)
 - `logrix ingester`: Runs the chain head poller and block dispatcher. Supports `--chunk-size` (or `CHUNK_SIZE` env, default: 10) for strict RPC provider range constraints such as Alchemy.
 - `logrix processor`: Runs the event decoding and WASM logic execution engine.
 - `logrix backfill`: Triggers historical block range extraction.
 - `logrix webhook`: Runs the dedicated asynchronous webhook dispatcher worker.
 - `logrix api`: Runs the GraphQL server, WebSocket subscriptions, and Webhook management REST API.
+- `logrix migrate`: Runs PostgreSQL database schema migrations.
 - `logrix all-in-one`: Starts ingester, processor, api, and webhook runner concurrently in a single process.
 - `logrix status`: Displays live indexing sync status, block heights, and health.
+
+> Note: Developer project scaffolding, type codegen, and WASM compilation are managed through `@logrix/sdk` (`npx @logrix/sdk init`).
 
 ## Ingester Configuration
 - `--chunk-size` (`CHUNK_SIZE`, default: 10): Configures the maximum block range per `eth_getLogs` batch. Defaults to 10 to comply with Alchemy Free tier limits and avoid HTTP 400 errors.

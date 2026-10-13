@@ -3,19 +3,13 @@ pub mod args;
 pub mod args_tuning;
 pub mod backfill;
 pub mod commands;
-pub mod deploy;
 pub mod factory;
 pub mod handlers;
 pub mod indexer;
 pub mod ingester;
 pub mod ingester_ops;
-pub mod init;
 pub mod processor;
 pub mod processor_types;
-pub mod scaffold;
-pub mod scaffold_helm;
-pub mod scaffold_templates;
-pub mod scaffold_terraform;
 pub mod shutdown;
 pub mod status_tui;
 pub mod warmup;
@@ -57,25 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Valid target contract address");
 
     match cli.command {
-        Commands::Init {
-            name,
-            profile,
-            network,
-            contract,
-            start_block,
-            logic,
-            non_interactive,
-        } => {
-            init::run_init(init::InitOptions {
-                name,
-                profile,
-                network,
-                contract_address: contract,
-                start_block,
-                logic,
-                non_interactive,
-            })?;
-        }
         Commands::Status { watch } => {
             status_tui::run_status(&cli.database_url, watch).await?;
         }
@@ -126,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 target_contract,
                 from_block,
                 to_block,
+                cli.chunk_size,
                 dry_run,
                 queue,
             )
@@ -160,9 +136,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::AllInOne { port } => {
             run_all_in_one(cli, chain_id, target_contract, port).await?;
-        }
-        Commands::Deploy { local, aws } => {
-            deploy::run_deploy(local, aws)?;
         }
     }
 
