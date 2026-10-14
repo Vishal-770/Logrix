@@ -22,57 +22,60 @@ impl RabbitMQQueue {
 
     /// Connect to RabbitMQ using user-customized configuration.
     pub async fn connect_with_config(config: &RabbitMQConfig) -> LogrixResult<Self> {
-        let conn = tokio::time::timeout(
-            config.connection_timeout,
-            Connection::connect(&config.amqp_url, ConnectionProperties::default()),
-        )
-        .await
-        .map_err(|_| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Queue,
-                format!(
-                    "Connection attempt to RabbitMQ at {} timed out after {:?}",
-                    config.redacted_url(),
-                    config.connection_timeout
-                ),
-            )
-        })?
-        .map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Queue,
-                format!(
-                    "Failed to connect to RabbitMQ at {}: {e}",
-                    config.redacted_url()
-                ),
-            )
-        })?;
+        let setup = async {
+            let conn = Connection::connect(&config.amqp_url, ConnectionProperties::default())
+                .await
+                .map_err(|e| {
+                    LogrixError::new(
+                        ErrorClass::Transient,
+                        ErrorSource::Queue,
+                        format!(
+                            "Failed to connect to RabbitMQ at {}: {e}",
+                            config.redacted_url()
+                        ),
+                    )
+                })?;
 
-        let channel = conn.create_channel().await.map_err(|e| {
-            LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::Queue,
-                format!("Failed to create AMQP channel: {e}"),
-            )
-        })?;
-
-        let topology = QueueTopology::from_config(config);
-        topology.declare(&channel).await?;
-
-        channel
-            .basic_qos(
-                config.prefetch_count,
-                lapin::options::BasicQosOptions::default(),
-            )
-            .await
-            .map_err(|e| {
+            let channel = conn.create_channel().await.map_err(|e| {
                 LogrixError::new(
                     ErrorClass::Transient,
                     ErrorSource::Queue,
-                    format!("Failed to set QoS prefetch: {e}"),
+                    format!("Failed to create AMQP channel: {e}"),
                 )
             })?;
+
+            let topology = QueueTopology::from_config(config);
+            topology.declare(&channel).await?;
+
+            channel
+                .basic_qos(
+                    config.prefetch_count,
+                    lapin::options::BasicQosOptions::default(),
+                )
+                .await
+                .map_err(|e| {
+                    LogrixError::new(
+                        ErrorClass::Transient,
+                        ErrorSource::Queue,
+                        format!("Failed to set QoS prefetch: {e}"),
+                    )
+                })?;
+
+            Ok((conn, channel, topology))
+        };
+
+        let (conn, channel, topology) = tokio::time::timeout(config.connection_timeout, setup)
+            .await
+            .map_err(|_| {
+                LogrixError::new(
+                    ErrorClass::Transient,
+                    ErrorSource::Queue,
+                    format!(
+                        "RabbitMQ connection and topology setup timed out after {:?}",
+                        config.connection_timeout
+                    ),
+                )
+            })??;
 
         info!(
             prefetch = config.prefetch_count,
