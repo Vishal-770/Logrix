@@ -1,4 +1,4 @@
-use super::ContractManifest;
+use super::{ContractManifest, ManifestIndexing, ManifestWebhook};
 use alloy_primitives::Address;
 use logrix_core::domain::ChainId;
 use serde::Deserialize;
@@ -10,6 +10,10 @@ pub(crate) struct SdkProjectManifest {
     pub network: SdkNetwork,
     #[serde(rename = "dataSources", default)]
     pub data_sources: Vec<SdkDataSource>,
+    #[serde(default)]
+    pub webhooks: Vec<ManifestWebhook>,
+    #[serde(default)]
+    pub indexing: Option<ManifestIndexing>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,7 +57,7 @@ pub(crate) struct SdkEventHandler {
 }
 
 impl SdkProjectManifest {
-    pub(crate) fn into_contracts(self) -> (String, ChainId, Vec<ContractManifest>) {
+    pub(crate) fn into_manifest(self) -> super::Manifest {
         let chain_id = ChainId::new(self.network.chain_id);
         let contracts = self
             .data_sources
@@ -77,6 +81,13 @@ impl SdkProjectManifest {
                 }
             })
             .collect();
-        (self.spec_version, chain_id, contracts)
+
+        super::Manifest {
+            schema_version: self.spec_version,
+            chain_id,
+            contracts,
+            webhooks: self.webhooks,
+            indexing: self.indexing,
+        }
     }
 }
