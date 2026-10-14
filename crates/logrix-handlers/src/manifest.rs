@@ -19,59 +19,81 @@ pub struct Manifest {
 
 /// Operational and tuning options configured in manifest YAML.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ManifestIndexing {
+    #[serde(alias = "ring_buffer_depth")]
     pub ring_buffer_depth: Option<usize>,
+    #[serde(alias = "reconciler_interval_secs")]
     pub reconciler_interval_secs: Option<u64>,
+    #[serde(alias = "reconciler_chunk_size")]
     pub reconciler_chunk_size: Option<u64>,
+    #[serde(alias = "reconciler_lag_threshold")]
     pub reconciler_lag_threshold: Option<u64>,
+    #[serde(alias = "chunk_size")]
     pub chunk_size: Option<u64>,
+    #[serde(alias = "chain_head_poll_ms")]
     pub chain_head_poll_ms: Option<u64>,
+    #[serde(alias = "max_queue_depth")]
     pub max_queue_depth: Option<u64>,
+    #[serde(alias = "wasm_fuel_limit")]
     pub wasm_fuel_limit: Option<u64>,
+    #[serde(alias = "wasm_max_memory_mb")]
     pub wasm_max_memory_mb: Option<usize>,
 }
 
 /// Declarative webhook subscription from manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ManifestWebhook {
     pub url: String,
     #[serde(default)]
     pub secret: Option<String>,
     #[serde(default)]
     pub events: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "max_retries")]
     pub max_retries: Option<u32>,
 }
 
 impl Manifest {
     /// Parse manifest from YAML string (supports both runtime and SDK project formats).
     pub fn from_yaml_str(yaml_str: &str) -> LogrixResult<Self> {
-        if let Ok(m) = serde_yaml::from_str::<Manifest>(yaml_str) {
-            return Ok(m);
-        }
-
-        if let Ok(sdk) = serde_yaml::from_str::<crate::sdk_manifest::SdkProjectManifest>(yaml_str) {
-            let (schema_version, chain_id, contracts) = sdk.into_contracts();
-            let indexing: Option<ManifestIndexing> =
-                serde_yaml::from_str::<serde_yaml::Value>(yaml_str)
-                    .ok()
-                    .and_then(|v| v.get("indexing").cloned())
-                    .and_then(|idx| serde_yaml::from_value(idx).ok());
-
-            return Ok(Self {
-                schema_version,
-                chain_id,
-                contracts,
-                webhooks: Vec::new(),
-                indexing,
-            });
-        }
-
-        serde_yaml::from_str(yaml_str).map_err(|e| {
+        let val: serde_yaml::Value = serde_yaml::from_str(yaml_str).map_err(|e| {
             LogrixError::new(
                 ErrorClass::Permanent,
                 ErrorSource::Config,
                 format!("Failed to parse YAML manifest: {e}"),
+            )
+        })?;
+
+        // 1. Try standard runtime format (has "contracts" or "schema_version")
+        if val.get("contracts").is_some() || val.get("schema_version").is_some() {
+            return serde_yaml::from_value::<Manifest>(val).map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Permanent,
+                    ErrorSource::Config,
+                    format!("Failed to deserialize runtime manifest: {e}"),
+                )
+            });
+        }
+
+        // 2. Try SDK project format (has "specVersion" or "dataSources")
+        if val.get("specVersion").is_some() || val.get("dataSources").is_some() {
+            let sdk = serde_yaml::from_value::<crate::sdk_manifest::SdkProjectManifest>(val).map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Permanent,
+                    ErrorSource::Config,
+                    format!("Failed to deserialize SDK project manifest: {e}"),
+                )
+            })?;
+            return Ok(sdk.into_manifest());
+        }
+
+        // 3. Fallback direct deserialization
+        serde_yaml::from_value(val).map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Permanent,
+                ErrorSource::Config,
+                format!("Unsupported manifest format: {e}"),
             )
         })
     }
