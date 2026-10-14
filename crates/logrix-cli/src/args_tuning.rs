@@ -59,6 +59,14 @@ pub struct ExtendedArgs {
     #[arg(long, env = "WEBHOOK_MAX_RETRIES", default_value_t = 1)]
     pub webhook_max_retries: u32,
 
+    /// Webhook background worker idle sleep duration in milliseconds
+    #[arg(long, env = "WEBHOOK_WORKER_IDLE_MS", default_value_t = 100)]
+    pub webhook_worker_idle_ms: u64,
+
+    /// Webhook background worker error backoff duration in milliseconds
+    #[arg(long, env = "WEBHOOK_WORKER_BACKOFF_MS", default_value_t = 500)]
+    pub webhook_worker_backoff_ms: u64,
+
     /// GraphQL query execution timeout in seconds
     #[arg(long, env = "GRAPHQL_QUERY_TIMEOUT_SECS", default_value_t = 5)]
     pub graphql_query_timeout_secs: u64,
@@ -81,6 +89,8 @@ impl Default for ExtendedArgs {
             rpc_cooldown_secs: 30,
             webhook_timeout_secs: 5,
             webhook_max_retries: 1,
+            webhook_worker_idle_ms: 100,
+            webhook_worker_backoff_ms: 500,
             graphql_query_timeout_secs: 5,
         }
     }

@@ -73,8 +73,8 @@ pub async fn run_processor(
         let wh_cfg = logrix_webhook::WebhookConfig::new(
             Duration::from_secs(config.webhook_timeout_secs),
             config.webhook_max_retries,
-            Duration::from_millis(100),
-            Duration::from_millis(500),
+            Duration::from_millis(config.webhook_worker_idle_ms),
+            Duration::from_millis(config.webhook_worker_backoff_ms),
         );
         let wh_dispatcher = WebhookDispatcherService::new_with_config(
             queue.clone(),
