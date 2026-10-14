@@ -66,6 +66,15 @@ impl RpcGateway {
         &self.pool
     }
 
+    /// Return the lowest adaptive chunk size recommended across healthy pool providers.
+    pub async fn effective_chunk_size(&self) -> Option<u64> {
+        let providers = self.pool.all_providers().await;
+        providers
+            .iter()
+            .map(|p| p.client().chunker().chunk_size())
+            .min()
+    }
+
     /// Read unexpired latest block height from micro-cache.
     pub async fn get_cached_block(&self) -> Option<u64> {
         let guard = self.block_cache.read().await;

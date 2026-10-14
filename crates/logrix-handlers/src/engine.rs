@@ -55,14 +55,12 @@ impl UserLogicEngine {
         contract: Address,
         mut instance: WasmHandlerInstance,
     ) -> WasmHandlerInstance {
-        // Precedence: Contract override -> Manifest indexing block -> CLI global -> Default/Env
         if let Some(fuel) = self.global_fuel_limit {
             instance = instance.with_fuel_limit(fuel);
         }
         if let Some(mb) = self.global_max_memory_mb {
             instance = instance.with_max_memory((mb as usize) * 1024 * 1024);
         }
-
         if let Some(ref idx) = self.manifest.indexing {
             if let Some(fuel) = idx.wasm_fuel_limit {
                 instance = instance.with_fuel_limit(fuel);
@@ -71,7 +69,6 @@ impl UserLogicEngine {
                 instance = instance.with_max_memory(mb * 1024 * 1024);
             }
         }
-
         if let Some(c) = self
             .manifest
             .contracts
@@ -96,6 +93,11 @@ impl UserLogicEngine {
         info!(%contract, "Registered sandboxed WASM handler for contract");
         self.wasm_handlers.insert(contract, instance);
         Ok(())
+    }
+
+    /// Access registered WASM handler instance for inspection.
+    pub fn wasm_handler(&self, contract: &Address) -> Option<&WasmHandlerInstance> {
+        self.wasm_handlers.get(contract)
     }
 
     /// Load and compile a WASM handler from a file on disk.
@@ -137,10 +139,7 @@ impl UserLogicEngine {
 
         if contract_enabled {
             if let Some(handler) = self.wasm_handlers.get(&log.address) {
-                let base_state = {
-                    let guard = self.state_store.read().await;
-                    guard.clone()
-                };
+                let base_state = self.state_store.read().await.clone();
 
                 let log_json = serde_json::to_string(log).unwrap_or_default();
                 let guest_staging = handler.execute_event(&log_json, base_state)?;

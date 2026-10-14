@@ -28,13 +28,13 @@ exports.ui = {
         console.log(picocolors_1.default.dim("  " + "─".repeat(60)));
     },
     success(message, detail) {
-        const symbol = picocolors_1.default.green("✓");
+        const symbol = picocolors_1.default.green("[OK]");
         const msg = picocolors_1.default.bold(message);
         const det = detail ? picocolors_1.default.dim(` (${detail})`) : "";
         console.log(`  ${symbol} ${msg}${det}`);
     },
     error(message, detail, hint) {
-        const symbol = picocolors_1.default.red("✕");
+        const symbol = picocolors_1.default.red("[x]");
         const msg = picocolors_1.default.bold(picocolors_1.default.red(message));
         console.log(`  ${symbol} ${msg}`);
         if (detail) {
@@ -117,11 +117,11 @@ exports.ui = {
             case "ONLINE":
             case "DEPLOYED":
             case "PASSED":
-                return picocolors_1.default.green(picocolors_1.default.bold(`✓ ${status}`));
+                return picocolors_1.default.green(picocolors_1.default.bold(`[OK] ${status}`));
             case "OFFLINE":
             case "EMPTY":
             case "FAILED":
-                return picocolors_1.default.red(picocolors_1.default.bold(`✕ ${status}`));
+                return picocolors_1.default.red(picocolors_1.default.bold(`[x] ${status}`));
             case "SKIPPED":
                 return picocolors_1.default.dim(`- ${status}`);
         }

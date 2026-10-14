@@ -1,7 +1,7 @@
 use crate::ingester_ops::{is_backpressure_active, publish_with_retry};
 use alloy_primitives::B256;
 use logrix_core::{
-    domain::{BlockRangeJob, ChainId, LiveBlockJob, QueueMessage, QueueType},
+    domain::{BlockRangeJob, LiveBlockJob, QueueMessage, QueueType},
     ports::{ChainPort, LeaderElectionPort, QueuePort, StorePort},
 };
 use logrix_store_postgres::PostgresStore;
@@ -9,32 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
-#[derive(Debug, Clone)]
-pub struct IngesterConfig {
-    pub chain_id: ChainId,
-    pub database_url: String,
-    pub database_max_connections: u32,
-    pub database_min_connections: u32,
-    pub start_block: Option<u64>,
-    pub chunk_size: u64,
-    pub max_queue_depth: u64,
-    pub chain_head_poll_ms: u64,
-}
-
-impl IngesterConfig {
-    pub fn from_cli(cli: &crate::args::Cli, chain_id: ChainId) -> Self {
-        Self {
-            chain_id,
-            database_url: cli.database_url.clone(),
-            database_max_connections: cli.database_max_connections,
-            database_min_connections: cli.database_min_connections,
-            start_block: cli.start_block,
-            chunk_size: cli.chunk_size,
-            max_queue_depth: cli.max_queue_depth,
-            chain_head_poll_ms: cli.tuning.chain_head_poll_ms,
-        }
-    }
-}
+pub use crate::ingester_types::IngesterConfig;
 
 pub async fn run_ingester(
     config: IngesterConfig,
@@ -43,8 +18,7 @@ pub async fn run_ingester(
     leader_elector: Arc<dyn LeaderElectionPort>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let chain_id = config.chain_id;
-    let chunk_size = config.chunk_size.max(1);
-    let max_queue_depth = config.max_queue_depth;
+    let (chunk_size, max_queue_depth, poll_ms) = config.resolve_tuning();
 
     info!(
         chain = chain_id.as_u64(),
@@ -146,7 +120,13 @@ pub async fn run_ingester(
         };
 
         if current_block <= latest {
-            let to_block = (current_block + chunk_size - 1).min(latest);
+            let active_chunk = gateway
+                .effective_chunk_size()
+                .await
+                .map(|s| s.min(chunk_size))
+                .unwrap_or(chunk_size)
+                .max(1);
+            let to_block = (current_block + active_chunk - 1).min(latest);
 
             let published = if current_block == to_block && to_block == latest {
                 let job = LiveBlockJob::new(chain_id, to_block, B256::ZERO, B256::ZERO);
@@ -175,7 +155,7 @@ pub async fn run_ingester(
                     info!("Shutdown received while at chain head; exiting cleanly");
                     break;
                 }
-                _ = tokio::time::sleep(Duration::from_millis(config.chain_head_poll_ms)) => {}
+                _ = tokio::time::sleep(Duration::from_millis(poll_ms)) => {}
             }
         }
     }

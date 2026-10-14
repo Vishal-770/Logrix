@@ -108,7 +108,7 @@ function statusCommand() {
             const reportedChainId = parseInt(chainRes.result, 16);
             const match = configuredChainId === reportedChainId;
             const chainBadge = match
-                ? picocolors_1.default.green(`✓ Matched (#${reportedChainId})`)
+                ? picocolors_1.default.green(`[OK] Matched (#${reportedChainId})`)
                 : picocolors_1.default.yellow(`! Mismatch (Configured: ${configuredChainId}, Node: ${reportedChainId})`);
             ui_1.ui.label("Chain ID Match:", chainBadge);
         }

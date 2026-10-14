@@ -103,7 +103,7 @@ export function statusCommand(): Command {
         const reportedChainId = parseInt(chainRes.result, 16);
         const match = configuredChainId === reportedChainId;
         const chainBadge = match
-          ? pc.green(`✓ Matched (#${reportedChainId})`)
+          ? pc.green(`[OK] Matched (#${reportedChainId})`)
           : pc.yellow(`! Mismatch (Configured: ${configuredChainId}, Node: ${reportedChainId})`);
         ui.label("Chain ID Match:", chainBadge);
       }

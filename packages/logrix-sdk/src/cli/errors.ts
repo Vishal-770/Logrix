@@ -18,7 +18,7 @@ export class CliError extends Error {
 export function handleCliError(err: unknown): void {
   if (err instanceof CliError) {
     console.error();
-    console.error(`  ${pc.red("✕")} ${pc.bold(pc.red(err.message))}`);
+    console.error(`  ${pc.red("[x]")} ${pc.bold(pc.red(err.message))}`);
     if (err.detail) {
       console.error(`    ${pc.dim(err.detail)}`);
     }
@@ -29,7 +29,7 @@ export function handleCliError(err: unknown): void {
     process.exit(err.exitCode);
   } else if (err instanceof Error) {
     console.error();
-    console.error(`  ${pc.red("✕")} ${pc.bold(pc.red(err.message))}`);
+    console.error(`  ${pc.red("[x]")} ${pc.bold(pc.red(err.message))}`);
     if (process.env.DEBUG && err.stack) {
       console.error(pc.dim(err.stack));
     }
@@ -37,7 +37,7 @@ export function handleCliError(err: unknown): void {
     process.exit(1);
   } else {
     console.error();
-    console.error(`  ${pc.red("✕")} ${pc.bold(pc.red(String(err)))}`);
+    console.error(`  ${pc.red("[x]")} ${pc.bold(pc.red(String(err)))}`);
     console.error();
     process.exit(1);
   }

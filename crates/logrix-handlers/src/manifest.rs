@@ -78,13 +78,14 @@ impl Manifest {
 
         // 2. Try SDK project format (has "specVersion" or "dataSources")
         if val.get("specVersion").is_some() || val.get("dataSources").is_some() {
-            let sdk = serde_yaml::from_value::<crate::sdk_manifest::SdkProjectManifest>(val).map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Permanent,
-                    ErrorSource::Config,
-                    format!("Failed to deserialize SDK project manifest: {e}"),
-                )
-            })?;
+            let sdk = serde_yaml::from_value::<crate::sdk_manifest::SdkProjectManifest>(val)
+                .map_err(|e| {
+                    LogrixError::new(
+                        ErrorClass::Permanent,
+                        ErrorSource::Config,
+                        format!("Failed to deserialize SDK project manifest: {e}"),
+                    )
+                })?;
             return Ok(sdk.into_manifest());
         }
 
