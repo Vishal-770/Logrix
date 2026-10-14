@@ -1,15 +1,25 @@
 use crate::client::SqsClientConfig;
-use logrix_core::error::LogrixResult;
+use logrix_core::{
+    domain::{MessageHandle, QueueType},
+    error::LogrixResult,
+};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// AWS SQS implementation of `QueuePort`.
 #[derive(Clone)]
 pub struct SqsQueue {
     config: SqsClientConfig,
+    pub(crate) buffer: Arc<Mutex<HashMap<QueueType, VecDeque<MessageHandle>>>>,
 }
 
 impl SqsQueue {
     pub fn new(config: SqsClientConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            buffer: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn config(&self) -> &SqsClientConfig {

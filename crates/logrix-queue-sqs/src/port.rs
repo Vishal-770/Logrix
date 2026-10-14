@@ -48,12 +48,22 @@ impl QueuePort for SqsQueue {
     }
 
     async fn consume(&self, queue_type: QueueType) -> LogrixResult<Option<MessageHandle>> {
+        {
+            let mut buf_guard = self.buffer.lock().await;
+            if let Some(queue_buf) = buf_guard.get_mut(&queue_type) {
+                if let Some(cached) = queue_buf.pop_front() {
+                    return Ok(Some(cached));
+                }
+            }
+        }
+
         let url = self.config().resolve_url(queue_type)?;
+        let max_msgs = self.config().max_number_of_messages.clamp(1, 10);
         let resp = self
             .client()
             .receive_message()
             .queue_url(url)
-            .max_number_of_messages(1)
+            .max_number_of_messages(max_msgs)
             .wait_time_seconds(self.config().wait_time_seconds)
             .send()
             .await
@@ -65,7 +75,8 @@ impl QueuePort for SqsQueue {
                 )
             })?;
 
-        if let Some(msg) = resp.messages().first() {
+        let mut handles = Vec::new();
+        for msg in resp.messages() {
             let receipt = msg.receipt_handle().ok_or_else(|| {
                 LogrixError::new(
                     ErrorClass::Integrity,
@@ -90,12 +101,22 @@ impl QueuePort for SqsQueue {
                 )
             })?;
 
-            Ok(Some(MessageHandle::with_queue(
-                receipt, queue_msg, queue_type,
-            )))
-        } else {
-            Ok(None)
+            handles.push(MessageHandle::with_queue(receipt, queue_msg, queue_type));
         }
+
+        if handles.is_empty() {
+            return Ok(None);
+        }
+
+        let first = handles.remove(0);
+        if !handles.is_empty() {
+            let mut buf_guard = self.buffer.lock().await;
+            let queue_buf = buf_guard.entry(queue_type).or_default();
+            for h in handles {
+                queue_buf.push_back(h);
+            }
+        }
+        Ok(Some(first))
     }
 
     async fn ack(&self, handle: &MessageHandle) -> LogrixResult<()> {
