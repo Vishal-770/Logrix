@@ -167,8 +167,13 @@ export function exportValuesCommand(): Command {
       const wasmBase64 = fs.readFileSync(wasmPath).toString("base64");
 
       // Resolve advanced network and engine settings
-      const fallbackUrls = config.network?.fallbackRpcUrls ?? [];
-      const rpcFallbackStr = Array.isArray(fallbackUrls) ? fallbackUrls.join(",") : "";
+      const rawFallbackUrls = config.network?.fallbackRpcUrls ?? [];
+      const fallbackUrls = Array.isArray(rawFallbackUrls)
+        ? rawFallbackUrls.map((url: string, i: number) =>
+            resolveEnv(url, `network.fallbackRpcUrls[${i}]`)
+          )
+        : [];
+      const rpcFallbackStr = fallbackUrls.join(",");
       const reconcilerIntervalSecs = config.indexing?.reconcilerIntervalSecs ?? 30;
       const ringBufferDepth = config.indexing?.ringBufferDepth ?? 128;
 
