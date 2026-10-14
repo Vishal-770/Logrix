@@ -75,11 +75,25 @@ function exportValuesCommand() {
         catch (e) {
             throw new errors_1.CliError("Failed to parse logrix.yaml", e.message);
         }
+        // Helper to resolve ${ENV_VAR} placeholders
+        const resolveEnv = (val, fieldName) => {
+            if (!val || typeof val !== "string")
+                return val;
+            return val.replace(/\$\{([A-Z0-9_]+)\}/g, (_, envVar) => {
+                const resolved = process.env[envVar];
+                if (!resolved) {
+                    ui_1.ui.error(`Unresolved environment placeholder in ${fieldName}`, `Found placeholder \${${envVar}} but environment variable ${envVar} is not set.`, `Export ${envVar}=<value> in your shell or .env file before running export-values.`);
+                    process.exit(1);
+                }
+                return resolved;
+            });
+        };
         // Resolve network settings
         const chainId = opts.chainId
             ? parseInt(opts.chainId, 10)
             : config.network?.chainId ?? 1;
-        const rpcUrl = opts.rpc ?? config.network?.rpcUrl ?? "";
+        const rawRpcUrl = opts.rpc ?? config.network?.rpcUrl ?? "";
+        const rpcUrl = resolveEnv(rawRpcUrl, "network.rpcUrl");
         if (!rpcUrl) {
             ui_1.ui.error("RPC URL not configured", "network.rpcUrl is missing in logrix.yaml and --rpc was not passed.", "Specify --rpc <url> or add network.rpcUrl to logrix.yaml");
             process.exit(1);
@@ -120,12 +134,12 @@ function exportValuesCommand() {
             if (!wh.url)
                 continue;
             const entry = {
-                url: wh.url,
+                url: resolveEnv(wh.url, "webhooks[].url"),
                 events: Array.isArray(wh.events) ? wh.events : ["reorg"],
                 max_retries: wh.maxRetries ?? wh.max_retries ?? 3,
             };
             if (wh.secret) {
-                entry.secret = wh.secret;
+                entry.secret = resolveEnv(wh.secret, "webhooks[].secret");
             }
             webhooks.push(entry);
         }
