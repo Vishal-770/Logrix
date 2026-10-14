@@ -28,6 +28,8 @@ pub struct ProcessorConfig {
     pub wasm_max_memory_mb: u32,
     pub webhook_timeout_secs: u64,
     pub webhook_max_retries: u32,
+    pub webhook_worker_idle_ms: u64,
+    pub webhook_worker_backoff_ms: u64,
 }
 
 impl ProcessorConfig {
@@ -53,6 +55,8 @@ impl ProcessorConfig {
             wasm_max_memory_mb: cli.tuning.wasm_max_memory_mb,
             webhook_timeout_secs: cli.tuning.webhook_timeout_secs,
             webhook_max_retries: cli.tuning.webhook_max_retries,
+            webhook_worker_idle_ms: cli.tuning.webhook_worker_idle_ms,
+            webhook_worker_backoff_ms: cli.tuning.webhook_worker_backoff_ms,
         }
     }
 }

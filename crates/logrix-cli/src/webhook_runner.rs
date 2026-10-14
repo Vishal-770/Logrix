@@ -25,8 +25,8 @@ pub async fn run_webhook_dispatcher(
     let wh_cfg = logrix_webhook::WebhookConfig::new(
         std::time::Duration::from_secs(cli.tuning.webhook_timeout_secs),
         cli.tuning.webhook_max_retries,
-        std::time::Duration::from_millis(100),
-        std::time::Duration::from_millis(500),
+        std::time::Duration::from_millis(cli.tuning.webhook_worker_idle_ms),
+        std::time::Duration::from_millis(cli.tuning.webhook_worker_backoff_ms),
     );
     let dispatcher = logrix_webhook::WebhookDispatcherService::new_with_config(
         queue,
