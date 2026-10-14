@@ -93,7 +93,8 @@ pub async fn run_processor(
 
     let engine_opt = if let Some(ref path) = config.manifest_path {
         let manifest = logrix_handlers::Manifest::from_file(path)?;
-        let mut engine = UserLogicEngine::new(manifest)?;
+        let mut engine = UserLogicEngine::new(manifest)?
+            .with_global_limits(config.wasm_fuel_limit, config.wasm_max_memory_mb);
         for contract in &engine.manifest().contracts.clone() {
             if let Some(ref wasm_path) = contract.wasm_handler {
                 let resolved = if std::path::Path::new(wasm_path).exists() {

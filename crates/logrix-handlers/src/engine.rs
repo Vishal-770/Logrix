@@ -20,6 +20,8 @@ pub struct UserLogicEngine {
     wasm_handlers: HashMap<Address, WasmHandlerInstance>,
     /// Global key-value state store backing host db_get/set across blocks
     state_store: Arc<RwLock<HashMap<String, String>>>,
+    global_fuel_limit: Option<u64>,
+    global_max_memory_mb: Option<u32>,
 }
 
 impl UserLogicEngine {
@@ -31,7 +33,16 @@ impl UserLogicEngine {
             wasm_runtime,
             wasm_handlers: HashMap::new(),
             state_store: Arc::new(RwLock::new(HashMap::new())),
+            global_fuel_limit: None,
+            global_max_memory_mb: None,
         })
+    }
+
+    /// Set explicit global WASM limits (e.g. from CLI flags).
+    pub fn with_global_limits(mut self, fuel_limit: u64, max_memory_mb: u32) -> Self {
+        self.global_fuel_limit = Some(fuel_limit);
+        self.global_max_memory_mb = Some(max_memory_mb);
+        self
     }
 
     /// Access parsed manifest.
@@ -44,7 +55,14 @@ impl UserLogicEngine {
         contract: Address,
         mut instance: WasmHandlerInstance,
     ) -> WasmHandlerInstance {
-        // Precedence: Contract override -> Manifest indexing block -> Default/Env
+        // Precedence: Contract override -> Manifest indexing block -> CLI global -> Default/Env
+        if let Some(fuel) = self.global_fuel_limit {
+            instance = instance.with_fuel_limit(fuel);
+        }
+        if let Some(mb) = self.global_max_memory_mb {
+            instance = instance.with_max_memory((mb as usize) * 1024 * 1024);
+        }
+
         if let Some(ref idx) = self.manifest.indexing {
             if let Some(fuel) = idx.wasm_fuel_limit {
                 instance = instance.with_fuel_limit(fuel);
