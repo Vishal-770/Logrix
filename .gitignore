@@ -37,8 +37,11 @@ node_modules/
 # Graphify
 graphify-out/
 
-# Local reports
+# Local reports and review notes
 report.md
+*_REVIEW_REPORT.md
+*_DOCUMENTATION_AUDIT.md
+PR_*_REVIEW_REPORT.md
 snap1.png
 snap2.png
 snap3.png
