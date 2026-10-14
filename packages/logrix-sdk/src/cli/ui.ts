@@ -26,14 +26,14 @@ export const ui = {
   },
 
   success(message: string, detail?: string): void {
-    const symbol = pc.green("✓");
+    const symbol = pc.green("[OK]");
     const msg = pc.bold(message);
     const det = detail ? pc.dim(` (${detail})`) : "";
     console.log(`  ${symbol} ${msg}${det}`);
   },
 
   error(message: string, detail?: string, hint?: string): void {
-    const symbol = pc.red("✕");
+    const symbol = pc.red("[x]");
     const msg = pc.bold(pc.red(message));
     console.log(`  ${symbol} ${msg}`);
     if (detail) {
@@ -122,11 +122,11 @@ export const ui = {
       case "ONLINE":
       case "DEPLOYED":
       case "PASSED":
-        return pc.green(pc.bold(`✓ ${status}`));
+        return pc.green(pc.bold(`[OK] ${status}`));
       case "OFFLINE":
       case "EMPTY":
       case "FAILED":
-        return pc.red(pc.bold(`✕ ${status}`));
+        return pc.red(pc.bold(`[x] ${status}`));
       case "SKIPPED":
         return pc.dim(`- ${status}`);
     }

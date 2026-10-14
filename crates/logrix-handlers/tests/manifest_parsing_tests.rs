@@ -64,7 +64,8 @@ indexing:
 
     let err = Manifest::from_yaml_str(yaml).unwrap_err();
     assert!(
-        err.message.contains("Failed to deserialize SDK project manifest")
+        err.message
+            .contains("Failed to deserialize SDK project manifest")
             || err.message.contains("invalid")
             || err.message.contains("reconcilerChunkSize")
     );

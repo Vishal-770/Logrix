@@ -9,6 +9,11 @@ import {
 } from "../templates";
 import { ui } from "../ui";
 import { CliError } from "../errors";
+import {
+  resolveEnv,
+  convertSdkManifestToRuntime,
+  mapIndexingToHelmValues,
+} from "../manifest_converter";
 
 /**
  * logrix export-values
@@ -51,23 +56,6 @@ export function exportValuesCommand(): Command {
         throw new CliError("Failed to parse logrix.yaml", e.message);
       }
 
-      // Helper to resolve ${ENV_VAR} placeholders
-      const resolveEnv = (val: string, fieldName: string): string => {
-        if (!val || typeof val !== "string") return val;
-        return val.replace(/\$\{([A-Z0-9_]+)\}/g, (_, envVar) => {
-          const resolved = process.env[envVar];
-          if (!resolved) {
-            ui.error(
-              `Unresolved environment placeholder in ${fieldName}`,
-              `Found placeholder \${${envVar}} but environment variable ${envVar} is not set.`,
-              `Export ${envVar}=<value> in your shell or .env file before running export-values.`
-            );
-            process.exit(1);
-          }
-          return resolved;
-        });
-      };
-
       // Resolve network settings
       const chainId = opts.chainId
         ? parseInt(opts.chainId, 10)
@@ -84,63 +72,9 @@ export function exportValuesCommand(): Command {
         process.exit(1);
       }
 
-      // Build contracts manifest array (Rust engine format)
-      const contracts: any[] = [];
-      let minStartBlock = Number.MAX_SAFE_INTEGER;
-      for (const ds of config.dataSources ?? []) {
-        const events = (ds.mapping?.eventHandlers ?? []).map((h: any) => h.event);
-        const startBlock = ds.source?.startBlock ?? 0;
-        if (startBlock < minStartBlock) {
-          minStartBlock = startBlock;
-        }
-
-        const contractEntry: any = {
-          name: ds.name,
-          address: ds.source?.address ?? "",
-          start_block: startBlock,
-          events,
-          wasm_handler: "/etc/logrix/handlers/mapping.wasm",
-        };
-
-        if (typeof ds.mapping?.enabled === "boolean") {
-          contractEntry.enabled = ds.mapping.enabled;
-        }
-        if (typeof ds.mapping?.fuelLimit === "number") {
-          contractEntry.fuel_limit = ds.mapping.fuelLimit;
-        }
-        if (typeof ds.mapping?.maxMemoryMb === "number") {
-          contractEntry.max_memory_mb = ds.mapping.maxMemoryMb;
-        }
-
-        contracts.push(contractEntry);
-      }
-      if (minStartBlock === Number.MAX_SAFE_INTEGER) {
-        minStartBlock = 0;
-      }
-
-      // Build webhooks manifest array (Rust engine format)
-      const webhooks: any[] = [];
-      for (const wh of config.webhooks ?? []) {
-        if (!wh.url) continue;
-        const entry: any = {
-          url: resolveEnv(wh.url, "webhooks[].url"),
-          events: Array.isArray(wh.events) ? wh.events : ["reorg"],
-          max_retries: wh.maxRetries ?? wh.max_retries ?? 3,
-        };
-        if (wh.secret) {
-          entry.secret = resolveEnv(wh.secret, "webhooks[].secret");
-        }
-        webhooks.push(entry);
-      }
-
-      const manifest: any = {
-        schema_version: "1",
-        chain_id: chainId,
-        contracts,
-      };
-      if (webhooks.length > 0) {
-        manifest.webhooks = webhooks;
-      }
+      // Build contracts and webhooks manifest (Rust engine format)
+      const { contracts, webhooks, minStartBlock, manifest } =
+        convertSdkManifestToRuntime(config, chainId);
 
       // Read schema.graphql
       const schemaPath = path.join(projectDir, "schema.graphql");
@@ -193,32 +127,7 @@ export function exportValuesCommand(): Command {
         },
       };
 
-      const idx = config.indexing ?? {};
-      if (idx.chunkSize !== undefined) values.config.chunkSize = idx.chunkSize;
-      if (idx.reconcilerChunkSize !== undefined) values.config.reconcilerChunkSize = idx.reconcilerChunkSize;
-      if (idx.reconcilerLagThreshold !== undefined) values.config.reconcilerLagThreshold = idx.reconcilerLagThreshold;
-      if (idx.chainHeadPollMs !== undefined) values.config.chainHeadPollMs = idx.chainHeadPollMs;
-      if (idx.maxQueueDepth !== undefined) values.config.maxQueueDepth = idx.maxQueueDepth;
-      if (idx.rpcTimeoutSecs !== undefined) values.config.rpcTimeoutSecs = idx.rpcTimeoutSecs;
-      if (idx.rpcCbThreshold !== undefined) values.config.rpcCbThreshold = idx.rpcCbThreshold;
-      if (idx.rpcCooldownSecs !== undefined) values.config.rpcCooldownSecs = idx.rpcCooldownSecs;
-      if (idx.cuBudget !== undefined) values.config.cuBudget = idx.cuBudget;
-      if (idx.bulkStreamUrl !== undefined) values.config.bulkStreamUrl = idx.bulkStreamUrl;
-      if (idx.databaseMaxConnections !== undefined) values.config.databaseMaxConnections = idx.databaseMaxConnections;
-      if (idx.databaseMinConnections !== undefined) values.config.databaseMinConnections = idx.databaseMinConnections;
-      if (idx.rabbitmqPrefetch !== undefined) values.config.rabbitmqPrefetch = idx.rabbitmqPrefetch;
-      if (idx.rabbitmqTimeoutSecs !== undefined) values.config.rabbitmqTimeoutSecs = idx.rabbitmqTimeoutSecs;
-      if (idx.sqsWaitTimeSeconds !== undefined) values.config.sqsWaitTimeSeconds = idx.sqsWaitTimeSeconds;
-      if (idx.sqsMaxMessages !== undefined) values.config.sqsMaxMessages = idx.sqsMaxMessages;
-      if (idx.wasmFuelLimit !== undefined) values.config.wasmFuelLimit = idx.wasmFuelLimit;
-      if (idx.wasmMaxMemoryMb !== undefined) values.config.wasmMaxMemoryMb = idx.wasmMaxMemoryMb;
-      if (idx.graphqlMaxDepth !== undefined) values.config.graphqlMaxDepth = idx.graphqlMaxDepth;
-      if (idx.graphqlMaxComplexity !== undefined) values.config.graphqlMaxComplexity = idx.graphqlMaxComplexity;
-      if (idx.graphqlDefaultLimit !== undefined) values.config.graphqlDefaultLimit = idx.graphqlDefaultLimit;
-      if (idx.graphqlMaxLimit !== undefined) values.config.graphqlMaxLimit = idx.graphqlMaxLimit;
-      if (idx.graphqlQueryTimeoutSecs !== undefined) values.config.graphqlQueryTimeoutSecs = idx.graphqlQueryTimeoutSecs;
-      if (idx.webhookTimeoutSecs !== undefined) values.config.webhookTimeoutSecs = idx.webhookTimeoutSecs;
-      if (idx.webhookMaxRetries !== undefined) values.config.webhookMaxRetries = idx.webhookMaxRetries;
+      mapIndexingToHelmValues(values, config.indexing);
 
       if (webhooks.length > 0) {
         values.config.webhookUrl = webhooks[0].url;

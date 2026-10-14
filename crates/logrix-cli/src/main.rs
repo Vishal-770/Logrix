@@ -8,6 +8,7 @@ pub mod handlers;
 pub mod indexer;
 pub mod ingester;
 pub mod ingester_ops;
+pub mod ingester_types;
 pub mod processor;
 pub mod processor_types;
 pub mod shutdown;

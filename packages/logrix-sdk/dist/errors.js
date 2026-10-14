@@ -20,7 +20,7 @@ exports.CliError = CliError;
 function handleCliError(err) {
     if (err instanceof CliError) {
         console.error();
-        console.error(`  ${picocolors_1.default.red("✕")} ${picocolors_1.default.bold(picocolors_1.default.red(err.message))}`);
+        console.error(`  ${picocolors_1.default.red("[x]")} ${picocolors_1.default.bold(picocolors_1.default.red(err.message))}`);
         if (err.detail) {
             console.error(`    ${picocolors_1.default.dim(err.detail)}`);
         }
@@ -32,7 +32,7 @@ function handleCliError(err) {
     }
     else if (err instanceof Error) {
         console.error();
-        console.error(`  ${picocolors_1.default.red("✕")} ${picocolors_1.default.bold(picocolors_1.default.red(err.message))}`);
+        console.error(`  ${picocolors_1.default.red("[x]")} ${picocolors_1.default.bold(picocolors_1.default.red(err.message))}`);
         if (process.env.DEBUG && err.stack) {
             console.error(picocolors_1.default.dim(err.stack));
         }
@@ -41,7 +41,7 @@ function handleCliError(err) {
     }
     else {
         console.error();
-        console.error(`  ${picocolors_1.default.red("✕")} ${picocolors_1.default.bold(picocolors_1.default.red(String(err)))}`);
+        console.error(`  ${picocolors_1.default.red("[x]")} ${picocolors_1.default.bold(picocolors_1.default.red(String(err)))}`);
         console.error();
         process.exit(1);
     }
