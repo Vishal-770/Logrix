@@ -3,6 +3,7 @@ pub mod args;
 pub mod args_tuning;
 pub mod backfill;
 pub mod commands;
+pub mod env;
 pub mod factory;
 pub mod handlers;
 pub mod indexer;

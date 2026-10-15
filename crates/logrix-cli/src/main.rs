@@ -3,6 +3,7 @@ pub mod args;
 pub mod args_tuning;
 pub mod backfill;
 pub mod commands;
+pub mod env;
 pub mod factory;
 pub mod handlers;
 pub mod indexer;
@@ -66,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Ingester => {
             let queue = create_queue_adapter(&cli).await?;
-            let gateway = create_rpc_gateway(&cli, chain_id).await;
+            let gateway = create_rpc_gateway(&cli, chain_id).await?;
             let leader_elector: Arc<dyn LeaderElectionPort> = if cli.enable_leader_election {
                 Arc::new(KubernetesLeaseElector::new(
                     cli.lease_name.clone(),
@@ -83,8 +84,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Processor => {
             let queue = create_queue_adapter(&cli).await?;
-            let gateway = create_rpc_gateway(&cli, chain_id).await;
-            let config = ProcessorConfig::from_cli(&cli, chain_id, target_contract);
+            let gateway = create_rpc_gateway(&cli, chain_id).await?;
+            let config = ProcessorConfig::from_cli(&cli, chain_id, target_contract)?;
             run_processor(config, gateway, queue).await?;
         }
         Commands::WebhookDispatcher => {

@@ -57,13 +57,14 @@ pub struct ManifestWebhook {
 impl Manifest {
     /// Parse manifest from YAML string (supports both runtime and SDK project formats).
     pub fn from_yaml_str(yaml_str: &str) -> LogrixResult<Self> {
-        let val: serde_yaml::Value = serde_yaml::from_str(yaml_str).map_err(|e| {
+        let mut val: serde_yaml::Value = serde_yaml::from_str(yaml_str).map_err(|e| {
             LogrixError::new(
                 ErrorClass::Permanent,
                 ErrorSource::Config,
                 format!("Failed to parse YAML manifest: {e}"),
             )
         })?;
+        crate::manifest_env::expand_environment_placeholders(&mut val)?;
 
         // 1. Try standard runtime format (has "contracts" or "schema_version")
         if val.get("contracts").is_some() || val.get("schema_version").is_some() {

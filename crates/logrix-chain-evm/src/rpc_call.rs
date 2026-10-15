@@ -61,6 +61,15 @@ impl EvmChainClient {
                             ));
                         }
 
+                        if json_res.get("result").is_none() {
+                            self.chunker.record_failure();
+                            return Err(LogrixError::new(
+                                ErrorClass::Permanent,
+                                ErrorSource::ChainRpc,
+                                "RPC response contained neither result nor error",
+                            ));
+                        }
+
                         self.chunker.record_success(start.elapsed());
                         return Ok(json_res["result"].clone());
                     }

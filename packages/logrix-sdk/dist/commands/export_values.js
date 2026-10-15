@@ -81,13 +81,13 @@ function exportValuesCommand() {
             ? parseInt(opts.chainId, 10)
             : config.network?.chainId ?? 1;
         const rawRpcUrl = opts.rpc ?? config.network?.rpcUrl ?? "";
-        const rpcUrl = (0, manifest_converter_1.resolveEnv)(rawRpcUrl, "network.rpcUrl");
+        const rpcUrl = (0, manifest_converter_1.preserveEnvReference)(rawRpcUrl);
         if (!rpcUrl) {
             ui_1.ui.error("RPC URL not configured", "network.rpcUrl is missing in logrix.yaml and --rpc was not passed.", "Specify --rpc <url> or add network.rpcUrl to logrix.yaml");
             process.exit(1);
         }
         // Build contracts and webhooks manifest (Rust engine format)
-        const { contracts, webhooks, minStartBlock, manifest } = (0, manifest_converter_1.convertSdkManifestToRuntime)(config, chainId);
+        const { contracts, webhooks, minStartBlock, manifest, requiredEnvVars: manifestEnvVars, } = (0, manifest_converter_1.convertSdkManifestToRuntime)(config, chainId);
         // Read schema.graphql
         const schemaPath = path.join(projectDir, "schema.graphql");
         if (!fs.existsSync(schemaPath)) {
@@ -105,11 +105,16 @@ function exportValuesCommand() {
         // Resolve advanced network and engine settings
         const rawFallbackUrls = config.network?.fallbackRpcUrls ?? [];
         const fallbackUrls = Array.isArray(rawFallbackUrls)
-            ? rawFallbackUrls.map((url, i) => (0, manifest_converter_1.resolveEnv)(url, `network.fallbackRpcUrls[${i}]`))
+            ? rawFallbackUrls.map((url, i) => (0, manifest_converter_1.preserveEnvReference)(url))
             : [];
         const rpcFallbackStr = fallbackUrls.join(",");
         const reconcilerIntervalSecs = config.indexing?.reconcilerIntervalSecs ?? 30;
         const ringBufferDepth = config.indexing?.ringBufferDepth ?? 128;
+        const requiredEnvVars = new Set([
+            ...(0, manifest_converter_1.extractEnvVarNames)(rpcUrl),
+            ...fallbackUrls.flatMap((url) => (0, manifest_converter_1.extractEnvVarNames)(url)),
+            ...manifestEnvVars,
+        ]);
         // Build indexer-values.yaml
         const values = {
             config: {
@@ -125,6 +130,9 @@ function exportValuesCommand() {
                 wasmBase64,
             },
         };
+        if (requiredEnvVars.size > 0) {
+            values.config.existingSecret = config.existingSecret || "logrix-secrets";
+        }
         (0, manifest_converter_1.mapIndexingToHelmValues)(values, config.indexing);
         if (webhooks.length > 0) {
             values.config.webhookUrl = webhooks[0].url;
@@ -136,29 +144,30 @@ function exportValuesCommand() {
         fs.writeFileSync(outPath, (0, yaml_1.stringify)(values, { indent: 2 }));
         // Ensure deployment profile directory exists
         const deployDir = path.join(projectDir, "deploy");
-        if (!fs.existsSync(deployDir) || opts.deployProfiles) {
+        if (!fs.existsSync(deployDir)) {
             fs.mkdirSync(deployDir, { recursive: true });
-            const answers = {
-                projectName: path.basename(projectDir),
-                networkName: config.network?.name ?? "network",
-                chainId,
-                rpcUrl,
-                fallbackRpcUrls: Array.isArray(fallbackUrls) ? fallbackUrls : [],
-                contractName: contracts[0]?.name ?? "Contract",
-                contractAddress: contracts[0]?.address ?? "",
-                startBlock: minStartBlock,
-                webhookUrl: webhooks[0]?.url,
-                ringBufferDepth,
-                reconcilerIntervalSecs,
-            };
-            const awsPath = path.join(deployDir, "values-aws.yaml");
-            if (!fs.existsSync(awsPath) || opts.deployProfiles) {
-                fs.writeFileSync(awsPath, (0, templates_1.valuesAwsTemplate)(answers));
-            }
-            const secretPath = path.join(deployDir, "secrets.example.yaml");
-            if (!fs.existsSync(secretPath) || opts.deployProfiles) {
-                fs.writeFileSync(secretPath, (0, templates_1.secretsExampleTemplate)(answers));
-            }
+        }
+        const answers = {
+            projectName: path.basename(projectDir),
+            networkName: config.network?.name ?? "network",
+            chainId,
+            rpcUrl,
+            fallbackRpcUrls: Array.isArray(fallbackUrls) ? fallbackUrls : [],
+            contractName: contracts[0]?.name ?? "Contract",
+            contractAddress: contracts[0]?.address ?? "",
+            startBlock: minStartBlock,
+            webhookUrl: webhooks[0]?.url,
+            secretEnvVars: [...requiredEnvVars],
+            ringBufferDepth,
+            reconcilerIntervalSecs,
+        };
+        const awsPath = path.join(deployDir, "values-aws.yaml");
+        if (!fs.existsSync(awsPath) || opts.deployProfiles) {
+            fs.writeFileSync(awsPath, (0, templates_1.valuesAwsTemplate)(answers));
+        }
+        const secretPath = path.join(deployDir, "secrets.example.yaml");
+        if (!fs.existsSync(secretPath) || opts.deployProfiles) {
+            fs.writeFileSync(secretPath, (0, templates_1.secretsExampleTemplate)(answers));
         }
         ui_1.ui.success("Helm values generated successfully", opts.out);
         ui_1.ui.label("Contracts", String(contracts.length));

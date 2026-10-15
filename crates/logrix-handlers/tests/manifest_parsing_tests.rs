@@ -81,3 +81,57 @@ other_key: "abc"
     let err = Manifest::from_yaml_str(yaml).unwrap_err();
     assert!(err.message.contains("Unsupported manifest format") || err.message.contains("Failed"));
 }
+
+#[test]
+fn test_runtime_manifest_expands_environment_placeholders() {
+    let host_var = "LOGRIX_MANIFEST_TEST_WEBHOOK_HOST";
+    let secret_var = "LOGRIX_MANIFEST_TEST_WEBHOOK_SECRET";
+    std::env::set_var(host_var, "hooks.example.com");
+    std::env::set_var(secret_var, "runtime-secret");
+
+    let yaml = format!(
+        r#"
+schema_version: "1"
+chain_id: 1
+contracts:
+  - name: "Example"
+    address: "0x1111111111111111111111111111111111111111"
+    wasm_handler: null
+webhooks:
+  - url: "https://${{{host_var}}}/events"
+    secret: "${{{secret_var}}}"
+"#,
+        host_var = host_var,
+        secret_var = secret_var,
+    );
+
+    let manifest = Manifest::from_yaml_str(&yaml).expect("placeholder manifest should parse");
+    assert_eq!(manifest.webhooks[0].url, "https://hooks.example.com/events");
+    assert_eq!(
+        manifest.webhooks[0].secret.as_deref(),
+        Some("runtime-secret")
+    );
+}
+
+#[test]
+fn test_missing_environment_placeholder_returns_configuration_error() {
+    let missing_var = "LOGRIX_MANIFEST_TEST_MISSING_VALUE";
+    std::env::remove_var(missing_var);
+    let yaml = format!(
+        r#"
+schema_version: "1"
+chain_id: 1
+contracts:
+  - name: "Example"
+    address: "0x1111111111111111111111111111111111111111"
+    wasm_handler: null
+webhooks:
+  - url: "https://hooks.example.com/${{{missing_var}}}/events"
+"#,
+        missing_var = missing_var,
+    );
+
+    let err = Manifest::from_yaml_str(&yaml).expect_err("missing variable should fail");
+    assert!(err.message.contains(missing_var));
+    assert!(err.message.contains("environment variable"));
+}

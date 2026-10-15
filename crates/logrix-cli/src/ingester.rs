@@ -18,7 +18,7 @@ pub async fn run_ingester(
     leader_elector: Arc<dyn LeaderElectionPort>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let chain_id = config.chain_id;
-    let (chunk_size, max_queue_depth, poll_ms) = config.resolve_tuning();
+    let (chunk_size, max_queue_depth, poll_ms) = config.resolve_tuning()?;
 
     info!(
         chain = chain_id.as_u64(),

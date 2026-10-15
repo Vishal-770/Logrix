@@ -8,6 +8,8 @@ pub mod sdk_manifest;
 pub mod staging;
 pub mod wasm;
 
+mod manifest_env;
+
 pub use declarative::DeclarativeMapper;
 pub use engine::UserLogicEngine;
 pub use manifest::{

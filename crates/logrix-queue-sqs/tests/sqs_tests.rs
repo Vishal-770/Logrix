@@ -4,6 +4,7 @@ use logrix_core::domain::{
 };
 use logrix_queue_sqs::{
     batch::{build_delete_batch_entry, build_send_batch_entry},
+    queue::SQS_MAX_VISIBILITY_TIMEOUT,
     SqsClientConfig,
 };
 use std::collections::HashMap;
@@ -51,6 +52,11 @@ fn test_sqs_batch_entry_builders() {
     let del_entry = build_delete_batch_entry("del_1", "rcpt_xyz").expect("build del entry");
     assert_eq!(del_entry.id(), "del_1");
     assert_eq!(del_entry.receipt_handle(), "rcpt_xyz");
+}
+
+#[test]
+fn test_sqs_visibility_extension_uses_maximum_timeout() {
+    assert_eq!(SQS_MAX_VISIBILITY_TIMEOUT, 43_200);
 }
 
 #[tokio::test]
