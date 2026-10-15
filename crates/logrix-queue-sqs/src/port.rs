@@ -110,6 +110,8 @@ impl QueuePort for SqsQueue {
 
         let first = handles.remove(0);
         if !handles.is_empty() {
+            self.extend_visibility_for_handles(queue_type, &handles)
+                .await?;
             let mut buf_guard = self.buffer.lock().await;
             let queue_buf = buf_guard.entry(queue_type).or_default();
             for h in handles {

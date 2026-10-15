@@ -1,5 +1,8 @@
+use logrix_chain_evm::EvmClientConfig;
 use logrix_core::domain::ChainId;
-use logrix_rpc_gateway::{CuBudgetTracker, ManagedProvider, ProviderPool, SingleFlight};
+use logrix_rpc_gateway::{
+    CuBudgetTracker, GatewayConfig, ManagedProvider, ProviderPool, RpcGateway, SingleFlight,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,6 +29,37 @@ async fn test_provider_pool_routing_and_priority() {
 
     let fallback = pool.select_provider().await.unwrap();
     assert_eq!(fallback.name(), "secondary");
+}
+
+#[tokio::test]
+async fn test_effective_chunk_size_ignores_unhealthy_provider() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+    let unhealthy = ManagedProvider::new_with_config(
+        "unhealthy-small",
+        "http://localhost:8545",
+        1,
+        chain_id,
+        &GatewayConfig::default(),
+        Some(EvmClientConfig::default().with_chunk_bounds(10, 5, 100)),
+    );
+    let healthy = ManagedProvider::new_with_config(
+        "healthy-large",
+        "http://localhost:8546",
+        1,
+        chain_id,
+        &GatewayConfig::default(),
+        Some(EvmClientConfig::default().with_chunk_bounds(100, 5, 100)),
+    );
+
+    pool.add_provider(unhealthy.clone()).await;
+    pool.add_provider(healthy).await;
+    for _ in 0..3 {
+        unhealthy.record_failure().await;
+    }
+
+    let gateway = RpcGateway::new(chain_id, pool, None, None);
+    assert_eq!(gateway.effective_chunk_size().await, Some(100));
 }
 
 #[tokio::test]

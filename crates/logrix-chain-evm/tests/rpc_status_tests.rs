@@ -103,3 +103,17 @@ async fn test_rpc_call_status_503_retries_and_exhausts() {
     assert_eq!(err.class, ErrorClass::Transient);
     assert!(hits.load(Ordering::SeqCst) >= 3);
 }
+
+#[tokio::test]
+async fn test_rpc_call_2xx_missing_result_and_error_is_protocol_failure() {
+    let (url, hits) = spawn_mock_server(200, r#"{"jsonrpc":"2.0","id":1}"#).await;
+    let config = EvmClientConfig::default().with_chunk_bounds(100, 10, 200);
+    let client = EvmChainClient::new_with_config(ChainId::new(1), url, config);
+
+    let err = client.get_latest_block_number().await.unwrap_err();
+    assert_eq!(err.class, ErrorClass::Permanent);
+    assert_eq!(err.source, ErrorSource::ChainRpc);
+    assert!(err.message.contains("neither result nor error"));
+    assert_eq!(client.chunker().chunk_size(), 50);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}

@@ -275,9 +275,12 @@ function valuesAwsTemplate(a) {
     return (0, yaml_1.stringify)(doc, { indent: 2 });
 }
 function secretsExampleTemplate(a) {
-    const fallbackUrlsStr = a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
-        ? a.fallbackRpcUrls.join(",")
-        : "";
+    const secretKeys = new Set([
+        "RPC_URL",
+        "RPC_FALLBACK_URLS",
+        "DATABASE_URL",
+        ...(a.secretEnvVars ?? []),
+    ]);
     const doc = {
         apiVersion: "v1",
         kind: "Secret",
@@ -286,11 +289,7 @@ function secretsExampleTemplate(a) {
             namespace: "default",
         },
         type: "Opaque",
-        stringData: {
-            RPC_URL: a.rpcUrl,
-            RPC_FALLBACK_URLS: fallbackUrlsStr,
-            DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix",
-        },
+        stringData: Object.fromEntries([...secretKeys].map((key) => [key, "CHANGE_ME"])),
     };
     return (0, yaml_1.stringify)(doc, { indent: 2 });
 }
@@ -338,6 +337,7 @@ Produces \`build/mapping.wasm\`.
 npm run export-values
 \`\`\`
 Produces \`indexer-values.yaml\` bundling your WASM binary, GraphQL schema, and contract manifest.
+Environment placeholders such as \${ALCHEMY_API_KEY} remain symbolic in generated files. Fill and apply \`deploy/secrets.example.yaml\` before deploying, and never commit real credentials.
 
 ---
 

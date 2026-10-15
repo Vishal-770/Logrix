@@ -247,6 +247,8 @@ Options:
 
 Reads `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm` to produce a ready-to-deploy `indexer-values.yaml` for Helm. Also ensures deployment profile templates exist in `deploy/`.
 
+Environment placeholders such as `${ALCHEMY_API_KEY}` are preserved in generated values and manifests; they are never expanded into files. When placeholders are present, the exporter configures `config.existingSecret` and lists safe `CHANGE_ME` entries in `deploy/secrets.example.yaml`. Fill and apply that Secret before deploying, and do not commit real credentials.
+
 ```bash
 npx logrix export-values
 ```

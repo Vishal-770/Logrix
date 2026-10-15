@@ -69,10 +69,21 @@ impl RpcGateway {
     /// Return the lowest adaptive chunk size recommended across healthy pool providers.
     pub async fn effective_chunk_size(&self) -> Option<u64> {
         let providers = self.pool.all_providers().await;
-        providers
-            .iter()
-            .map(|p| p.client().chunker().chunk_size())
-            .min()
+        let mut healthy_min: Option<u64> = None;
+        for provider in &providers {
+            if provider.is_healthy().await {
+                let size = provider.client().chunker().chunk_size();
+                healthy_min = Some(healthy_min.map_or(size, |current| current.min(size)));
+            }
+        }
+
+        healthy_min.or_else(|| {
+            // If every breaker is open, retain the safest known recommendation.
+            providers
+                .iter()
+                .map(|p| p.client().chunker().chunk_size())
+                .min()
+        })
     }
 
     /// Read unexpired latest block height from micro-cache.

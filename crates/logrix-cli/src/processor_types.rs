@@ -1,6 +1,6 @@
 use alloy_primitives::Address;
 use logrix_blob_s3::S3BlobStore;
-use logrix_core::{domain::ChainId, ports::QueuePort};
+use logrix_core::{domain::ChainId, error::LogrixResult, ports::QueuePort};
 use logrix_handlers::UserLogicEngine;
 use logrix_reconciler::{ReorgDetector, ReorgHandler};
 use logrix_store_postgres::PostgresStore;
@@ -33,16 +33,27 @@ pub struct ProcessorConfig {
 }
 
 impl ProcessorConfig {
-    pub fn from_cli(cli: &crate::args::Cli, chain_id: ChainId, target_contract: Address) -> Self {
-        Self {
+    pub fn from_cli(
+        cli: &crate::args::Cli,
+        chain_id: ChainId,
+        target_contract: Address,
+    ) -> LogrixResult<Self> {
+        let webhook_url = cli
+            .webhook_url
+            .as_deref()
+            .map(|url| crate::env::expand_env_placeholders(url, "WEBHOOK_URL"))
+            .transpose()?;
+        let webhook_secret =
+            crate::env::expand_env_placeholders(&cli.webhook_secret, "WEBHOOK_SECRET")?;
+        Ok(Self {
             chain_id,
             database_url: cli.database_url.clone(),
             database_max_connections: cli.database_max_connections,
             database_min_connections: cli.database_min_connections,
             target_contract,
             ring_buffer_depth: cli.ring_buffer_depth,
-            webhook_url: cli.webhook_url.clone(),
-            webhook_secret: cli.webhook_secret.clone(),
+            webhook_url,
+            webhook_secret,
             reconciler_interval_secs: cli.reconciler_interval_secs,
             reconciler_chunk_size: cli.tuning.reconciler_chunk_size,
             reconciler_lag_threshold: cli.tuning.reconciler_lag_threshold,
@@ -57,7 +68,7 @@ impl ProcessorConfig {
             webhook_max_retries: cli.tuning.webhook_max_retries,
             webhook_worker_idle_ms: cli.tuning.webhook_worker_idle_ms,
             webhook_worker_backoff_ms: cli.tuning.webhook_worker_backoff_ms,
-        }
+        })
     }
 }
 

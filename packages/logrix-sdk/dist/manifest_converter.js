@@ -1,24 +1,53 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveEnv = resolveEnv;
+exports.preserveEnvReference = preserveEnvReference;
+exports.extractEnvVarNames = extractEnvVarNames;
 exports.convertSdkManifestToRuntime = convertSdkManifestToRuntime;
 exports.mapIndexingToHelmValues = mapIndexingToHelmValues;
-const ui_1 = require("./ui");
+const ENV_REFERENCE_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const PURE_ENV_REFERENCE_PATTERN = /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/;
 /**
- * Resolves ${ENV_VAR} placeholders in string values.
- * Exits with clear error message if placeholder is unset.
+ * Keep environment references symbolic while generating deployment artifacts.
+ * The runtime pod resolves them after loading its environment.
  */
-function resolveEnv(val, fieldName) {
-    if (!val || typeof val !== "string")
-        return val;
-    return val.replace(/\$\{([A-Z0-9_]+)\}/g, (_, envVar) => {
-        const resolved = process.env[envVar];
-        if (!resolved) {
-            ui_1.ui.error(`Unresolved environment placeholder in ${fieldName}`, `Found placeholder \${${envVar}} but environment variable ${envVar} is not set.`, `Export ${envVar}=<value> in your shell or .env file before running export-values.`);
-            process.exit(1);
+function preserveEnvReference(val) {
+    return val;
+}
+/** Return environment variable names referenced by strings in a value, in source order. */
+function extractEnvVarNames(value) {
+    const names = new Set();
+    const collect = (candidate) => {
+        if (typeof candidate === "string") {
+            for (const match of candidate.matchAll(ENV_REFERENCE_PATTERN)) {
+                names.add(match[1]);
+            }
+            return;
         }
-        return resolved;
-    });
+        if (Array.isArray(candidate)) {
+            for (const item of candidate)
+                collect(item);
+            return;
+        }
+        if (candidate && typeof candidate === "object") {
+            for (const item of Object.values(candidate))
+                collect(item);
+        }
+    };
+    collect(value);
+    return [...names];
+}
+function webhookSecretReference(secret, webhookIndex) {
+    if (PURE_ENV_REFERENCE_PATTERN.test(secret)) {
+        return {
+            value: preserveEnvReference(secret),
+            envVars: extractEnvVarNames(secret),
+        };
+    }
+    const envVar = webhookIndex === 0 ? "WEBHOOK_SECRET" : `WEBHOOK_SECRET_${webhookIndex + 1}`;
+    return {
+        value: `\${${envVar}}`,
+        envVars: [envVar],
+    };
 }
 /**
  * Converts high-level SDK project manifest to concrete Rust runtime engine format.
@@ -54,16 +83,24 @@ function convertSdkManifestToRuntime(config, chainId) {
         minStartBlock = 0;
     }
     const webhooks = [];
-    for (const wh of config.webhooks ?? []) {
+    const requiredEnvVars = new Set();
+    for (const [webhookIndex, wh] of (config.webhooks ?? []).entries()) {
         if (!wh.url)
             continue;
         const entry = {
-            url: resolveEnv(wh.url, "webhooks[].url"),
+            url: preserveEnvReference(wh.url),
             events: Array.isArray(wh.events) ? wh.events : ["reorg"],
             max_retries: wh.maxRetries ?? wh.max_retries ?? 3,
         };
+        for (const envVar of extractEnvVarNames(entry.url)) {
+            requiredEnvVars.add(envVar);
+        }
         if (wh.secret) {
-            entry.secret = resolveEnv(wh.secret, "webhooks[].secret");
+            const secret = webhookSecretReference(wh.secret, webhookIndex);
+            entry.secret = secret.value;
+            for (const envVar of secret.envVars) {
+                requiredEnvVars.add(envVar);
+            }
         }
         webhooks.push(entry);
     }
@@ -75,7 +112,13 @@ function convertSdkManifestToRuntime(config, chainId) {
     if (webhooks.length > 0) {
         manifest.webhooks = webhooks;
     }
-    return { contracts, webhooks, minStartBlock, manifest };
+    return {
+        contracts,
+        webhooks,
+        minStartBlock,
+        manifest,
+        requiredEnvVars: [...requiredEnvVars],
+    };
 }
 /**
  * Maps optional SDK indexing settings to Helm deployment values.

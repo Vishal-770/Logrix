@@ -12,6 +12,7 @@ export interface InitAnswers {
   startBlock: number;
   webhookUrl?: string;
   webhookEvents?: string[];
+  secretEnvVars?: string[];
   ringBufferDepth?: number;
   reconcilerIntervalSecs?: number;
   fuelLimit?: number;
@@ -294,10 +295,13 @@ export function valuesAwsTemplate(a: InitAnswers): string {
 }
 
 export function secretsExampleTemplate(a: InitAnswers): string {
-  const fallbackUrlsStr =
-    a.fallbackRpcUrls && a.fallbackRpcUrls.length > 0
-      ? a.fallbackRpcUrls.join(",")
-      : "";
+  const secretKeys = new Set([
+    "RPC_URL",
+    "RPC_FALLBACK_URLS",
+    "DATABASE_URL",
+    ...(a.secretEnvVars ?? []),
+  ]);
+
   const doc = {
     apiVersion: "v1",
     kind: "Secret",
@@ -306,11 +310,9 @@ export function secretsExampleTemplate(a: InitAnswers): string {
       namespace: "default",
     },
     type: "Opaque",
-    stringData: {
-      RPC_URL: a.rpcUrl,
-      RPC_FALLBACK_URLS: fallbackUrlsStr,
-      DATABASE_URL: "postgres://user:password@aurora-cluster.internal:5432/logrix",
-    },
+    stringData: Object.fromEntries(
+      [...secretKeys].map((key) => [key, "CHANGE_ME"])
+    ),
   };
 
   return stringifyYaml(doc, { indent: 2 });
@@ -360,6 +362,7 @@ Produces \`build/mapping.wasm\`.
 npm run export-values
 \`\`\`
 Produces \`indexer-values.yaml\` bundling your WASM binary, GraphQL schema, and contract manifest.
+Environment placeholders such as \${ALCHEMY_API_KEY} remain symbolic in generated files. Fill and apply \`deploy/secrets.example.yaml\` before deploying, and never commit real credentials.
 
 ---
 

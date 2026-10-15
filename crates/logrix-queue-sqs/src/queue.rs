@@ -1,11 +1,13 @@
 use crate::client::SqsClientConfig;
 use logrix_core::{
     domain::{MessageHandle, QueueType},
-    error::LogrixResult,
+    error::{ErrorClass, ErrorSource, LogrixError, LogrixResult},
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+pub const SQS_MAX_VISIBILITY_TIMEOUT: i32 = 43_200;
 
 /// AWS SQS implementation of `QueuePort`.
 #[derive(Clone)]
@@ -28,6 +30,32 @@ impl SqsQueue {
 
     pub fn client(&self) -> &aws_sdk_sqs::Client {
         &self.config.client
+    }
+
+    /// Extend visibility for messages waiting in the local receive buffer.
+    pub(crate) async fn extend_visibility_for_handles(
+        &self,
+        queue_type: QueueType,
+        handles: &[MessageHandle],
+    ) -> LogrixResult<()> {
+        let url = self.config.resolve_url(queue_type)?;
+        for handle in handles {
+            self.client()
+                .change_message_visibility()
+                .queue_url(url)
+                .receipt_handle(&handle.receipt_id)
+                .visibility_timeout(SQS_MAX_VISIBILITY_TIMEOUT)
+                .send()
+                .await
+                .map_err(|e| {
+                    LogrixError::new(
+                        ErrorClass::Transient,
+                        ErrorSource::Queue,
+                        format!("Failed to extend SQS message visibility: {e}"),
+                    )
+                })?;
+        }
+        Ok(())
     }
 
     /// Convenience initializer from environment variables or custom endpoint (e.g. LocalStack).

@@ -1,4 +1,4 @@
-use logrix_core::domain::ChainId;
+use logrix_core::{domain::ChainId, error::LogrixResult};
 
 /// Ingester configuration hierarchy merging CLI args, env, and manifest defaults.
 #[derive(Debug, Clone)]
@@ -30,26 +30,25 @@ impl IngesterConfig {
     }
 
     /// Resolve effective operational values respecting manifest indexing overrides.
-    pub fn resolve_tuning(&self) -> (u64, u64, u64) {
+    pub fn resolve_tuning(&self) -> LogrixResult<(u64, u64, u64)> {
         let mut chunk_size = self.chunk_size.max(1);
         let mut max_queue_depth = self.max_queue_depth;
         let mut chain_head_poll_ms = self.chain_head_poll_ms;
 
         if let Some(ref path) = self.manifest_path {
-            if let Ok(manifest) = logrix_handlers::Manifest::from_file(path) {
-                if let Some(ref idx) = manifest.indexing {
-                    if let Some(cs) = idx.chunk_size {
-                        chunk_size = cs.max(1);
-                    }
-                    if let Some(mqd) = idx.max_queue_depth {
-                        max_queue_depth = mqd;
-                    }
-                    if let Some(chp) = idx.chain_head_poll_ms {
-                        chain_head_poll_ms = chp;
-                    }
+            let manifest = logrix_handlers::Manifest::from_file(path)?;
+            if let Some(ref idx) = manifest.indexing {
+                if let Some(cs) = idx.chunk_size {
+                    chunk_size = cs.max(1);
+                }
+                if let Some(mqd) = idx.max_queue_depth {
+                    max_queue_depth = mqd;
+                }
+                if let Some(chp) = idx.chain_head_poll_ms {
+                    chain_head_poll_ms = chp;
                 }
             }
         }
-        (chunk_size, max_queue_depth, chain_head_poll_ms)
+        Ok((chunk_size, max_queue_depth, chain_head_poll_ms))
     }
 }

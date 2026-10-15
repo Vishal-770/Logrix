@@ -36,10 +36,17 @@ pub async fn create_queue_adapter(
 pub async fn create_rpc_gateway(
     cli: &Cli,
     chain_id: ChainId,
-) -> Arc<logrix_rpc_gateway::RpcGateway> {
+) -> Result<Arc<logrix_rpc_gateway::RpcGateway>, Box<dyn std::error::Error>> {
     use logrix_chain_evm::EvmClientConfig;
     use logrix_rpc_gateway::{GatewayConfig, ManagedProvider, ProviderPool, RpcGateway};
     use std::time::Duration;
+
+    let rpc_url = crate::env::expand_env_placeholders(&cli.rpc_url, "RPC_URL")?;
+    let fallback_urls = cli
+        .rpc_fallback_urls
+        .iter()
+        .map(|url| crate::env::expand_env_placeholders(url, "RPC_FALLBACK_URLS"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let gateway_cfg = GatewayConfig::default()
         .with_circuit_breaker(
@@ -58,7 +65,7 @@ pub async fn create_rpc_gateway(
     let pool = ProviderPool::new(chain_id);
     let primary = ManagedProvider::new_with_config(
         "primary",
-        &cli.rpc_url,
+        &rpc_url,
         1,
         chain_id,
         &gateway_cfg,
@@ -66,7 +73,7 @@ pub async fn create_rpc_gateway(
     );
     pool.add_provider(primary).await;
 
-    for (idx, fallback_url) in cli.rpc_fallback_urls.iter().enumerate() {
+    for (idx, fallback_url) in fallback_urls.iter().enumerate() {
         if !fallback_url.trim().is_empty() {
             let name = format!("fallback-{}", idx + 1);
             let p = ManagedProvider::new_with_config(
@@ -88,5 +95,5 @@ pub async fn create_rpc_gateway(
         cli.bulk_stream_url.clone(),
         &gateway_cfg,
     );
-    Arc::new(gateway)
+    Ok(Arc::new(gateway))
 }

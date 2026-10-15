@@ -1,7 +1,7 @@
 use alloy_primitives::Address;
 use logrix_api::start_api_server_with_schema;
 use logrix_core::{domain::ChainId, ports::LeaderElectionPort, LocalLeaderElector};
-use logrix_store_postgres::PostgresStore;
+use logrix_store_postgres::{PostgresConfig, PostgresStore};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -11,6 +11,12 @@ use crate::factory::{create_queue_adapter, create_rpc_gateway};
 use crate::ingester::{run_ingester, IngesterConfig};
 use crate::processor::{run_processor, ProcessorConfig};
 
+fn postgres_config(cli: &Cli) -> PostgresConfig {
+    PostgresConfig::new(&cli.database_url, "default")
+        .max_connections(cli.database_max_connections)
+        .min_connections(cli.database_min_connections)
+}
+
 pub async fn run_all_in_one(
     cli: Cli,
     chain_id: ChainId,
@@ -18,11 +24,12 @@ pub async fn run_all_in_one(
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Logrix All-In-One service...");
-    let store = PostgresStore::connect(&cli.database_url, "default").await?;
+    let pg_cfg = postgres_config(&cli);
+    let store = PostgresStore::connect_with_config(&pg_cfg).await?;
     store.migrate().await?;
 
     let queue = create_queue_adapter(&cli).await?;
-    let gateway = create_rpc_gateway(&cli, chain_id).await;
+    let gateway = create_rpc_gateway(&cli, chain_id).await?;
 
     let ingester_queue = queue.clone();
     let ingester_gw = gateway.clone();
@@ -44,14 +51,14 @@ pub async fn run_all_in_one(
 
     let processor_queue = queue.clone();
     let processor_gw = gateway.clone();
-    let proc_config = ProcessorConfig::from_cli(&cli, chain_id, target_contract);
+    let proc_config = ProcessorConfig::from_cli(&cli, chain_id, target_contract)?;
     let processor_handle = tokio::spawn(async move {
         if let Err(e) = run_processor(proc_config, processor_gw, processor_queue).await {
             error!(error = %e, "Processor task failed");
         }
     });
 
-    let store_api = Arc::new(PostgresStore::connect(&cli.database_url, "default").await?);
+    let store_api = Arc::new(PostgresStore::connect_with_config(&pg_cfg).await?);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let schema_path_clone = cli.schema_path.clone();
     let api_config = logrix_api::ApiConfig {
@@ -89,4 +96,27 @@ pub async fn run_all_in_one(
         res = api_handle => { warn!(?res, "API terminated"); }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::postgres_config;
+    use crate::args::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn all_in_one_database_config_uses_cli_pool_limits() {
+        let cli = Cli::parse_from([
+            "logrix",
+            "--database-max-connections",
+            "17",
+            "--database-min-connections",
+            "4",
+            "all-in-one",
+        ]);
+        let config = postgres_config(&cli);
+
+        assert_eq!(config.max_connections, 17);
+        assert_eq!(config.min_connections, 4);
+    }
 }

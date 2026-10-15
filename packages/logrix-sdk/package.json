@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
+    "test": "npm run build && node --test dist/manifest_converter.test.js",
     "prepublishOnly": "npm run build"
   },
   "files": [

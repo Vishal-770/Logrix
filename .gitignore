@@ -50,3 +50,4 @@ snap5.png
 snap5-1.png
 arbitrum-uniswap-indexer/node_modules/
 arbitrum-uniswap-indexer/build/
+packages/logrix-sdk/dist/*.test.js
