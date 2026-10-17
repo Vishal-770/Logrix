@@ -1,68 +1,48 @@
-# Open Source Indexer Strategy: Pitfalls & Architectural Defenses
+# Project scope and extension status
 
-## Why Most Open-Source Indexers Fail (And How Logrix Solves It)
+This guide replaces earlier product promises with a current capability map.
+Historical proposals remain under [plans](plans/README.md); their goals are
+not a release contract or implementation checklist marked complete by these docs.
 
-Building an open-source blockchain indexer is notoriously difficult. Many projects start with enthusiasm but fail to achieve broad community adoption or become maintenance nightmares. Below are the primary pitfalls observed in the ecosystem and Logrix's explicit architectural defenses.
+## Available extension points
 
----
+| Need | Current mechanism | Boundary |
+| --- | --- | --- |
+| Add an infrastructure adapter | Implement a core Rust port and wire it into an embedding app/CLI | Existing CLI selectors expose RabbitMQ/SQS and PostgreSQL, not arbitrary plugins |
+| Map raw log fields to entities | Native declarative manifest rules | Limited expressions/matching, not full ABI expression evaluation |
+| Execute custom logic | Wasmtime guest matching host ABI; supplied AssemblyScript SDK | Other languages need independently verified compatible guests/toolchains |
+| Define queried entity fields | GraphQL SDL or supported YAML schema | JSON entity storage; relation/list/index metadata is not full resolver/DDL support |
+| Consume live entity changes | Optional GraphQL WebSocket subscriptions | Non-durable notifications, no guaranteed replay |
+| Deliver HTTP notifications | Signed webhook dispatcher and endpoint REST API | Current producer/filter vocabulary and retry/audit limitations apply |
+| Configure deployment resources | Helm/Kustomize plus reference AWS Terraform | Operators, IAM, migrations, durable backing services and upgrades remain operator work |
 
-### Pitfall 1: "The Heavyweight Infrastructure Wall" (Zero-to-One Friction)
-- **The Pitfall:** Many indexers require developers to run Docker Compose with Kafka, Redis, Postgres, and multiple microservices just to index a single ERC-20 contract locally. Developers abandon the tool within 5 minutes.
-- **Logrix Defense:**
-  - **Single static Rust binary.**
-  - `logrix dev` starts an embedded SQLite database and an in-memory queue in a single process.
-  - Generates a local dynamic GraphQL API on `:4000` with zero Docker or cloud dependencies required.
-  - Developers can test their logic locally in 60 seconds before ever touching Kubernetes or cloud queues.
+## Not shipped as working capabilities
 
-### Pitfall 2: RPC Bill Shock & Rate Limit Freezes
-- **The Pitfall:** Indexers launch concurrent historical backfills that make millions of naive `eth_getLogs` and per-block `eth_getBlockByNumber` calls. Users wake up to thousands of dollars in Infura/Alchemy bills or get IP-banned by public RPCs with `429 Too Many Requests`.
-- **Logrix Defense:**
-  - **The RPC Gateway:** All chain interactions pass through a centralized gateway that tracks budgets in **Compute Units (CU)**, not just raw request counts.
-  - **Adaptive Chunking:** Automatically shrinks query ranges on "range too large" errors and grows them when data is sparse.
-  - **Dry-Run Estimator:** `logrix backfill --dry-run` calculates expected call counts, time, and dollar cost *before* any requests are sent.
-  - **Raw Block Archive:** Saves raw block envelopes to local disk or S3. Re-indexing historical data costs **zero** additional RPC calls.
+- Embedded SQLite, Redis/BullMQ, local filesystem archive adapters, or generic
+  production in-memory queue mode.
+- Remote gRPC plugins, JavaScript-in-WASM execution, dynamic Rust library plugins,
+  factory discovery or automatic ABI/proxy-upgrade registration.
+- SQD/HyperSync bulk transport, archive-first zero-RPC replay, durable learned
+  provider limits, or a latency-weighted global request scheduler.
+- A singleton Controller that coordinates database-aware worker budgets,
+  cross-pod handler state, arbitrary gap audits, or atomic cross-system rollback.
+- A `logrix dev` command, automatic cluster provisioning, hot reload, or a verified
+  under-60-second installation workflow.
+- An out-of-the-box security/HA guarantee, strict provider billing cap, universal
+  memory bound, exactly-once processing, or guaranteed shutdown drain.
 
-### Pitfall 3: Reorg Corruption and Silent Data Loss
-- **The Pitfall:** Blockchain reorganizations (reorgs) occur frequently on EVM chains (especially fast chains like Polygon and Arbitrum). Naive indexers either ignore reorgs (leaving duplicate/stale records in the database) or crash entirely when parent hashes mismatch.
-- **Logrix Defense:**
-  - **Hash-based fetching:** Fetches logs by `block_hash`, not block number.
-  - **Continuous parent-hash verification:** Compares new block parent hashes against the local database tip.
-  - **Controller Rollback:** On reorg detection, the singleton Controller halts writers, executes an atomic rollback transaction to the fork point, and re-queues blocks.
-  - **Revert Webhooks:** Dispatches `event.reverted` webhooks so downstream applications (e.g., balance updates) roll back their state cleanly.
+The Rust ports and data fields leave room for implementation changes, but a
+type, endpoint string, configuration key or aspirational test name alone does
+not establish working behavior.
 
-### Pitfall 4: The Unbounded Memory & Backpressure Collapse
-- **The Pitfall:** When a backfill decoder downloads thousands of blocks faster than the database can write them, memory consumption balloons until the Linux kernel OOM-kills the process.
-- **Logrix Defense:**
-  - **Bounded Channels & Adaptive Concurrency (AIMD):** Every in-memory channel has a fixed capacity.
-  - If the database write latency increases, decoders automatically cut their batch size and prefetch window (TCP-like additive increase, multiplicative decrease).
-  - The Controller monitors overall database write pool saturation and throttles queue intake.
+## Evidence for changes
 
-### Pitfall 5: The "Recompile for Every Customization" Barrier
-- **The Pitfall:** When an indexer is written in a systems language like Rust, requiring users to write Rust code and recompile the binary to add a custom queue, database, or event handler drives away 90% of developers (who use TypeScript/JavaScript or Python).
-- **Logrix Defense:**
-  - **Level 1 (Declarative YAML):** 80% of use cases map event parameters directly to database columns in YAML with zero code.
-  - **Level 2 (WASM Sandbox):** Developers write custom logic in TypeScript, Rust, Go, or Python and compile to standard WebAssembly. The WASM plugin runs inside a high-speed, sandboxed `wasmtime` engine without touching the core Rust binary.
-  - **Level 3 (gRPC Plugins):** External services written in any language can plug into the pipeline over high-speed gRPC.
+Document a capability only after tracing its public input to the actual consumer
+and checking the relevant failure paths. Separate direct library defaults from
+runtime wiring and deployment translation. Quantitative results need a workload,
+environment, command, raw measurements and reproducible comparison; old reports
+do not establish current performance.
 
-### Pitfall 6: Dynamic ABI & Proxy Upgrades Breaking Pipelines
-- **The Pitfall:** Real-world smart contracts use proxies (ERC-1967) and factory patterns (Uniswap pools). Indexers that hardcode contract addresses at startup cannot track dynamically deployed pools.
-- **Logrix Defense:**
-  - Factory contract discovery modeled into the pipeline envelope: an event handler can emit a `register_contract` action that dynamically adds newly deployed contract addresses to the active listener and decoder stream.
-  - Runtime ABI decoding via `alloy-dyn-abi`.
-
----
-
-## The "Run on the Go" Checklist for Logrix
-
-To ensure Logrix wins developers over alternatives like Ponder, Envio, SubQuery, and The Graph, it guarantees:
-
-| Feature | Logrix v1 Guarantee |
-| :--- | :--- |
-| **Install Speed** | Single binary (`curl -fsSL https://get.logrix.dev \| sh` or `brew install logrix`) |
-| **Setup Time** | Under 60 seconds with `logrix init` interactive wizard |
-| **Default Database** | Embedded SQLite for dev; zero setup required |
-| **Default Queue** | Fast in-memory queue for dev; zero setup required |
-| **API Availability** | Dynamic GraphQL schema instantly generated from YAML |
-| **Reorg Safety** | Automatic rollbacks out of the box |
-| **Cloud Deployment** | 1-command export to Docker Compose or Helm chart |
-| **RPC Cost Protection**| Built-in limits, CU budget tracking, and dry-run cost previews |
+Useful starting points: [architecture](01-architecture.md),
+[configuration](configuration.md), [all crate guides](README.md#crate-guides),
+and [contribution checks](../CONTRIBUTING.md).

@@ -1,399 +1,323 @@
 # @logrix/sdk
 
-Official CLI and AssemblyScript runtime library for [Logrix](https://github.com/Vishal-770/Logrix) blockchain indexers.
+Developer CLI and AssemblyScript guest library for [Logrix](https://github.com/Vishal-770/Logrix) blockchain indexers. The CLI scaffolds projects, generates bindings, validates files, compiles WASM, and exports Helm values. Deployment is performed separately with Helm, Kubernetes, or Terraform.
 
-[![npm](https://img.shields.io/npm/v/@logrix/sdk)](https://www.npmjs.com/package/@logrix/sdk)
+## Quick start
 
----
-
-## Quick Start
+Use Node.js and npm for the CLI, and AssemblyScript 0.27.x for handlers. From a directory where a new project can be created:
 
 ```bash
-npx @logrix/sdk init my-indexer
+npx @logrix/sdk init my-indexer --yes --network arbitrum-one
 cd my-indexer
 npm install
 npm run codegen
+```
+
+**Current compilation workaround:** after codegen, change imports/re-exports of `"@logrix/sdk"` to `"@logrix/sdk/src/runtime/index"` in `src/mapping.ts`, `src/generated/events.ts`, and `src/generated/schema.ts`. The package root currently re-exports testing source with optional properties and nullish-coalescing syntax that `asc` cannot parse. Codegen overwrites the generated files, so repeat this adjustment after each generation. Then:
+
+```bash
 npm run validate
-npm run build
-npm test
+npm run build:asc
+npm run export-values
 ```
 
----
+Review the generated ERC-20 ABI, contract address, and start block before indexing. `init` always writes the Transfer/Approval sample; selecting a different contract name or address does not discover its ABI. A start block of zero can imply a large backfill.
 
-## Manifest Configuration (`logrix.yaml`)
+The generated scripts are `codegen`, `validate`, `build`, `build:asc`, and `export-values`. There is no generated `test` script. Use `npx logrix test` for the CLI's limited local checks, described below.
 
-`logrix.yaml` is the single source of truth for your indexer project. Users do not need to author or edit Helm charts directly—all contract logic, event mappings, and operational tuning parameters are defined directly in `logrix.yaml`.
+`build:asc` is used here because `logrix build` currently selects the first data source's `mapping.file` as its compiler input if that file already exists. With the default manifest, a second build can therefore try to compile `build/mapping.wasm` as source. The direct compiler script always uses `src/mapping.ts`.
 
-Running `npx @logrix/sdk export-values` automatically compiles `logrix.yaml` into a production-ready `indexer-values.yaml` bundle configured for deployment to the published Logrix Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
+### Versions in this checkout
 
-### Complete `logrix.yaml` Example
+These versions are independent; inspect the installed package and selected container image:
 
-```yaml
-specVersion: 0.1.0
+| Component | Current value |
+| --- | --- |
+| Rust workspace | `0.7.3` |
+| SDK package | `0.7.0` |
+| SDK CLI `--version` | hard-coded `0.6.0` |
+| Dependency written by `init` | `@logrix/sdk: ^0.6.0` |
+| Image tag written to `deploy/values-aws.yaml` | `0.6.0` |
 
-# 1. Target Blockchain Network
-network:
-  name: arbitrum-one
-  chainId: 42161
-  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-  fallbackRpcUrls:
-    - "https://arb1.arbitrum.io/rpc"
+Installing a generated project does not automatically select this checkout's SDK. Check its lockfile and review the AWS image tag before deployment. The chart defaults to `latest`; select a tested, versioned image explicitly.
 
-# 2. Smart Contracts & Mapping Handlers
-dataSources:
-  - kind: ethereum/contract
-    name: UniswapV3Pool
-    network: arbitrum-one
-    source:
-      address: "0xC6962004f452bE9203591991D15f6b388e09E8D0"
-      abi: UniswapV3Pool
-      startBlock: 514022000
-    mapping:
-      kind: wasm/assemblyscript
-      file: ./build/mapping.wasm
-      # Per-contract resource limits & toggles:
-      enabled: true                  # Toggle to pause indexing without deleting config (default: true)
-      fuelLimit: 5000000             # Instruction fuel budget override
-      maxMemoryMb: 256               # WASM linear memory ceiling in MB
-      abis:
-        - name: UniswapV3Pool
-          file: ./abis/UniswapV3Pool.json
-      eventHandlers:
-        - event: Swap(address indexed,address indexed,int256,int256,uint160,uint128,int24)
-          handler: handleSwap
-        - event: Mint(address,address indexed,int24 indexed,int24 indexed,uint128,uint256,uint256)
-          handler: handleMint
-        - event: Burn(address indexed,int24 indexed,int24 indexed,uint128,uint256,uint256)
-          handler: handleBurn
+## AssemblyScript, generated files, and the host ABI
 
-# 3. Outbound Webhook Subscriptions
-webhooks:
-  - url: "https://api.mybackend.com/webhooks/reorgs"
-    events: ["reorg"]
-    maxRetries: 3
-    secret: "${CRITICAL_WEBHOOK_SECRET}"
+Handler `.ts` files are **AssemblyScript**, a TypeScript-like language compiled by `asc` to WebAssembly. Types such as `i32`, `u64`, `usize`, `load<u8>`, and `heap.alloc` are guest-language features. These files are not ordinary Node.js or browser TypeScript. The package root exports AssemblyScript runtime/testing source; importing it into a normal TypeScript application does not provide a JavaScript indexer client.
 
-# 4. Operational & Engine Tuning (Optional - Sensible Defaults Applied)
-indexing:
-  # Ingestion & RPC Tuning
-  chunkSize: 10                      # Maximum blocks queried per eth_getLogs batch (default: 10)
-  chainHeadPollMs: 1500              # Polling interval at chain head in ms (default: 1500)
-  maxQueueDepth: 1000                # Queue backpressure threshold before pausing (default: 1000)
-  rpcTimeoutSecs: 10                 # RPC HTTP client timeout in seconds (default: 10)
-  rpcCbThreshold: 5                  # Circuit breaker consecutive failure trip threshold (default: 5)
-  rpcCooldownSecs: 30                # Circuit breaker cooldown in seconds (default: 30)
+`init` creates:
 
-  # Reorg & Gap Reconciler Tuning
-  ringBufferDepth: 128               # Rolling parent-hash ring buffer size (default: 128)
-  reconcilerIntervalSecs: 30         # Periodic gap check interval in seconds (default: 30)
-  reconcilerChunkSize: 10            # Chunk size when filling missing block ranges (default: 10)
-  reconcilerLagThreshold: 50         # Blocks behind head before reconciling (default: 50)
-
-  # Database Connection Limits
-  databaseMaxConnections: 10         # Max PostgreSQL pool connections per pod (default: 10)
-  databaseMinConnections: 2          # Min idle PostgreSQL pool connections (default: 2)
-
-  # Queue Driver Parameters
-  rabbitmqPrefetch: 100              # RabbitMQ consumer channel QoS prefetch (default: 100)
-  rabbitmqTimeoutSecs: 10            # RabbitMQ connection timeout (default: 10)
-  sqsWaitTimeSeconds: 2              # SQS receive message long polling wait (0-20s, default: 2)
-  sqsMaxMessages: 1                  # SQS batch receive count (1-10, default: 1)
-
-  # Webhook & GraphQL Guardrails
-  webhookTimeoutSecs: 5              # Outgoing webhook HTTP request timeout (default: 5)
-  webhookMaxRetries: 1               # Default delivery retry attempts (default: 1)
-  graphqlMaxDepth: 7                 # GraphQL query max nesting depth (default: 7)
-  graphqlMaxComplexity: 200          # GraphQL query complexity limit (default: 200)
-  graphqlDefaultLimit: 100           # Default query result count (default: 100)
-  graphqlMaxLimit: 1000              # Max query pagination size (default: 1000)
-  graphqlQueryTimeoutSecs: 5         # Query execution timeout in seconds (default: 5)
+```text
+logrix.yaml
+schema.graphql
+abis/TokenContract.json
+src/mapping.ts
+deploy/values-aws.yaml
+deploy/secrets.example.yaml
+package.json
+tsconfig.json
+.gitignore
+README.md
 ```
 
----
+Neither `init` nor `export-values` creates `deploy/values-local.yaml`.
 
-## CLI Commands
+| Step | Actual output |
+| --- | --- |
+| `codegen` | `src/generated/events.ts` and `src/generated/schema.ts` (overwritten) |
+| `build` / `build:asc` | default `build/mapping.wasm` |
+| `test` | `build/test_mapping.wasm` when compilation succeeds |
+| `export-values` | default `indexer-values.yaml`; missing AWS/Secret example files in `deploy/` |
 
-### `logrix init [name]`
+Event bindings are named `<DataSource>_<Event>Event` and `<DataSource>_<Event>Params`. The first event with a given name also gets an unscoped alias such as `TransferEvent`. Address constants and `isFromContract` help with manual routing. Entity bindings implement constructors, static `load(id)` / `remove(id)`, and instance `save()`. `@derivedFrom` fields are omitted from stored payloads; codegen does not generate reverse-lookup methods.
 
-Scaffolds a new indexer project with built-in presets for 26+ popular mainnets and testnets. Run interactively or pass flags for CI/CD automation.
+The Rust host serializes each EVM `EventLog` as UTF-8 JSON into exported guest `memory`, calls `allocate(size)` (or `alloc`, with a legacy fixed-address fallback), then calls `handle_event(ptr, len) -> i32`. Export `allocate` explicitly. Return zero on success; negative results and traps fail execution and discard that invocation's staged writes. Named manifest handlers such as `handleTransfer` are not called directly by the host: `handle_event` must parse and dispatch.
 
-Options:
-- `-y, --yes` -- non-interactive mode using sensible defaults
-- `--network <name>` -- network preset (`arbitrum-one`, `ethereum`, `base`, `optimism`, `polygon`, `bsc`, `avalanche`, `sepolia`, etc.)
-- `--rpc <url>` -- custom RPC endpoint
-- `--fallback-rpc <urls...>` -- optional fallback RPC endpoints for RPC gateway failover
-- `--contract-name <name>` -- contract name
-- `--address <address>` -- target contract 0x address
-- `--start-block <block>` -- initial indexing block
-- `--webhook-url <url>` -- declarative webhook subscriber URL
-- `--reorg-depth <depth>` -- reorg ring buffer depth (default: 128)
-- `--reconciler-interval <secs>` -- gap reconciler interval in seconds (default: 30)
+SDK imports use the `env` namespace. The host registers the following functions under both `env` and `logrix`:
 
-Creates:
-```
-my-indexer/
-  logrix.yaml          # indexer manifest: network, contracts, ABIs, WASM path
-  schema.graphql       # entity definitions
-  abis/
-    TokenContract.json # contract ABI
-  src/
-    mapping.ts         # handler logic
-  deploy/
-    values-local.yaml  # local Kubernetes profile (Minikube / Kind)
-    values-aws.yaml    # production AWS profile (Aurora, SQS, S3, KEDA)
-    secrets.example.yaml # Kubernetes Secret template for RPC/DB credentials
-  package.json
-  tsconfig.json
-  .gitignore
-  README.md
-```
+| Import | WASM signature / behavior |
+| --- | --- |
+| `logrix_db_get` | `(key_ptr, key_len, out_ptr, max_len) -> i32`; bytes written, `-1` missing/invalid input, `-2` insufficient output buffer |
+| `logrix_db_set` | `(key_ptr, key_len, val_ptr, val_len) -> i32`; stage key/value state |
+| `logrix_db_remove` | `(key_ptr, key_len) -> i32`; stage removal |
+| `logrix_emit` | `(entity_ptr, entity_len, json_ptr, json_len) -> i32`; stage an entity payload |
+| `logrix_log` | `(level, msg_ptr, msg_len) -> i32`; stage a diagnostic (0 debug, 1 info, 2 warning, otherwise error) |
 
----
+All ABI arguments and results above are `i32`; pointers refer to guest linear memory. The host also supplies AssemblyScript's `env.abort`. There are no guest HTTP/RPC or filesystem imports in this linker. The guest library's `log` methods call the staging API; the current engine does not forward those staged diagnostics into its returned processing buffer.
 
-### `logrix status`
+### Generator-compatible Transfer handler
 
-Checks live JSON-RPC connectivity across primary and fallback endpoints, measures round-trip latency, verifies chain ID match, checks latest block height, and verifies that target smart contracts are deployed with on-chain bytecode.
-
-```bash
-npx logrix status
-```
-
-Output includes:
-- Network Name & Chain ID verification
-- Primary and fallback RPC reachability and response latency (ms)
-- Latest chain block number
-- Contract deployment verification (`eth_getCode` bytecode inspection)
-- Sync scope and remaining block delta
-- Configured declarative webhooks
-
----
-
-### `logrix add contract <name>` and `logrix add webhook <url>`
-
-Adds an additional smart contract or declarative webhook to an existing `logrix.yaml` project.
-
-```bash
-# Add contract with manual ABI path
-npx logrix add contract SecondaryToken \
-  --address 0x1111111111111111111111111111111111111111 \
-  --abi ./my-abis/SecondaryToken.json \
-  --start-block 1000000
-
-# Add contract with automatic ABI fetch from block explorers / Sourcify
-npx logrix add contract DaiToken \
-  --address 0x6b175474e89094c44da98b954eedeac495271d0f \
-  --fetch-abi
-
-# Add declarative webhook subscriber
-npx logrix add webhook https://api.mybackend.com/webhooks/logrix \
-  --events Transfer,reorg \
-  --max-retries 3
-```
-
-Contract Options:
-- `--address <address>` -- contract address
-- `--abi <path>` -- path to local ABI JSON
-- `--fetch-abi` -- auto-fetch verified contract ABI from block explorers and Sourcify
-- `--etherscan-key <key>` -- optional block explorer API key for rate limits
-- `--start-block <block>` -- initial indexing block
-
-Webhook Options:
-- `--events <events>` -- comma-separated event names (default: `reorg`)
-- `--secret <secret>` -- HMAC signing secret (optional)
-- `--max-retries <retries>` -- maximum delivery retries (default: 3)
-
----
-
-### `logrix validate`
-
-Validates your `logrix.yaml`, contract addresses, ABI files, `schema.graphql` entities, and handler mappings before compilation.
-
-```bash
-npx logrix validate
-```
-
----
-
-### `logrix codegen`
-
-Parses `logrix.yaml` dataSources, ABI files, and `schema.graphql` to generate typed AssemblyScript bindings.
-
-```bash
-npx logrix codegen
-```
-
-Outputs:
-- `src/generated/events.ts` -- typed event and parameter classes (namespaced per contract), multi-contract address constants, router helpers, and dynamic ABI decoding (`string`, `bytes`)
-- `src/generated/schema.ts` -- entity classes with static `.load(id)`, `.remove(id)`, and `.save()`, handling `@derivedFrom` relationships
-
----
-
-### `logrix build`
-
-Compiles your AssemblyScript handler into an optimized WebAssembly module (`build/mapping.wasm`).
-
-```bash
-npx logrix build
-```
-
-Options:
-- `--entry <file>` -- handler entry point (default: `src/mapping.ts`)
-- `--out <file>` -- output WASM binary path (default: `build/mapping.wasm`)
-- `--debug` -- compile without optimizations for debugging
-
----
-
-### `logrix export-values`
-
-Reads `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm` to produce a ready-to-deploy `indexer-values.yaml` for Helm. Also ensures deployment profile templates exist in `deploy/`.
-
-Environment placeholders such as `${ALCHEMY_API_KEY}` are preserved in generated values and manifests; they are never expanded into files. When placeholders are present, the exporter configures `config.existingSecret` and lists safe `CHANGE_ME` entries in `deploy/secrets.example.yaml`. Fill and apply that Secret before deploying, and do not commit real credentials.
-
-```bash
-npx logrix export-values
-```
-
-Options:
-- `--out <file>` -- output values file (default: `indexer-values.yaml`)
-- `--chain-id <id>` -- override chain ID
-- `--rpc <url>` -- override RPC URL
-- `--deploy-profiles` -- regenerate `deploy/` profile templates (`values-local.yaml`, `values-aws.yaml`, `secrets.example.yaml`)
-
-Deploy with Helm:
-
-**Local Kubernetes (Minikube / Kind):**
-```bash
-helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/values-local.yaml \
-  -f indexer-values.yaml
-```
-
-**Production AWS EKS:**
-```bash
-helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f deploy/values-aws.yaml \
-  -f indexer-values.yaml \
-  --set config.existingSecret=logrix-aws-secrets
-```
-
-**Custom Kubernetes Cluster:**
-```bash
-helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-  -f my-cluster-infra.yaml \
-  -f indexer-values.yaml
-```
-
----
-
-### `logrix test`
-
-Runs local test validation across configuration, code generation, and WASM compilation, and executes any unit tests in `tests/`.
-
-```bash
-npx logrix test
-```
-
----
-
-## Runtime API
-
-Imported via `import { ... } from "@logrix/sdk"` in AssemblyScript handlers:
-
-| Export | Description |
-|--------|-------------|
-| `store.get(entity, id)` | Load raw entity JSON string from persistent store |
-| `store.set(entity, id, data)` | Write entity to persistent store and stage for DB |
-| `store.remove(entity, id)` | Mark entity as deleted and stage soft-delete |
-| `Entity.load(id)` | Auto-generated on each `@entity` class; loads existing entity or returns `null` |
-| `Entity.remove(id)` | Auto-generated on each `@entity` class; removes entity by ID |
-| `entity.save()` | Saves and persists entity state |
-| `BigInt` | EVM 256-bit safe arithmetic: `.plus()`, `.minus()`, `.times()`, `.div()`, `.equals()`, `.gt()`, `.lt()` |
-| `Address` | Address wrapper: `.fromString()`, `.toHexString()`, `.equals()` |
-| `Bytes` | Hex byte wrapper: `.fromHexString()`, `.fromUTF8()`, `.toHexString()`, `.toByteArray()`, `.length` |
-| `crypto.keccak256(data)` | Computes standard EVM Keccak-256 hash |
-| `formatUnits(val, decimals)` | Formats raw BigInt value into human-readable decimal string (default: 18) |
-| `decodeDynamicString(data, idx)` | Decodes dynamic string parameter from raw ABI event data |
-| `decodeDynamicBytes(data, idx)` | Decodes dynamic bytes parameter from raw ABI event data |
-| `createMockEventLog(config)` | Creates mock EventLog instance for testing mapping logic |
-| `log` | Structured logging: `log.info()`, `log.warning()`, `log.error()`, `log.debug()` |
-| `allocate(size)` | Guest memory allocator (must be re-exported by `mapping.ts`) |
-
----
-
-## Writing Handlers (`src/mapping.ts`)
+After `codegen` with the default ERC-20 ABI and schema, and the generated-import workaround above, this can replace `src/mapping.ts` for a Transfer-only example. It parses the real payload, matches topic0, and fills the generated entity. Approval events are intentionally skipped by this example; the scaffold includes a separate Approval handler.
 
 ```typescript
-import { EventLog, log, BigInt, Address, crypto, formatUnits, allocate } from "@logrix/sdk";
+import { EventLog, log } from "@logrix/sdk/src/runtime/index";
 import { TransferEvent } from "./generated/events";
 import { Transfer } from "./generated/schema";
 
-export { allocate } from "@logrix/sdk";
+export { allocate } from "@logrix/sdk/src/runtime/index";
 
 export function handle_event(ptr: i32, len: i32): i32 {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = load<u8>(ptr + i);
   }
-  const raw = String.UTF8.decode(bytes.buffer);
-
-  if (raw.includes("Transfer")) {
-    return handleTransfer(raw);
+  const raw = EventLog.fromJson(String.UTF8.decode(bytes.buffer));
+  if (raw.topics.length < 3) return 0;
+  if (raw.topics[0] != "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") {
+    return 0;
   }
-  return 0;
-}
-
-function handleTransfer(raw: string): i32 {
-  const event = new TransferEvent(new EventLog());
-
-  const entityId = event.transactionHash + "-" + event.logIndex.toString();
-
-  // Load existing entity or instantiate a new one
-  let entity = Transfer.load(entityId);
-  if (!entity) {
-    entity = new Transfer(entityId);
-  }
-
+  const event = new TransferEvent(raw);
+  const id = event.transactionHash + "-" + event.logIndex.toString();
+  const entity = new Transfer(id);
+  entity.blockNumber = event.blockNumber;
   entity.fromAddress = event.params.from.toHexString();
   entity.toAddress = event.params.to.toHexString();
-  entity.amount = event.params.value; // Typed BigInt
+  entity.amount = event.params.value;
+  entity.transactionHash = event.transactionHash;
+  entity.timestamp = event.blockTimestamp;
   entity.save();
-
-  log.info("Indexed transfer: " + entityId);
+  log.info("Indexed Transfer: " + id);
   return 0;
 }
 ```
 
----
+For multiple contracts, check `raw.address` and use scoped event classes. Event names are not present in the raw EVM payload, so searching its JSON for `"Transfer"` is not a dispatcher.
 
-## Deployment
+### Runtime API and current limits
 
-1. Use `@logrix/sdk` to build and export your indexer bundle:
-   ```bash
-   npm run codegen && npm run build && npm run export-values
-   ```
+| API | Implemented behavior / boundary |
+| --- | --- |
+| `EventLog.fromJson(json)` | Parses address, topics, data, block/hash/index and `tx_hash` (or `transaction_hash`). This is a simple field extractor, not a general JSON parser. Numeric metadata passes through `i32` conversions. |
+| `store.get(type, id)` | Reads `type:id` from host state, returning raw JSON or `""`. The SDK uses a fixed 8192-byte read buffer and treats non-positive host results as empty, including buffer-too-small errors. |
+| `store.set(type, id, json)` | Stages state and emits an entity; persistence is handled by the Rust processor after execution. |
+| `store.remove(type, id)` | Stages state removal and emits an `id` / `_deleted` payload. |
+| `BigInt` | String-backed decimal/hex conversion; `fromString`, `fromI32`, `fromU64`, `zero`, `plus`, `minus`, `times`, `div`, comparisons and string/hex output. It is not native JavaScript `bigint`. |
+| `Address` | Lowercases hex and extracts the last 20 bytes of a 32-byte topic. It does not strictly validate address input. |
+| `Bytes` | Hex/UTF-8/byte-array conversions, equality and length; input is not strictly validated. |
+| `crypto.keccak256(bytes)` | Guest implementation accepting and returning `Bytes`; not a host RPC/hash service. |
+| `formatUnits(value, decimals = 18)` | Decimal-string formatting without floating point. |
+| `decodeDynamicString` / `decodeDynamicBytes` | Basic Solidity head/tail decoding for non-indexed string/bytes data; malformed/short data can yield empty values. |
+| `log.debug/info/warning/error(message)` | Single-string diagnostic wrappers around `logrix_log`. |
+| `createMockEventLog` | Exported source helper, not a Node.js mock host or a WASM execution test runner. |
 
-2. Deploy using Helm:
+Important limitations when adapting handlers:
 
-   **Mode 1: Self-Hosted Deployment (Default)**
-   Deploys out-of-the-box with built-in PostgreSQL and RabbitMQ pods. No extra infrastructure config needed:
-   ```bash
-   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     -f indexer-values.yaml
-   ```
-   *(Optional S3 block archiving can be enabled with `--set builtIn.minio=true`)*
+- Rust's current per-log JSON has no `block_timestamp`; the SDK's `blockTimestamp` therefore defaults to zero. The handler above stores that zero, not a real block time. Large metadata values can also be truncated by the SDK parser's `i32` intermediate.
+- `BigInt` arithmetic/comparison helpers assume normalized non-negative decimal operands. `minus` can produce a negative string, but subsequent signed arithmetic is not implemented generally. `div(0)` returns zero. Codegen converts Solidity `int*` words as unsigned hex, without two's-complement sign decoding. Do not treat signed Uniswap amounts/ticks as correctly decoded values.
+- ABI generation is a limited decoder, not full Solidity ABI support: arrays/tuples, indexed dynamic values and some scalar types (including bool bindings) require review/custom decoding. Entity serialization concatenates strings without general JSON escaping; nullable/list/relation types are not fully modeled.
+- The package root's `createMockEventLog` re-export currently makes even unused root imports fail `asc` parsing. Use the runtime subpath for handlers and generated imports until that testing source is made AssemblyScript-compatible. Compile a real guest and provide host imports to test execution; `node --test` cannot directly execute AssemblyScript handlers.
 
-   *(To connect your own external database or queue securely, configure `deploy/secrets.example.yaml`, apply with `kubectl apply -f deploy/secrets.example.yaml`, and pass `--set config.existingSecret=logrix-secrets`)*
+## Configuration: SDK to Helm versus direct runtime
 
-   **Mode 2: Full AWS Production (EKS + Terraform)**
-   Deploys with Aurora Serverless PostgreSQL, Amazon SQS, and KEDA autoscaling:
-   ```bash
-   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     -f deploy/values-aws.yaml \
-     -f indexer-values.yaml \
-     --set config.existingSecret=logrix-secrets
-   ```
+See [configuration reference](../../docs/configuration.md) for runtime environment variables and precedence. An SDK project manifest is not a complete replacement for infrastructure values or the Rust process environment.
 
-   **AWS Infrastructure Note:**
-   The `@logrix/sdk` generates the application indexer bundle (`indexer-values.yaml`) and Helm deployment profile (`deploy/values-aws.yaml`). If you need to provision the underlying AWS infrastructure (VPC, EKS cluster, Aurora PostgreSQL, SQS queues, S3 bucket, IAM roles) from scratch, complete production Terraform modules are provided in the [Logrix GitHub Repository](https://github.com/Vishal-770/Logrix) under `deploy/terraform/aws/`.
+```yaml
+specVersion: 0.1.0
+network:
+  name: arbitrum-one
+  chainId: 42161
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+  fallbackRpcUrls:
+    - "https://arb1.arbitrum.io/rpc"
+dataSources:
+  - kind: ethereum/contract
+    name: TokenContract
+    network: arbitrum-one
+    source:
+      address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+      abi: TokenContract
+      startBlock: 0
+    mapping:
+      kind: wasm/assemblyscript
+      file: ./build/mapping.wasm
+      enabled: true
+      fuelLimit: 5000000
+      maxMemoryMb: 128
+      abis:
+        - name: TokenContract
+          file: ./abis/TokenContract.json
+      eventHandlers:
+        - event: Transfer(address indexed,address indexed,uint256)
+          handler: handleTransfer
+webhooks:
+  - url: "https://hooks.example.com/logrix"
+    events: [reorg]
+    secret: "${WEBHOOK_SECRET}"
+    maxRetries: 3
+indexing:
+  ringBufferDepth: 128
+  reconcilerIntervalSecs: 30
+  chunkSize: 10
+  rpcTimeoutSecs: 15
+  databaseMaxConnections: 20
+```
 
-Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for full Helm deployment options.
+This illustrates the export format, not complete deployment credentials. The webhook dispatcher and its backing services must also be configured.
+
+### `export-values` conversion
+
+- Writes `config.chainId`, symbolic `rpcUrl`, comma-joined `rpcFallbackUrls`, first `contractAddress`, minimum source `startBlock` (as a string), `ringBufferDepth` (default 128), and `reconcilerIntervalSecs` (default 30).
+- Embeds `schema.graphql` as `config.schemaContent`, the fixed **`build/mapping.wasm`** as `config.wasmBase64`, and a converted runtime YAML manifest as `config.manifestContent`. Every contract points to **`/etc/logrix/handlers/mapping.wasm`**, regardless of `mapping.file` or `build --out`. Separate binaries per data source are not bundled.
+- The embedded manifest contains `schema_version`, `chain_id`, contract names/addresses, event strings, `start_block`, `wasm_handler`, optional `enabled` / `fuel_limit` / `max_memory_mb`, and webhooks with `max_retries`. The Rust contract type currently ignores per-contract `start_block`; the exported global `config.startBlock` is what configures initial ingestion.
+- The first webhook URL also becomes `config.webhookUrl`, and any webhook enables the chart's webhook component. Named handlers, ABI files, and the SDK `indexing` object are not copied into the runtime manifest.
+
+The following `indexing` keys are forwarded to same-named Helm `config` values:
+
+| Group | Keys |
+| --- | --- |
+| Ingestion/reconciliation | `chunkSize`, `reconcilerChunkSize`, `reconcilerLagThreshold`, `chainHeadPollMs`, `maxQueueDepth` |
+| RPC/backfill | `rpcTimeoutSecs`, `rpcCbThreshold`, `rpcCooldownSecs`, `cuBudget`, `bulkStreamUrl` |
+| Database/queues | `databaseMaxConnections`, `databaseMinConnections`, `rabbitmqPrefetch`, `rabbitmqTimeoutSecs`, `sqsWaitTimeSeconds`, `sqsMaxMessages` |
+| WASM | `wasmFuelLimit`, `wasmMaxMemoryMb` |
+| API | `graphqlMaxDepth`, `graphqlMaxComplexity`, `graphqlDefaultLimit`, `graphqlMaxLimit`, `graphqlQueryTimeoutSecs` |
+| Webhooks | `webhookTimeoutSecs`, `webhookMaxRetries` |
+
+The chart translates these values to environment variables. Passing validation does not mean every arbitrary `indexing` key is forwarded: the converter uses the explicit list above. Infrastructure such as queue driver/URLs, database URL, S3, image, resource requests, replicas, and KEDA belongs in separate Helm values/Secrets.
+
+### Direct Rust runtime loading
+
+The Rust CLI is a different executable also named `logrix`. Supplying `MANIFEST_PATH` (or `--manifest-path`) accepts SDK `logrix.yaml` or native `manifest.yaml`. SDK conversion there reads the chain ID, contract addresses, event strings, mapping file/enable/limits, webhooks, and a limited `ManifestIndexing` structure. It does **not** configure the process's RPC URL, chain ID, database/queue, start block, or schema path from the SDK network/source sections. Set the runtime environment/flags explicitly, including `CHAIN_ID`, `RPC_URL`, `START_BLOCK`, `SCHEMA_PATH`, and service credentials. Relative WASM paths are resolved against the process working directory.
+
+Of the manifest tuning fields, the ingester actually consumes `chunkSize`, `maxQueueDepth`, and `chainHeadPollMs`; the handler engine consumes `wasmFuelLimit` / `wasmMaxMemoryMb` and per-contract overrides. Parsed manifest ring-buffer/reconciler settings do not override the current processor configuration. RPC, DB, queue, GraphQL, and webhook tuning require runtime env/flags. Manifest WASM defaults override CLI-global limits, and per-contract limits override both.
+
+### Secret placeholders and startup
+
+Use literal `${NAME}` references in YAML (single-quote them in shell arguments). Export does not read `.env` or interpolate `process.env`. RPC/fallback/webhook URL references stay symbolic. A webhook secret that is exactly `${NAME}` is preserved; a literal or mixed secret is replaced by `${WEBHOOK_SECRET}` for the first webhook, `${WEBHOOK_SECRET_2}` for the second, etc. Supply the intended secret separately.
+
+When these recognized references exist, export sets `config.existingSecret` to the top-level SDK `existingSecret` value or `logrix-secrets`. A newly written Secret example has `CHANGE_ME` entries for `RPC_URL`, `RPC_FALLBACK_URLS`, `DATABASE_URL`, and discovered variable names. Existing examples are not updated unless `--deploy-profiles` is used; that flag overwrites both example profiles.
+
+Prepare a private Secret with real values and the correct namespace/name before deployment. Secret env entries override ConfigMap env entries: leaving `RPC_URL`, `RPC_FALLBACK_URLS`, or `DATABASE_URL` as `CHANGE_ME` breaks startup, and an empty fallback value disables the exported fallback list. Remove keys you intend to inherit from the ConfigMap, or provide the complete desired value. Never apply the untouched example or commit populated credentials. Literal RPC URLs containing keys are copied into values; use placeholders instead.
+
+At runtime, the RPC gateway expands primary/fallback references, processor configuration expands its webhook URL/secret, and manifest loading recursively expands string values. Missing variables, invalid names, and unclosed references produce configuration errors on those paths; `.env` files are not automatically loaded. The dedicated webhook dispatcher seeds manifest subscriptions separately and currently skips manifest parse failures, so do not rely on it alone to diagnose missing variables.
+
+## CLI reference
+
+Run project commands in the directory containing `logrix.yaml`. All commands support `-h, --help`; top-level `-V, --version` prints the CLI's hard-coded version. `logrix help [command]` displays command help. There are no SDK deploy/start/serve commands or common `--manifest`, `--config`, or `--env-file` options.
+
+### `logrix init [name]`
+
+| Flags | Behavior |
+| --- | --- |
+| `-y, --yes` | Skip prompts; non-TTY stdin also selects non-interactive mode. Default project name: `my-indexer`. Existing target directories are rejected. |
+| `--network <network>` | One of the presets below; missing/unknown values select Arbitrum One in non-interactive mode (interactive mode prompts). No custom chain-ID flag. |
+| `--rpc <url>` | Override the preset RPC URL. |
+| `--contract-name <name>` | ABI/source name; default `TokenContract`. |
+| `--address <address>` | Default Arbitrum USDC address, even if another network is selected; set it explicitly for that chain. |
+| `--start-block <block>` | Default `0`. |
+| `--fallback-rpc <urls...>` | Space-separated URL arguments. |
+| `--webhook-url <url>` | Adds a subscription with `reorg` and `Transfer`, retry count 3. |
+| `--reorg-depth <depth>` | Writes `indexing.ringBufferDepth`, default 128. |
+| `--reconciler-interval <secs>` | Writes `indexing.reconcilerIntervalSecs`, default 30. |
+
+Preset names: `ethereum`, `arbitrum-one`, `base`, `optimism`, `polygon`, `bsc`, `avalanche`, `linea`, `scroll`, `blast`, `zksync`, `gnosis`, `fantom`, `celo`, `polygon-zkevm`, `sepolia`, `holesky`, `arbitrum-sepolia`, `base-sepolia`, `optimism-sepolia`, `polygon-amoy`, `bsc-testnet`, `avalanche-fuji`, `linea-sepolia`, `scroll-sepolia`, `blast-sepolia`. Presets are static, not availability guarantees. Edit the manifest for other chains and validate numeric/address inputs; CLI flags do not apply every interactive input check.
+
+### `logrix add <type> [nameOrUrl]`
+
+Types are `contract` and `webhook`. Options share one parser; options for the other type have no effect.
+
+| Contract flags | Behavior |
+| --- | --- |
+| `--address <address>` | Target address; non-interactive default is the zero address. |
+| `--abi <path>` | Copies local ABI to `abis/<name>.json`; takes precedence over fetching. |
+| `--fetch-abi` | Tries the configured chain's explorer, then Sourcify; failure writes the ERC-20 placeholder. Review the result. |
+| `--etherscan-key <key>` | Used only with ABI fetch. |
+| `--start-block <block>` | Default `0`. |
+
+Contract addition only edits the ABI/manifest. It writes a Transfer mapping named `handle<Name>Transfer` even for non-ERC-20 ABIs; it does not implement a handler or routing. Edit these and regenerate bindings yourself.
+
+| Webhook flags | Behavior |
+| --- | --- |
+| `--events <events>` | Comma-separated names, default `reorg`. |
+| `--secret <secret>` | Written to `logrix.yaml`; prefer a single-quoted literal reference such as `'${WEBHOOK_SECRET}'`. |
+| `--max-retries <retries>` | Default `3`; exported as `max_retries`. |
+
+### `logrix codegen` / `logrix validate` / `logrix status`
+
+These have no command-specific flags. `codegen` emits the two binding files; missing/bad ABI files can merely warn and produce incomplete bindings. `validate` checks YAML/Zod shape, address syntax, ABI JSON arrays, the existence of `src/mapping.ts`, selected limits, URL shape, and an `@entity` pattern. It does not compile handlers, verify named functions/signatures, or fully validate GraphQL/ABI semantics.
+
+`status` makes live RPC calls: primary block height/chain ID, fallback block heights, and primary `eth_getCode` per contract. Its sync delta is head minus configured start block, not database progress. Fallback chain IDs are not checked. It neither expands `${NAME}` nor loads `.env`; it prints the primary RPC URL and configured webhook URLs, so avoid credential-bearing literal URLs in diagnostics output.
+
+### `logrix build`
+
+| Flags | Behavior |
+| --- | --- |
+| `--entry <file>` | Default `src/mapping.ts`; must exist, but an existing first `mapping.file` overrides the compiler input. |
+| `--out <file>` | Default `build/mapping.wasm`; does not update the manifest or exporter's fixed input path. |
+| `--debug` | Omits `--optimize`; does not enable source maps/debug metadata itself. |
+
+Uses local `node_modules/.bin/asc`, falling back to `asc` on PATH, with `--config tsconfig.json --exportRuntime`. Use generated `npm run build:asc` for reliable repeated builds with the default paths.
+
+### `logrix export-values`
+
+| Flags | Behavior |
+| --- | --- |
+| `--out <file>` | Default `indexer-values.yaml`; parent directory must already exist. |
+| `--chain-id <id>` | Override exported chain ID. |
+| `--rpc <url>` | Override exported RPC URL; references stay symbolic. |
+| `--deploy-profiles` | Overwrite `deploy/values-aws.yaml` and `deploy/secrets.example.yaml`. Despite help text, no `values-local.yaml` is generated. |
+
+Requires `logrix.yaml`, `schema.graphql`, and `build/mapping.wasm`. It does not run validation/codegen/build or deploy anything.
+
+### `logrix test [testFile]`
+
+`--watch` is accepted but has **no effect**. The command checks for data sources and schema existence, compiles the fixed `src/mapping.ts` to `build/test_mapping.wasm` with `-O3 --runtime stub --noAssert`, and optionally invokes `node --test` on the supplied file or a `tests/` glob. It does not run `validate`, run `codegen`, execute WASM, or provide a TypeScript/AssemblyScript Node loader. Generate bindings first; create `build/` first if absent. Test-file glob expansion depends on the shell/Node version. Use an explicit runnable JavaScript test file for predictable Node execution.
+
+For **SDK contributors**, the SDK package itself does have `npm test`: from `packages/logrix-sdk`, it builds the CLI and runs `dist/manifest_converter.test.js`.
+
+## Deployment handoff
+
+Export is an application bundle for Helm. Review Secrets, backing infrastructure, autoscaling prerequisites, and a versioned runtime image before applying it. The generated AWS profile contains example account/role/SQS identifiers and an older image tag; it does not provision AWS resources. With default chart values KEDA is enabled, so a cluster needs its CRDs or an explicit override.
+
+**Current chart integration blocker:** exported `manifestContent` sets
+`MANIFEST_PATH` for the ingester, but the chart only mounts that file in other
+components. The ingester reads it at startup and fails when absent. Apply a
+consumer-managed ingester ConfigMap volume/mount patch or supply an equivalent
+readable manifest; the exported bundle is not deployable unchanged with the
+current source chart/runtime combination. See the chart's file-mount section.
+
+- [Helm chart setup and values](../../deploy/helm/logrix/README.md)
+- [Raw Kubernetes deployment](../../deploy/k8s/README.md)
+- [AWS Terraform infrastructure](../../deploy/terraform/aws/README.md)
+- [Runtime configuration reference](../../docs/configuration.md)
+
+Use pre-built, versioned containers for runtime deployment. SDK commands prepare source and configuration locally; Helm/Kubernetes/Terraform apply deployment resources.

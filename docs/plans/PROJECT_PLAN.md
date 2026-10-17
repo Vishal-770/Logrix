@@ -1,5 +1,9 @@
 # Logrix: Project Plan (v6, Rust, built to last)
 
+> Historical design proposal, not a current feature/configuration reference.
+> Some capabilities and commands below are unimplemented. Use the
+> [maintained documentation](../README.md) and [plan status](README.md).
+
 **Status:** Language = Rust. Audience = open source, self-hosted. Chains = any EVM chain. Design goals = customizable at every layer, scalable on any cloud or locally, resilient to failures, secure, and able to grow for years. This is a long-term platform, not a one-week project (see the roadmap for realistic timing).
 
 **Design Rule Zero:** Before adding anything to this plan (or to the code), run the Future-Proofing Check (Section 16.5). Imagine every likely future improvement and feature, and make sure the design leaves a seam for it. Build the seam now; build the feature when it is needed.

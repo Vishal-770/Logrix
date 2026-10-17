@@ -1,5 +1,9 @@
 # Logrix: Kubernetes & Autoscaling Architecture Plan
 
+> Historical architecture proposal. "Approved" below describes the original
+> design status, not implementation completeness or safe production HA.
+> Use the [current deployment guides](../../deploy/README.md) and [plan status](README.md).
+
 **Document Version:** 1.0  
 **Status:** Approved Architecture Blueprint  
 **Primary Focus:** Production-Grade Kubernetes Orchestration, Targeted Autoscaling (KEDA + HPA + Karpenter), and Workload Separation.

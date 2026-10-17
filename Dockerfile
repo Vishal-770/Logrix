@@ -1,5 +1,10 @@
 # Stage 1: Cargo Chef Base
-FROM rust:bookworm AS chef
+FROM rust:1.96.0-bookworm AS chef
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --version 0.1.71 --locked
 WORKDIR /app
 
@@ -13,7 +18,7 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --bin logrix
+RUN cargo build --release --locked --bin logrix
 
 # Stage 4: Minimal Production Runtime
 FROM debian:bookworm-slim AS runtime
