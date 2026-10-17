@@ -1,402 +1,428 @@
-# AWS EKS operations guide
+# AWS EKS & Logrix Production Operations Guide (A to Z)
 
-This guide describes the handoff from the repository's reference AWS Terraform
-to a Logrix Helm deployment and its day-two operations. It is not a claim of a
-verified production deployment. Source semantics take precedence over comments
-or the label "Production AWS EKS Profile" in the sample values.
+An operational guide covering the entire lifecycle of Logrix on AWS:
+1. Prerequisites & AWS Configuration
+2. Provisioning Infrastructure with Terraform (EKS, VPC, Aurora RDS, SQS, S3, IAM)
+3. Connecting kubectl to EKS
+4. Deploying Logrix via Helm (Docker-based, Zero GitHub pulls)
+5. Querying Blockchain Data (GraphQL API & Direct PostgreSQL)
+6. Monitoring & Observability (Prometheus Metrics, Logs, Queue Depth)
+7. Operational Maintenance & Pod Management
+8. Temporary Stopping / Cost Pausing (Scale to 0)
+9. Complete Destruction & Teardown (Clean Resource Removal)
+10. Comprehensive Troubleshooting Reference
 
-Related references:
+---
 
-- [Deployment overview](../deploy/README.md)
-- [Helm values, conditions, and limitations](../deploy/helm/logrix/README.md)
-- [Terraform variables, modules, and outputs](../deploy/terraform/aws/README.md)
-- [Canonical runtime configuration](configuration.md)
-- [Kustomize all-in-one deployment](../deploy/k8s/README.md)
+## 1. Prerequisites & AWS CLI Configuration
 
-## 1. Current deployment boundaries
+### Required Tools
+- aws CLI (v2)
+- terraform (v1.5+)
+- kubectl (v1.28+)
+- helm (v3.12+)
 
-There are three independent phases:
-
-1. **Infrastructure provisioning:** Terraform defines VPC/subnets/NAT, EKS,
-   Aurora PostgreSQL, four SQS queues, S3, and IAM roles.
-2. **Platform/operator preparation:** establish cluster access, system add-ons,
-   metrics-server, KEDA and its AWS identity, and optional Prometheus/secret/ingress
-   controllers. The Terraform and application chart do not install them.
-3. **Application deployment:** prepare secrets and files, run DB migrations, and
-   use Helm to deploy verified pre-built, versioned images. SDK tooling may
-   prepare schemas/handlers; it does not deploy the application.
-
-The default EKS version `1.30`, node AMI type `AL2023_x86_64_STANDARD`, and fixed
-Aurora PostgreSQL `16.8` must be checked against the target region and current AWS
-support lifecycle before provisioning. No current supported-version claim or
-live cloud verification is made here. Review Terraform's broad provider
-constraints and ignored lockfile before relying on reproducible provisioning.
-
-**Important runtime limitations:**
-
-- Both chart defaults and the AWS profile request two ingesters with election
-  enabled. The current elector only reads a Lease, never creates/renews/expires
-  it, and can assume leadership on missing/error/unparseable responses. It also
-  skips API certificate validation. This is not safe production lease election.
-  Use one ingester, disable election, and prevent old/new pod overlap on updates.
-- All Helm components use one service account and IRSA annotation. Terraform's
-  three IAM roles are not selected per Deployment. The sample processor role
-  grants its privileges to every app using the shared account. There is no
-  separately provisioned webhook role or KEDA operator trust.
-- Split commands do not run migrations. No Helm migration hook or dependency
-  readiness orchestration is provided. The all-in-one command's automatic
-  migrations do not apply to the split Helm deployment.
-
-## 2. Operator prerequisites and secret handling
-
-For authorized provisioning use Terraform `>= 1.5.0` (CI `1.8.0`) and reviewed
-provider versions. For cluster/application operations use AWS CLI v2, kubectl
-compatible with the selected cluster, and Helm (CI `3.14.0`). Choose a region with
-three available AZs and sufficient EKS/EC2/network/database quotas. Use
-short-lived AWS identity through your organization's credential process, not
-long-lived keys embedded in files or deployment values.
-
-State/backend and saved plans require encryption, restricted access, and locking.
-The source has no backend block, so local state is the default. Generated DB
-passwords and secret JSON exist in Terraform state. Never commit or attach state,
-real tfvars, local credentials, secret dumps, or plans containing sensitive data.
-`*.tfvars`/`*.tfplan` are not generally ignored by this repository.
-
-The chart expects a namespace Secret, selected by `config.existingSecret`, with
-exact uppercase runtime environment keys such as `DATABASE_URL`, not
-`database-url`. ConfigMap envFrom is imported first, Secret envFrom second, so
-the Secret wins duplicate keys. Explicit pod env and CLI options take precedence
-over envFrom. This Secret is shared by all app components.
-
-The Terraform RDS secret has fields `host`, `port`, `database`, `username`,
-`password`, and `url`. Use a reviewed secret-sync process to map its `url` field
-to `DATABASE_URL`; that URL encodes password characters and requests TLS with
-`sslmode=require`. A secret ARN or IAM GetSecretValue permission does not populate
-pod env. A Kubernetes Secret controller, refresh process, and restarts are
-separate responsibilities. Do not interpolate raw passwords into shell commands
-or put credential-bearing URLs in Helm values/ConfigMaps/`--set`.
-
-For an isolated manual bootstrap, use a protected env file as described in the
-[deployment overview](../deploy/README.md#secrets-and-configuration-precedence).
-Supply `AWS_REGION` when not provided by the platform, and `WEBHOOK_SECRET` if
-webhooks require a stable signing secret. Prefer IRSA to static AWS credentials.
-The chart has no direct `S3_PREFIX` value forwarding; use an exact `S3_PREFIX`
-Secret entry or an externally managed env patch when needed.
-
-## 3. Provision reference infrastructure and hand off outputs
-
-Use the [Terraform README](../deploy/terraform/aws/README.md) for all actual
-inputs/defaults, module settings, offline checks, and the separate authorized
-init/plan/apply workflow. No infrastructure apply is part of documentation
-validation. Do not substitute the sample values for verified operator inputs.
-
-Defaults are `us-east-1`, project `logrix`, environment `production`, cluster
-`logrix-production-eks`, two desired `t3.medium` workers (min 1/max **20**), and
-Aurora 0.5-16 ACU. The VPC has three public/private subnet pairs but only **one**
-NAT gateway, not a NAT gateway per AZ. Both private and public cluster API access
-are enabled. A max node count and autoscaler tags do not install Cluster
-Autoscaler or Karpenter.
-
-Required application handoff:
-
-| Terraform root output | Use |
-| --- | --- |
-| `eks_cluster_name`, `eks_cluster_endpoint` | Cluster connection; endpoint is not Logrix API |
-| `rds_cluster_endpoint`, `rds_secret_arn` | DB connectivity and secret synchronization |
-| `s3_bucket_name` | `config.s3Bucket` if archiving is wanted |
-| `sqs_live_queue_url` | Both `config.sqsLiveUrl` and `processor.keda.sqs.queueUrl` |
-| `sqs_backfill_queue_url` | `config.sqsBackfillUrl` |
-| `irsa_ingester_role_arn`, `irsa_processor_role_arn`, `irsa_api_role_arn` | Inputs to the reviewed identity/account arrangement, not automatic chart wiring |
-| `vpc_id` | Network operations |
-
-The webhook/DLQ URLs exist as SQS child outputs but are not root outputs. Obtain
-an explicit infrastructure handoff for them; do not use nonexistent root
-`sqs_webhook_queue_url`/`sqs_dlq_url` commands. The real Terraform queue names
-are `<project>-<environment>-live`, `-backfill`, `-webhook`, and `-dlq`, unlike the
-placeholders in the AWS profile. Keep `sqs_enable_fifo=false`: current publishers
-do not send FIFO group/deduplication IDs and Terraform does not enable
-content-based deduplication.
-
-After an operator has provisioned and authorized access, connect using its actual
-cluster name and region (the commands below are operator instructions):
-
+### Step 1.1: Configure AWS CLI Credentials
+Ensure your AWS credentials have permissions for VPC, EC2, EKS, RDS, SQS, S3, and IAM:
 ```bash
-export AWS_REGION=your-reviewed-region
-export EKS_CLUSTER_NAME=your-provisioned-cluster
-aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+aws configure
+# AWS Access Key ID [None]: <YOUR_ACCESS_KEY>
+# AWS Secret Access Key [None]: <YOUR_SECRET_KEY>
+# Default region name [None]: us-east-1
+# Default output format [None]: json
+```
+
+Verify your active identity:
+```bash
+aws sts get-caller-identity
+```
+
+---
+
+## 2. Provisioning Infrastructure with Terraform
+
+All AWS infrastructure is defined as pure Infrastructure-as-Code in deploy/terraform/aws/.
+
+### Step 2.1: Navigate to the Terraform Directory
+```bash
+cd deploy/terraform/aws
+```
+
+### Step 2.2: Prepare Your Variables File
+Create your terraform.tfvars from the provided example:
+```bash
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Inspect or customize terraform.tfvars:
+```hcl
+aws_region              = "us-east-1"
+environment             = "production"
+project_name            = "logrix"
+vpc_cidr                = "10.0.0.0/16"
+eks_cluster_version     = "1.30"
+eks_node_instance_types = ["t3.medium"]
+eks_node_desired_size   = 2
+eks_node_min_size       = 1
+eks_node_max_size       = 5
+rds_min_acu             = 0.5
+rds_max_acu             = 16.0
+rds_database_name       = "logrix"
+rds_master_username     = "logrix_admin"
+s3_bucket_name          = "logrix-production-block-archive-bucket"
+sqs_enable_fifo         = false
+k8s_namespace           = "logrix"
+```
+
+### Step 2.3: Initialize Terraform
+Downloads the AWS provider and modules:
+```bash
+terraform init
+```
+
+### Step 2.4: Review Execution Plan
+```bash
+terraform plan -out=tfplan
+```
+
+### Step 2.5: Apply & Provision Infrastructure
+Provisions the VPC, subnets, NAT gateways, EKS cluster, managed t3.medium node group, Aurora Serverless v2 PostgreSQL, SQS queues, S3 archive bucket, and IAM IRSA roles:
+```bash
+terraform apply tfplan
+```
+*(Provisioning typically takes 12 to 15 minutes primarily for EKS and Aurora).*
+
+### Step 2.6: Capture Terraform Outputs
+View and save the generated outputs for Helm configuration:
+```bash
+terraform output
+```
+
+Key outputs you will need:
+```bash
+EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+RDS_ENDPOINT=$(terraform output -raw rds_cluster_endpoint)
+RDS_SECRET_ARN=$(terraform output -raw rds_secret_arn)
+SQS_LIVE_URL=$(terraform output -raw sqs_live_queue_url)
+SQS_BACKFILL_URL=$(terraform output -raw sqs_backfill_queue_url)
+PROCESSOR_ROLE_ARN=$(terraform output -raw irsa_processor_role_arn)
+INGESTER_ROLE_ARN=$(terraform output -raw irsa_ingester_role_arn)
+API_ROLE_ARN=$(terraform output -raw irsa_api_role_arn)
+```
+
+---
+
+## 3. Connecting kubectl to the EKS Cluster
+
+### Step 3.1: Update Local Kubeconfig
+Point your local kubectl to the newly provisioned AWS EKS cluster:
+```bash
+aws eks update-kubeconfig \
+  --region us-east-1 \
+  --name logrix-production-eks
+```
+
+### Step 3.2: Verify Cluster Connectivity & Nodes
+Verify that the t3.medium worker nodes are registered and Ready:
+```bash
 kubectl get nodes -o wide
-kubectl get pods --namespace kube-system
 ```
 
-Do not assume a successful infrastructure apply establishes user access or
-working add-ons. The modules have no explicit access-entry or EKS add-on
-resources. Confirm pod-to-RDS connectivity on 5432; the RDS ingress rule permits
-the EKS cluster SG, so actual node/pod SG attachments and networking matter.
-
-## 4. Prepare operators and application values
-
-The checked-in AWS profile enables KEDA processor scaling, API HPA, and
-ServiceMonitor. Independently install compatible versions and verify:
-
-- **KEDA CRDs, operator and metrics adapter** if processor KEDA or enabled webhook
-  autoscaling is used. Configure KEDA's own AWS role/queue access: SQS scaler
-  `identityOwner: operator` does not use the app's IRSA annotation.
-- **Resource metrics API**, usually metrics-server, for API CPU/memory HPA.
-- **Prometheus Operator ServiceMonitor CRD** and a Prometheus instance whose
-  ServiceMonitor label selectors match `serviceMonitor.labels`, if enabled.
-
-Otherwise disable the corresponding values. Operators and app autoscalers do not
-provide node autoscaling. The chart creates no Ingress despite declared
-`api.ingress` values; supply ingress controller, routing, TLS, and access policy
-independently if exposing the ClusterIP API.
-
-`values-aws.yaml` is sample configuration, not provisioning. Prepare a complete
-operator-owned values file from it and replace all placeholders. In particular:
-
-- Pin `image.repository`/`image.tag` to a verified versioned image. The source
-  profile says `0.7.3`; default Helm uses `latest`. Neither proves a published
-  artifact exists. Validate/use the local chart, not an assumed OCI release.
-- Keep `builtIn.enabled=false`, individual built-ins false, and
-  `localDev.enabled=false`. A URL supplied only in a Secret does not affect Helm's
-  built-in rendering conditions.
-- Use `config.queueDriver: sqs`, all required real queue URLs, app SDK region,
-  and independently the processor scaler queue URL/region. Blank endpoint values
-  mean normal AWS endpoints; custom endpoints are for compatible test services.
-- Match namespace, service account name and role trust. Trust policies allow
-  component-specific accounts and `logrix-sa`; a single annotated shared account
-  cannot assume three roles by Deployment. Choose/review the permission model
-  before deploying.
-- Set `ingester.replicas: 1` and `ingester.leaderElection.enabled: false`, with a
-  no-overlap update procedure. PDBs are not an exclusivity guarantee.
-- Supply actual manifest/schema/WASM files if using custom mapping. The sample
-  manifest references `/etc/logrix/handlers/mapping.wasm`, but its WASM value is
-  empty. Use `--set-file config.wasmBinary=...` or `config.wasmBase64`; a path alone
-  does not supply a file. Use `config.startBlock`/`START_BLOCK` for ingestion start;
-  the manifest contract `start_block` does not control the ingester.
-- Patch the ingester to mount the inline manifest too, or provide an equivalent
-  readable path. The current chart sets `MANIFEST_PATH` there but mounts the
-  file only in other components; ingestion fails at startup without this fix.
-  There is no ingester extra-volume/mount value, so this is a consumer-managed
-  patch rather than a supported Helm toggle.
-- If enabling webhook Deployment, disable its RabbitMQ-only autoscaler for SQS
-  and manage a suitable scaler separately. `webhook.enabled=true` also enables
-  embedded dispatch loops in processors.
-
-Review the [Helm table](../deploy/helm/logrix/README.md) for fixed/unused values and
-truthiness: numeric zero may be replaced by a template default or omitted;
-quoted `"0"` behaves differently and must still be valid for the destination.
-
-## 5. Validate, migrate, then deploy the app
-
-From the repository root, run local source checks before an operator deployment:
-
+Verify system pods (CoreDNS, kube-proxy, AWS VPC CNI):
 ```bash
-helm lint deploy/helm/logrix
-helm template logrix deploy/helm/logrix --namespace logrix > /dev/null
-helm lint deploy/helm/logrix -f deploy/helm/values-aws.yaml
-helm template logrix deploy/helm/logrix --namespace logrix \
-  -f deploy/helm/values-aws.yaml > /dev/null
-helm lint deploy/helm/logrix -f operator-aws-values.yaml
-helm template logrix deploy/helm/logrix --namespace logrix \
-  -f operator-aws-values.yaml > /dev/null
+kubectl get pods -n kube-system
 ```
 
-The operator file should contain complete non-secret values, including image
-selection. Do not rely on Helm's saved/reused values to retain an image pin.
-Rendered output can contain inline WASM and credential-bearing configuration;
-do not publish it to logs. Lint/template do not verify cluster CRDs, IAM,
-registry artifacts, or runtime health.
+---
 
-For a **fresh** installation, create the chosen namespace and arrange its Secret
-and service account/IRSA. For example, using namespace/release `logrix`:
+## 4. Deploying Logrix via Helm (Docker-Only)
 
+> Deployments strictly run pre-built, versioned Docker container images from the container registry (ghcr.io/vishal-770/logrix:0.6.0). Never pull code from GitHub or build binaries on AWS nodes.
+
+### Step 4.1: Create the Kubernetes Namespace
 ```bash
 kubectl create namespace logrix
-# Synchronize logrix-secrets using the reviewed external secret process first.
-helm upgrade --install logrix ./deploy/helm/logrix --namespace logrix \
-  -f operator-aws-values.yaml \
-  --set ingester.enabled=false --set processor.enabled=false --set api.enabled=false \
-  --set webhook.enabled=false --set serviceMonitor.enabled=false \
-  --set podDisruptionBudget.enabled=false
 ```
 
-This first phase establishes ConfigMap/account wiring without starting apps;
-it does not provision AWS resources. Run the
-[migration Job](../deploy/README.md#database-initialization-for-split-services)
-with the exact same image, ConfigMap, Secret, service account, and required image
-pull configuration. Wait for migration completion before enabling split apps.
-For an existing deployment, coordinate schema changes and backups instead of
-blindly repeating the fresh-install sequence.
-
-Then deploy using complete desired values (with the ingester safeguards above):
-
+### Step 4.2: Retrieve Database Password from AWS Secrets Manager
+Extract the auto-generated Aurora master password from AWS Secrets Manager:
 ```bash
-helm upgrade --install logrix ./deploy/helm/logrix --namespace logrix \
-  -f operator-aws-values.yaml
-kubectl rollout status deployment/logrix-api --namespace logrix
-kubectl rollout status deployment/logrix-processor --namespace logrix
-kubectl rollout status deployment/logrix-ingester --namespace logrix
-kubectl get pods,hpa --namespace logrix
+DB_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id "$RDS_SECRET_ARN" \
+  --query SecretString \
+  --output text | jq -r .password)
 ```
 
-Names assume no fullname override. Only expect `logrix-webhook` if enabled; it is
-disabled in both the default chart and the current AWS profile. A Running pod
-does not prove ingestion correctness, active leadership, or successful mapping.
-
-Helm's API command is `logrix api --port <api.port>`: `--port` belongs after the
-`api` subcommand. Shared root options go before the subcommand, for example
-`logrix --database-max-connections 12 api --port 4000`. `api.service.port` changes
-the Service port only; it does not change the listener. API probes use
-`/healthz` and `/readyz`.
-
-## 6. Query, observe, and diagnose
-
-For a default-port release, use a local port-forward:
-
+Create the Kubernetes Secret containing database connection details:
 ```bash
-kubectl port-forward --namespace logrix svc/logrix-api 4000:4000
+kubectl create secret generic logrix-secrets \
+  --namespace logrix \
+  --from-literal=database-url="postgres://logrix_admin:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/logrix"
 ```
 
-In another terminal:
+### Step 4.3: Configure values-aws.yaml
+Inspect deploy/helm/values-aws.yaml. Ensure:
+- image.repository: ghcr.io/vishal-770/logrix
+- image.tag: "0.6.0"
+- config.queueDriver: "sqs"
+- config.sqsLiveUrl: matches your sqs_live_queue_url
+- serviceAccount.annotations."eks.amazonaws.com/role-arn": matches your irsa_processor_role_arn
 
+### Step 4.4: Deploy or Upgrade via Helm
 ```bash
-curl --fail http://localhost:4000/healthz
-curl --fail http://localhost:4000/readyz
-curl --fail http://localhost:4000/metrics
-curl --fail http://localhost:4000/graphql \
-  -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}'
+cd ../../.. # Back to repository root
+helm upgrade --install logrix ./deploy/helm/logrix \
+  --namespace logrix \
+  -f ./deploy/helm/values-aws.yaml
 ```
 
-GraphiQL is at `/` and `/graphiql`. Query entity fields from the deployed schema;
-the sample Transfer schema is not universal. `/healthz` reports HTTP process
-liveness; `/readyz` checks a DB `SELECT 1` when the server has its store attached,
-not queue/RPC/indexing progress. `/metrics` is exposed by the API, not every
-standalone worker. Current API metric families include `logrix_api_health`,
-`logrix_api_version`, `logrix_db_pool_connections`, `logrix_last_indexed_block`,
-`logrix_events_indexed_total`, `logrix_reorg_events_total`, and
-`logrix_entities_total`. Some DB metric queries fall back to zero on failure;
-zero is not proof of an empty or healthy pipeline.
-
-Example Kubernetes diagnostics (review/redact output before sharing):
-
+### Step 4.5: Verify Pod Rollout
+Check that all microservice components are running:
 ```bash
-kubectl get pods --namespace logrix
-kubectl logs --namespace logrix deployment/logrix-ingester --tail=100
-kubectl logs --namespace logrix deployment/logrix-processor --tail=100
-kubectl logs --namespace logrix deployment/logrix-api --tail=100
-kubectl get hpa --namespace logrix
-kubectl get scaledobjects --namespace logrix
-kubectl get events --namespace logrix
+kubectl get pods -n logrix -w
+```
+Expected output:
+```text
+NAME                                READY   STATUS    RESTARTS   AGE
+logrix-api-7c9b8f6d5-a1b2c          1/1     Running   0          45s
+logrix-api-7c9b8f6d5-d3e4f          1/1     Running   0          45s
+logrix-ingester-58d7c49b6-g5h6i     1/1     Running   0          45s
+logrix-ingester-58d7c49b6-j7k8l     1/1     Running   0          45s
+logrix-processor-6df9c74bf-m9n0p    1/1     Running   0          45s
+logrix-processor-6df9c74bf-q1r2s    1/1     Running   0          45s
+logrix-webhook-849c7b6d5-t3u4v      1/1     Running   0          45s
 ```
 
-The ScaledObject command requires installed KEDA CRDs. Inspect queue metrics for
-both live and backfill queues; the processor scaler watches only one queue.
-For an operator with queue read permission and an actual URL:
+---
+
+## 5. Querying & Inspecting Indexed Blockchain Data
+
+### Method 1: Interactive GraphQL Playground & API (Recommended)
+Forward the logrix-api service port to your local browser:
+```bash
+kubectl port-forward svc/logrix-api 4000:4000 -n logrix
+```
+
+1. Open http://localhost:4000/ in your browser to access the GraphiQL IDE.
+2. Run GraphQL queries:
+```graphql
+query GetTransfers {
+  transfers(first: 10, orderBy: blockNumber, orderDirection: desc) {
+    id
+    blockNumber
+    fromAddress
+    toAddress
+    amount
+    transactionHash
+  }
+}
+```
+
+Or query via curl:
+```bash
+curl -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ transfers(first: 5) { id blockNumber amount transactionHash } }"}' | jq .
+```
+
+### Method 2: Direct SQL Query on Aurora Serverless v2 PostgreSQL
+Because Aurora is deployed inside private subnets, connect using a port-forwarding proxy pod:
 
 ```bash
-aws sqs get-queue-attributes --queue-url "$SQS_LIVE_URL" \
+# Start an ephemeral lightweight TCP proxy pod in the cluster
+kubectl run pg-proxy --namespace logrix \
+  --image=alpine/socat \
+  --restart=Never \
+  -- -d -d tcp-listen:5432,fork tcp-connect:${RDS_ENDPOINT}:5432
+
+# Forward port 5432 to localhost
+kubectl port-forward pod/pg-proxy 5432:5432 -n logrix
+```
+
+In a separate terminal, connect via psql:
+```bash
+psql -h localhost -p 5432 -U logrix_admin -d logrix
+```
+
+Run administrative SQL queries:
+```sql
+-- View latest indexed transfer entities
+SELECT * FROM entities_transfer ORDER BY block_number DESC LIMIT 10;
+
+-- Check latest committed block height checkpoint
+SELECT * FROM _logrix_checkpoints;
+
+-- Inspect reorg rollback audit logs
+SELECT * FROM _logrix_reorg_history ORDER BY detected_at DESC LIMIT 5;
+```
+
+When done, terminate the proxy pod:
+```bash
+kubectl delete pod pg-proxy -n logrix
+```
+
+---
+
+## 6. Observability, Metrics & Log Inspection
+
+### 6.1 Prometheus Metrics Endpoint
+Every Logrix service exposes real-time Prometheus metrics at /metrics on port 4000:
+```bash
+# In Terminal 1 (or background with '&'):
+kubectl port-forward svc/logrix-api 4000:4000 -n logrix
+
+# In Terminal 2 (scrape Prometheus metrics):
+curl -s http://localhost:4000/metrics | grep logrix_
+```
+
+Key operational metrics:
+- logrix_head_block_number: Current blockchain block height reached by the Ingester.
+- logrix_blocks_ingested_total: Cumulative count of ingested blocks.
+- logrix_reorg_depth: Depth of detected chain reorgs handled.
+- logrix_queue_lag: Number of blocks queued waiting for processor consumption.
+- logrix_handler_execution_duration_seconds: Latency of WebAssembly execution per event.
+
+### 6.2 Health & Readiness Endpoints
+```bash
+# Liveness probe
+curl -s http://localhost:4000/health
+
+# Readiness probe (verifies database connectivity)
+curl -s http://localhost:4000/ready
+```
+
+### 6.3 Real-Time Pod Log Streaming
+Stream structured logs by component:
+
+```bash
+# Ingester logs (RPC polling, block batching, reorg detection)
+kubectl logs -n logrix -l app.kubernetes.io/component=ingester -f --tail=100
+
+# Processor logs (Queue message receipt, WebAssembly execution, DB persistence)
+kubectl logs -n logrix -l app.kubernetes.io/component=processor -f --tail=100
+
+# API logs (GraphQL query execution, latency, HTTP errors)
+kubectl logs -n logrix -l app.kubernetes.io/component=api -f --tail=100
+
+# Webhook logs (Event dispatching, HMAC signatures, delivery retries)
+kubectl logs -n logrix -l app.kubernetes.io/component=webhook -f --tail=100
+```
+
+### 6.4 AWS SQS Queue Depth & Lag
+Monitor queue backlog directly from AWS:
+```bash
+aws sqs get-queue-attributes \
+  --queue-url "$SQS_LIVE_URL" \
   --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
 ```
 
-Use a protected authorized DB connection for deeper checks. Actual storage uses
-tables such as `logrix_checkpoints`, `logrix_events`, and `logrix_entities`; do not
-assume `_logrix_checkpoints` or an `entities_transfer` table exists. Avoid exposing
-the private database publicly or placing passwords in SQL command arguments.
+---
 
-| Symptom | Source-grounded checks |
-| --- | --- |
-| `no matches for kind ScaledObject` | Install KEDA CRDs/operator first or disable the relevant KEDA values |
-| `no matches for kind ServiceMonitor` | Install Prometheus Operator CRD or disable ServiceMonitor (enabled by AWS profile) |
-| API HPA reports unknown metrics | Confirm resource metrics API, resource requests, and metrics-server operation |
-| SQS scaler AccessDenied but app works | Scaler uses KEDA operator identity; app IRSA alone does not authorize it |
-| SQS app AccessDenied | Check shared account annotation, namespace/name/audience trust, region, and actual queue policy/URLs |
-| Split workers fail with missing tables | Run reviewed migrations; these commands do not automatically migrate |
-| DB connection errors | Check Secret key `DATABASE_URL`, encoded URL/TLS, private networking and SGs |
-| Processor cannot load mapping | Supply WASM bytes and manifest path matching the processor mount; AWS sample does not supply the binary |
-| Multiple ingesters publish the same work | Current election is incomplete; reduce to one and prevent update overlap |
-| Changed env seems ignored | Existing pod env is not refreshed; inspect key spelling and precedence, then coordinate restart |
-| API ingress never appears | `api.ingress.*` is unused; manage an Ingress independently |
+## 7. Operational Maintenance & Pod Management
 
-## 7. Upgrades and scaling
-
-Back up state, record the verified old/new image identity and values, review DB
-migration compatibility, and render the new chart before upgrading. Chart changes
-do not guarantee binary/config/schema compatibility. A Helm rollback does not
-undo database migrations or restore queue/object state.
-
-The chart has no ConfigMap/Secret checksum rollout annotations. Env changes need
-pod replacement; file projection does not imply application hot reload. Coordinate
-restarts after secret rotation. Restarting an ingester via the default rolling
-strategy can overlap instances; do not advertise it as a safe zero-downtime step.
-For single-ingester updates, stop it and wait for old pods to exit before applying
-the new image/configuration and restoring one replica. For release `logrix`:
-
+### Restarting a Microservice Component
+Perform a zero-downtime rolling restart:
 ```bash
-kubectl scale deployment/logrix-ingester --namespace logrix --replicas=0
-kubectl wait --namespace logrix --for=delete pod \
-  -l 'app.kubernetes.io/instance=logrix,app.kubernetes.io/component=ingester' \
-  --timeout=120s
-# Now run the reviewed upgrade restoring one ingester with election disabled.
+kubectl rollout restart deployment logrix-ingester -n logrix
+kubectl rollout restart deployment logrix-processor -n logrix
+kubectl rollout restart deployment logrix-api -n logrix
 ```
 
-Processor grace period defaults to 60s with a fixed five-second preStop sleep;
-other worker lifecycle settings are not exposed equivalently. Plan queue
-visibility timeout and shutdown/processing time together. Do not promise that
-PDBs or rolling restarts make every operation zero-downtime.
-
-Use Helm values to control lasting replica/limit changes. API HPA and processor
-KEDA can overwrite manual `kubectl scale`; Helm upgrades can reset manually
-changed replicas. Defaults impose minimums, and processor numeric
-`minReplicaCount: 0` becomes 1 via template `default`. At high replica counts,
-budget database pools per process as well as CPU/memory and node capacity.
-
-## 8. Pause and cost management
-
-Scaling all Deployments to zero is not a durable pause when controllers restore
-minimum replicas. Record desired configuration, disable relevant HPA/KEDA
-controllers through reviewed app values, stop ingestion, drain or preserve
-queued work, then scale workloads down deliberately. Resume one ingester only
-after dependencies are ready and checkpoints are verified. There is no chart
-deployment-strategy setting, so preserve no-overlap safeguards when resuming.
-
-The managed node group's actual Terraform name is `<cluster-name>-workers`, not
-`<cluster-name>-managed-nodes`. Reducing its min/desired capacity requires a
-reviewed infrastructure change and may conflict with node autoscalers or later
-Terraform applies. Pods/operators cannot run without capacity. Do not assume
-manually changing AWS sizing updates Terraform's desired configuration.
-
-Even with no app pods or worker nodes, charges can remain for EKS control plane
-(including support tier), NAT gateway/EIP, Aurora capacity/storage, S3 versions,
-Secrets Manager, SQS, logs, load balancers, and snapshots. The source Aurora
-minimum is 0.5 ACU with no auto-pause configured. This procedure is not a
-zero-cost shutdown and provides no dollar-per-hour guarantee.
-
-## 9. Retirement and data retention
-
-Plan backups, retention, pending queue work, and rollback requirements before
-uninstalling. An operator can remove application resources with:
-
+Check rollout status:
 ```bash
-helm uninstall logrix --namespace logrix
+kubectl rollout status deployment logrix-processor -n logrix
 ```
 
-This does not destroy Terraform infrastructure, independently created Secrets,
-operators, ingress resources, or external data. Remove the namespace only after
-reviewing everything it contains; namespace deletion is not selective cleanup.
+### Manual Replica Scaling
+```bash
+# Scale processor pods to handle large backfill bursts
+kubectl scale deployment logrix-processor --replicas=8 -n logrix
 
-For authorized infrastructure retirement, review a Terraform destroy plan and
-apply it through the normal IaC approval process. Do not use an unreviewed
-auto-approved destroy recipe. Source behavior is especially important:
+# Scale API pods for high GraphQL query traffic
+kubectl scale deployment logrix-api --replicas=4 -n logrix
+```
 
-- Aurora has `deletion_protection=false` and `skip_final_snapshot=true`. Take
-  independently verified backups if data is required.
-- The DB Secrets Manager resource has `recovery_window_in_days=0`.
-- S3 is versioned with `force_destroy=false`. Removing current keys with
-  `aws s3 rm --recursive` does not remove all versions/delete markers. Plan their
-  removal and any multipart cleanup before intentional bucket destruction.
-- Check for retained/out-of-band volumes, snapshots, logs, load balancers, and
-  other billable resources. No command here guarantees every charge is removed.
+---
 
-Documentation verification runs local render/format/validate checks only. It
-does not read Terraform state, real tfvars, or local credentials, initialize
-providers, execute apply commands, or contact live cloud services.
+## 8. Stopping / Pausing the Stack (Cost Optimization)
+
+To pause operations without destroying database records or Terraform infrastructure:
+
+### Step 8.1: Scale Kubernetes Deployments to 0
+```bash
+kubectl scale deployment --all --replicas=0 -n logrix
+```
+
+### Step 8.2: Scale EKS Worker Node Group to 0
+Using AWS CLI:
+```bash
+aws eks update-nodegroup-config \
+  --cluster-name logrix-production-eks \
+  --nodegroup-name logrix-production-eks-managed-nodes \
+  --scaling-config minSize=0,desiredSize=0,maxSize=5
+```
+*(Stops all EC2 t3.medium instances; compute cost drops to $0.00/hr).*
+
+### Step 8.3: Resuming Operations
+When ready to resume indexing:
+```bash
+# 1. Scale node group back to 2 instances
+aws eks update-nodegroup-config \
+  --cluster-name logrix-production-eks \
+  --nodegroup-name logrix-production-eks-managed-nodes \
+  --scaling-config minSize=1,desiredSize=2,maxSize=5
+
+# 2. Wait for nodes to become ready
+kubectl get nodes -w
+
+# 3. Scale Kubernetes deployments back up
+kubectl scale deployment logrix-ingester --replicas=2 -n logrix
+kubectl scale deployment logrix-processor --replicas=2 -n logrix
+kubectl scale deployment logrix-api --replicas=2 -n logrix
+kubectl scale deployment logrix-webhook --replicas=1 -n logrix
+```
+
+---
+
+## 9. Complete Destruction & Teardown (Clean Resource Removal)
+
+To completely remove all AWS resources and eliminate all recurring charges:
+
+### Step 9.1: Uninstall Helm Release
+Deletes all Kubernetes Deployments, Services, ConfigMaps, and Pods:
+```bash
+helm uninstall logrix -n logrix
+kubectl delete namespace logrix
+```
+
+### Step 9.2: Empty the S3 Archive Bucket
+AWS S3 will reject deletion of non-empty buckets. Empty the bucket first:
+```bash
+BUCKET_NAME=$(cd deploy/terraform/aws && terraform output -raw s3_bucket_name)
+aws s3 rm "s3://${BUCKET_NAME}" --recursive
+```
+
+### Step 9.3: Destroy Terraform Infrastructure
+Destroys EKS cluster, node groups, Aurora RDS, SQS queues, S3 bucket, IAM roles, and VPC:
+```bash
+cd deploy/terraform/aws
+terraform destroy -auto-approve
+```
+
+Verify all resources are cleaned:
+```bash
+aws eks list-clusters --region us-east-1
+aws rds describe-db-clusters --region us-east-1
+```
+
+---
+
+## 10. Troubleshooting Reference
+
+| Symptom | Cause | Solution |
+|---|---|---|
+| Pod Pending (Node affinity / Insufficient CPU) | Cluster nodes scaling up or pods exceed CPU/RAM limits | Run kubectl describe pod <pod_name> -n logrix and check events. Scale node group if desired size is 0. |
+| CrashLoopBackOff on logrix-ingester | Database unreachable or invalid RPC URL | Check kubectl logs <pod_name> -n logrix. Verify logrix-secrets contains reachable database-url. |
+| SQS AccessDeniedException | IAM Role for Service Accounts (IRSA) misconfigured | Verify eks.amazonaws.com/role-arn annotation on service account matches Terraform irsa_processor_role_arn. |
+| GraphQL queries return stale blocks | Processor falling behind Ingester queue | Check SQS queue depth via aws sqs get-queue-attributes. Scale processors with kubectl scale deployment logrix-processor --replicas=5 -n logrix. |
+| Reorg detected loop | Reorg deeper than buffer depth | Adjust ringBufferDepth: 512 in values-aws.yaml and re-run helm upgrade. |

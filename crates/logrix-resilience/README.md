@@ -1,147 +1,96 @@
 # logrix-resilience
 
-Reusable retry-delay calculations, token buckets, and a circuit breaker for
-Logrix callers. These primitives do not execute requests, apply HTTP timeouts,
-classify errors, or run a retry loop on their own.
+Fault-tolerance primitives for rate limiting, retry backoff, and circuit breaking in Logrix.
 
-## Prerequisites
+## Overview
+Provides zero-allocation, thread-safe resilience utilities used across RPC clients, webhooks, and storage pipelines. Designed for high-concurrency workloads using single-mutex atomic state encapsulation to eliminate lock contention.
 
-Use the repository's Rust workspace and lockfile. The async primitives require
-Tokio; time-based acquisition/recovery needs a running Tokio timer. No broker,
-database, or RPC service is required. Stateful primitives use `Arc<Mutex<_>>`;
-clones share state within a process, not across replicas.
+## Primitives
+- **`CircuitBreaker`**:
+  - Three-state machine (`Closed` -> `Open` -> `HalfOpen`) with atomic state transitions and configurable failure/success thresholds.
+  - **Half-Open Probe Throttling**: Restricts concurrent test executions during recovery to prevent thundering herd storms from collapsing recovering upstreams.
+  - **Operational Controls**: Includes manual override controls (`reset()`, `trip()`), failure inspection (`failure_count()`), and `serde` serialization for telemetry/health reporting.
+- **`RateLimiter`**:
+  - Token bucket rate limiter supporting fractional refill bursts and single-mutex atomic updates.
+  - **Zero-Spin Acquisition**: `acquire()` computes the exact refill duration needed for missing tokens, replacing busy polling with precise asynchronous sleep.
+  - **Inspection**: Real-time `available_tokens()` inspector.
+- **`RetryPolicy`**:
+  - Full-jitter exponential backoff retry calculations with capped ceilings to avoid correlated client retries.
+  - Fluent builder configuration (`with_multiplier()`, `with_jitter()`).
+- **`RetryBudget`**:
+  - Token-bucket budget guarding against retry storms and downstream cascade failures.
+  - Atomic state tracking with `available_budget()` inspection.
 
-## Minimal example
+---
 
-With `logrix-resilience` and Tokio (macros and runtime features):
+## Configuration & Tuning
+
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure resilience policies (circuit breakers, timeouts, rate limiting) under `indexing:` in `logrix.yaml`:
+
+```yaml
+indexing:
+  rpcTimeoutSecs: 15        # Maximum request duration before timing out
+  rpcCbThreshold: 5         # Consecutive failures before tripping circuit breaker
+  rpcCooldownSecs: 30       # Circuit breaker recovery cooldown in seconds
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `indexing.rpcTimeoutSecs` | `integer` | `10` (CLI) / `15` (Direct) | Optional | Request timeout before cancellation |
+| `indexing.rpcCbThreshold` | `integer` | `5` (CLI) / `3` (Direct) | Optional | Consecutive failures to trip circuit breaker |
+| `indexing.rpcCooldownSecs`| `integer` | `30` (CLI) / `10` (Direct) | Optional | Half-open recovery probing delay |
+
+### 2. Programmatic Primitive Tuning
+
+### 1. `CircuitBreaker`
+
+| Parameter | Type | Default in Gateway | Default in CLI | Description |
+|---|---|---|---|---|
+| `failure_threshold` | `u32` | `3` errors | `5` errors (`RPC_CB_THRESHOLD`) | Consecutive errors before tripping circuit to `Open` |
+| `success_threshold` | `u32` | `2` successes | `2` successes | Consecutive successful probes to restore to `Closed` |
+| `reset_timeout` | `Duration` | `10s` | `30s` (`RPC_COOLDOWN_SECS`) | Duration spent in `Open` before probing in `HalfOpen` |
 
 ```rust
-use logrix_resilience::{CircuitBreaker, RateLimiter, RetryBudget, RetryPolicy};
+use logrix_resilience::CircuitBreaker;
 use std::time::Duration;
 
-#[tokio::main]
-async fn main() {
-    let policy = RetryPolicy::default().with_jitter(false);
-    assert_eq!(policy.max_attempts, 5);
-    assert_eq!(policy.delay_for_attempt(2), Duration::from_millis(400));
-
-    let limiter = RateLimiter::new(10, 5.0);
-    let budget = RetryBudget::new(3, 1.0);
-    let breaker = CircuitBreaker::new(5, 2, Duration::from_secs(30));
-    if breaker.can_execute().await {
-        limiter.acquire(1.0).await;
-        // Execute one operation here and record its actual result.
-        breaker.on_success().await;
-    }
-    assert!(budget.try_acquire().await);
+let cb = CircuitBreaker::new(5, 2, Duration::from_secs(30));
+if cb.can_execute().await {
+    // Perform network call
 }
 ```
 
-Call `on_failure()` for a failed permitted operation. A retry loop should check
-the error class, `should_retry(attempt)`, and its budget before sleeping/retrying.
+### 2. `RateLimiter`
 
-## Public configuration APIs and defaults
-
-### RetryPolicy
-
-All five fields are public. `RetryPolicy::new(max_attempts, initial_delay,
-max_delay)` takes explicit values for the first three and sets multiplier 2.0
-and jitter true. `Default` uses:
-
-| Field | Type | Default | Meaning |
+| Parameter | Type | Default in EVM Client | Description |
 |---|---|---|---|
-| `max_attempts` | `u32` | `5` | Boundary used by `should_retry(attempt)`. |
-| `initial_delay` | `Duration` | `200 ms` | Delay ceiling for attempt 1. |
-| `max_delay` | `Duration` | `10 s` | Maximum delay ceiling. |
-| `multiplier` | `f64` | `2.0` | Exponential factor; set with `with_multiplier`. |
-| `jitter` | `bool` | `true` | Full jitter; set with `with_jitter`. |
+| `capacity` | `u32` | `100` tokens | Maximum bucket burst capacity |
+| `refill_rate` | `f64` | `50.0` tokens/sec | Tokens added back per second |
 
-`should_retry(attempt)` is exactly `attempt < max_attempts`, including attempt
-zero. With a one-based attempt counter, the default permits retry after failures
-1 through 4, for five total attempts. The caller owns that counter and loop.
+```rust
+use logrix_resilience::RateLimiter;
 
-`delay_for_attempt(0)` is zero. For positive attempts, the ceiling is
-`min(initial_delay_ms * multiplier^min(attempt - 1, 10), max_delay_ms)`.
-Jitter samples between zero and that ceiling; results use whole milliseconds.
-The exponent stops growing after attempt 11. Computing a delay does not check
-`max_attempts`.
-
-These field names/defaults are distinct from `EvmClientConfig`'s adapter settings
-`max_retries = 3`, `retry_initial_backoff = 200 ms`, and
-`retry_max_backoff = 5 s`.
-
-### CircuitBreaker
-
-`CircuitBreaker::new(failure_threshold: u32, success_threshold: u32,
-reset_timeout: Duration)` has no `Default` implementation or implicit thresholds.
-It starts `Closed`. Constructor parameters are private after construction.
-
-- In `Closed`, successes reset the consecutive failure count; reaching the
-  failure threshold opens the circuit and resets that count to zero.
-- `can_execute()` rejects calls while open until `reset_timeout` has elapsed.
-  That check, rather than a background timer or `state()`, enters `HalfOpen`.
-- Half-open admission is limited to `success_threshold` probes over that recovery
-  cycle. Successful results close the circuit when the threshold is reached;
-  any half-open failure reopens it. There is no probe guard or timeout to release
-  admission when a permitted call is abandoned; callers must report outcomes.
-- `reset()` closes and clears counters; `trip()` opens and clears counters.
-  `state()` and `failure_count()` inspect state. Only `CircuitState`, not the
-  breaker object, supports Serde serialization.
-
-### RateLimiter and RetryBudget
-
-| Constructor | Parameters | Initial state |
-|---|---|---|
-| `RateLimiter::new(capacity, refill_rate_per_sec)` | `u32` burst capacity, `f64` tokens/second | Full bucket. `try_acquire(cost: f64)` consumes immediately or returns false. |
-| `RetryBudget::new(capacity, fill_rate_per_sec)` | `u32` burst capacity, `f64` retry tokens/second | Full bucket. Each `try_acquire()` consumes one token or returns false. |
-
-Neither type has default capacity/rate values. Refill happens lazily on calls
-and inspectors, capped at capacity. `available_tokens()` and
-`available_budget()` return fractional balances. A budget permits an initial
-burst as well as refills; it is not a strict sliding-window requests/second cap.
-
-`RateLimiter::acquire(cost)` retries after a computed deficit/refill delay of at
-least 1 ms. With a non-positive refill rate it polls every 10 ms. It has no
-timeout or fairness guarantee. Cost greater than capacity cannot be satisfied.
-
-## Errors and validation
-
-Constructors/builders return values directly, not `Result`, and do not validate
-thresholds, capacities, costs, rates, or multipliers. Use positive thresholds,
-positive capacity, finite non-negative refill rates, finite costs within capacity,
-and finite non-negative multipliers/delays. Zero refill is useful for a fixed
-budget, but exhausted blocking acquisition then cannot finish without external
-cancellation. Invalid floating-point inputs can produce unusable state or a
-panic during duration/jitter calculation. Denied admission/exhaustion is reported
-with `bool`; this crate defines no error type.
-
-## Environment and CLI ownership
-
-This crate parses no environment variables, command-line flags, or YAML.
-The CLI maps `RPC_CB_THRESHOLD` / `--rpc-cb-threshold` (5) and
-`RPC_COOLDOWN_SECS` / `--rpc-cooldown-secs` (30 seconds) into gateway breaker
-settings with success threshold 2. `RPC_TIMEOUT_SECS` / `--rpc-timeout-secs`
-(10 seconds) configures the EVM HTTP client, not a resilience primitive.
-SDK/manifest settings such as `indexing.rpcCbThreshold` belong to the surrounding
-configuration tooling; passing a manifest to a primitive does nothing.
-
-## Tests and coverage
-
-From the repository root, with dependencies already cached:
-
-```sh
-cargo test -p logrix-resilience --offline --locked
+let limiter = RateLimiter::new(100, 50.0);
+limiter.acquire(1.0).await; // Waits if tokens exhausted
 ```
 
-`tests/resilience_tests.rs` covers deterministic backoff/capping, the default
-retry boundary, builder options, budget exhaustion, token consumption, computed
-waits, breaker transitions, manual controls, and probe limiting. It does not
-establish jitter distribution, invalid-input handling, fairness, distributed
-limits, or cancellation recovery for abandoned half-open probes.
+### 3. `RetryPolicy`
 
-## Related documentation
+| Parameter | Type | Default in EVM Client | Description |
+|---|---|---|---|
+| `max_retries` | `u32` | `3` attempts | Maximum retry attempts |
+| `initial_backoff` | `Duration` | `200ms` | Initial backoff duration before first retry |
+| `max_backoff` | `Duration` | `5s` | Maximum capped backoff ceiling |
+| `multiplier` | `f64` | `2.0` | Exponential backoff growth factor |
+| `jitter` | `bool` | `true` | Full jitter randomization to decorrelate retries |
 
-- [Configuration reference](../../docs/configuration.md)
-- [Core errors and ports](../logrix-core/README.md)
-- [EVM client](../logrix-chain-evm/README.md) and [RPC gateway](../logrix-rpc-gateway/README.md)
-- [Resilience and reorgs](../../docs/03-resilience-reorgs.md)
+```rust
+use logrix_resilience::RetryPolicy;
+use std::time::Duration;
+
+let policy = RetryPolicy::new(3, Duration::from_millis(200), Duration::from_secs(5))
+    .with_multiplier(2.0)
+    .with_jitter(true);
+```

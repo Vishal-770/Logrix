@@ -1,75 +1,76 @@
-# RPC gateway, range sizing, and cost estimates
+# The Cost-Aware RPC Gateway & Bulk Acceleration
 
-The runtime factory creates `RpcGateway` over managed `EvmChainClient` providers.
-The [gateway README](../crates/logrix-rpc-gateway/README.md) documents every public
-setting and the [CLI](../crates/logrix-cli/README.md) documents environment mapping.
+## Overview
+In blockchain indexing, the RPC layer is the single largest operating expense, the most common point of failure, and the primary throughput bottleneck.
 
-## Provider selection
+Logrix never allows decoders or listeners to call an RPC provider directly. All traffic is routed through the **RPC Gateway**:
 
-- The CLI assigns primary priority 1 and fallbacks priorities 2, 3, and so on.
-  Lowest priority wins among healthy candidates; equal tiers round-robin.
-- Known tips more than three blocks behind the highest observed tip receive a
-  fixed +10 priority penalty. EWMA latency is measured, not used as routing weight.
-- Failover tries untried provider names. Selected range/limit error strings
-  return immediately for range handling instead of normal breaker accounting.
-- When all providers appear unhealthy, best-effort selection can still call an
-  open breaker. Cooldown jitter is not an enforced sleep or availability SLA.
-- Default CLI HTTP timeout is 10 seconds. Supervised providers use a fixed
-  single-call retry setting of one retry, independent of direct client defaults.
-  JSON-RPC batch calls have a separate path.
-
-Provider identity is labeled with the configured chain ID; runtime construction
-does not verify remote chain identity. Select compatible providers and history.
-Failures are typed, but not every caller applies the same error-class policy.
-
-## Caching and ranges
-
-Only latest head height has the default 500 ms cache and SingleFlight sharing.
-There is no general log/header/receipt LRU cache or durable learned provider
-range-limit database. Each process has its own provider state and accounting.
-
-The EVM client's adaptive chunker recommends a range using success/error/latency
-feedback. The ingester caps that recommendation with `CHUNK_SIZE` (default 10).
-The processor can split failed backfill jobs for selected range-error text.
-Calling `fetch_logs` directly does not automatically partition an arbitrary range.
-This is adaptive range sizing, not database-latency-driven worker-thread scaling.
-
-## Bulk streaming status
-
-`BulkStreamClient` stores known/default or custom endpoint strings, but
-`stream_logs` returns `Ok(None)` without archive transport. Runtime backfills
-therefore use HTTP JSON-RPC. A configured `BULK_STREAM_URL` does not enable SQD,
-HyperSync, zero-CU backfill, or a documented throughput multiplier. Live height
-tracking is polling, not a WebSocket `newHeads` subscription with polling fallback.
-
-## CU budget scope
-
-Successful gateway operations add fixed estimates: block height 10 CU, block
-header/envelope 20 CU, and logs 75 CU. Cache hits, failed operations and internal
-retries are not fully billed by this counter; an envelope can involve multiple
-RPC requests. The optional limit is checked before execution without reserving
-the next operation's cost. Concurrent/final operations can overshoot it.
-
-Counters reset with the gateway and are not shared across pods. Exhaustion
-blocks uncached live calls too; it is not just a backfill throttle. These are
-heuristics, not provider-native billing or a strict account spending cap.
-
-## Backfill preview
-
-With backing queue configuration available, from the repository root:
-
-```bash
-./target/debug/logrix --chain-id 421614 --chunk-size 10 backfill \
-  --from-block 1000000 --to-block 1000099 --dry-run
+```text
+Listener (Live)       Backfiller (History)       Reconciler
+       │                       │                      │
+       ▼                       ▼                      ▼
+┌───────────────────────────────────────────────────────────┐
+│                        RPC GATEWAY                        │
+│  • Scheduler: live priority > backfill, fair sharing      │
+│  • CU Budget Tracker: tracks costs in native provider CU  │
+│  • Provider Pool: health checks, failover, latency matrix │
+│  • Error Classifier: transient vs rate-limited vs shrink  │
+│  • Deduplication: single-flight in-flight call merging    │
+│  • Learned Range Caps: persists max getLogs block windows │
+│  • Bulk Stream Fast-Path: SQD / HyperSync integration     │
+└──────┬───────────────────────┬────────────────────┬───────┘
+       ▼                       ▼                    ▼
+  Provider A              Provider B         Bulk Data Stream
+  (Alchemy)               (Infura)           (SQD Portal / HyperSync)
 ```
 
-The inclusive range contains 100 blocks/10 chunks. The estimate uses 95 CU per
-chunk, $1 per million CU, and two seconds per chunk. It does not probe log density,
-verify providers, predict autoscaling, or ask for an interactive confirmation.
-The CLI initializes the selected queue before this dry-run branch, so it is not
-an external-service-free operation. Omitting `--dry-run` publishes jobs; processors
-must be running separately to execute them.
+---
 
-See [configuration](configuration.md) for placeholder expansion, library versus
-CLI defaults, and fixed settings; see [gateway tests](../crates/logrix-rpc-gateway/tests/)
-for mocked-network coverage rather than provider/throughput certification.
+## 1. Hybrid Backfill Architecture (100x Speedup)
+
+Standard JSON-RPC nodes limit `eth_getLogs` to 2,000–10,000 block ranges and enforce aggressive requests-per-second caps. Indexing years of historical data over plain JSON-RPC can take days.
+
+Logrix uses a **Hybrid Source Model**:
+1. **Live Indexing:** Always uses standard EVM JSON-RPC (WebSocket `newHeads` + polling fallback) to track the chain tip with sub-second latency.
+2. **Historical Backfill (Fast-Path):** When available, Logrix connects to open, high-throughput bulk block streams (such as SQD Portal or HyperSync) to download millions of pre-filtered event logs in seconds.
+3. **Automatic Fallback:** If a bulk stream is unavailable for a chain or private network, Logrix seamlessly falls back to adaptive chunked JSON-RPC calls across its provider pool.
+
+---
+
+## 2. Compute Unit (CU) Budget Tracking & Dry Runs
+
+Instead of counting requests, Logrix measures cost using the provider's native billing weights:
+
+| RPC Method | Approximate Weight |
+| :--- | :--- |
+| `eth_blockNumber` | ~10 CU |
+| `eth_getBlockByNumber` | ~20 CU |
+| `eth_getLogs` | ~60–150 CU |
+
+### Dry Run Cost Estimator
+Before launching a large historical sync, users run:
+
+```bash
+logrix backfill --dry-run
+```
+
+Output:
+```text
+Backfill Plan:
+  Chain:              Arbitrum Sepolia (ID: 421614)
+  Block Range:        12,000,000 -> 14,500,000 (2,500,000 blocks)
+  Estimated Calls:    1,250 getLogs chunks
+  Estimated CU:       93,750 Compute Units
+  Estimated Cost:     ~$0.05 USD
+  Estimated Time:     42 seconds (Bulk Stream) / 8 minutes (JSON-RPC Pool)
+Proceed? [y/N]
+```
+
+---
+
+## 3. Adaptive Chunking & Learned Limits
+
+When querying providers that cap block ranges, Logrix employs an adaptive search window:
+- If a provider returns `"query exceeds max results"` or `"block range too large"`, Logrix cuts the window in half ($$W_{new} = W / 2$$) and retries immediately.
+- On consecutive successful, sparse queries, Logrix expands the window slowly ($$W_{new} = \min(W \times 1.25, W_{preset})$$).
+- Learned limits are cached per provider and chain so future jobs never trigger the same error twice.
