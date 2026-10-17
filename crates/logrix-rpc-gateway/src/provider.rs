@@ -101,12 +101,12 @@ impl ManagedProvider {
 
     /// Check if this provider is currently available to serve requests.
     pub async fn is_healthy(&self) -> bool {
-        self.breaker.can_execute().await
+        self.breaker.can_execute()
     }
 
     /// Record a successful call with measured roundtrip latency.
     pub async fn record_success(&self, latency: Duration) {
-        self.breaker.on_success().await;
+        self.breaker.on_success();
         // Reset exponential cooldown back to configured initial
         self.cooldown_secs
             .store(self.initial_cooldown_secs, Ordering::Relaxed);
@@ -120,7 +120,7 @@ impl ManagedProvider {
 
     /// Record a failed call or 429 rate limit.
     pub async fn record_failure(&self) {
-        self.breaker.on_failure().await;
+        self.breaker.on_failure();
 
         // Increment exponential cooldown: double up to max
         let current = self.cooldown_secs.load(Ordering::Relaxed);

@@ -51,15 +51,36 @@ indexing:
 | `failure_threshold` | `u32` | `3` errors | `5` errors (`RPC_CB_THRESHOLD`) | Consecutive errors before tripping circuit to `Open` |
 | `success_threshold` | `u32` | `2` successes | `2` successes | Consecutive successful probes to restore to `Closed` |
 | `reset_timeout` | `Duration` | `10s` | `30s` (`RPC_COOLDOWN_SECS`) | Duration spent in `Open` before probing in `HalfOpen` |
+| `half_open_max_probes` | `Option<u32>` | `None` (`success_threshold`) | `None` | Max concurrent exploratory requests in `HalfOpen` |
+| `failure_window` | `Option<Duration>` | `None` (unbounded) | `None` | Optional sliding window after which stale failure count resets |
 
 ```rust
-use logrix_resilience::CircuitBreaker;
+use logrix_resilience::{CircuitBreaker, CircuitConfig};
 use std::time::Duration;
 
-<<<<<<< HEAD
+// Quick instantiation:
 let cb = CircuitBreaker::new(5, 2, Duration::from_secs(30));
-if cb.can_execute().await {
-    // Perform network call
+
+// Or using CircuitConfig fluent builder:
+let config = CircuitConfig::builder()
+    .failure_threshold(5)
+    .success_threshold(2)
+    .reset_timeout(Duration::from_secs(30))
+    .half_open_max_probes(1)
+    .failure_window(Duration::from_secs(60))
+    .build();
+let cb = CircuitBreaker::with_config(config);
+
+// Synchronous check:
+if cb.can_execute() {
+    // Perform call and report outcome:
+    cb.on_success();
+}
+
+// Or RAII execution permit (auto-registers failure on cancellation/drop):
+if let Some(guard) = cb.try_acquire() {
+    // Perform call
+    guard.record_success();
 }
 ```
 
