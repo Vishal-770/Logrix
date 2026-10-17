@@ -133,11 +133,16 @@ impl RpcGateway {
                 }
             };
             tried_names.insert(provider.name().to_string());
+            let guard = match provider.try_acquire() {
+                Some(g) => g,
+                None => continue,
+            };
             let start = Instant::now();
 
             match op(provider.clone()).await {
                 Ok(val) => {
                     let elapsed = start.elapsed();
+                    guard.record_success();
                     provider.record_success(elapsed).await;
                     self.budget.record_method(method);
                     return Ok(val);
@@ -152,6 +157,7 @@ impl RpcGateway {
 
                     if is_query_limit {
                         // Do not trip circuit breaker on healthy providers when range is oversized
+                        guard.record_success();
                         warn!(
                             provider = provider.name(),
                             method,
@@ -160,6 +166,8 @@ impl RpcGateway {
                         );
                         return Err(e);
                     }
+
+                    guard.record_failure();
 
                     let elapsed = start.elapsed();
                     warn!(

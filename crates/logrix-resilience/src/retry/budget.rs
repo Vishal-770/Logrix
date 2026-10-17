@@ -8,9 +8,18 @@ struct BudgetState {
     last_update: Instant,
 }
 
+impl BudgetState {
+    fn refill(&mut self, capacity: f64, fill_rate_per_sec: f64) {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_update).as_secs_f64();
+        self.last_update = now;
+        self.tokens = (self.tokens + elapsed * fill_rate_per_sec).min(capacity);
+    }
+}
+
 /// Token-based budget to prevent retry storms from overwhelming downstream services.
 ///
-/// Implements a sliding refill rate allowing at most `max_retries_per_sec` retries.
+/// Implements a sliding refill rate allowing at most `fill_rate_per_sec` retries.
 #[derive(Debug, Clone)]
 pub struct RetryBudget {
     capacity: u32,
@@ -33,11 +42,7 @@ impl RetryBudget {
     /// Try to acquire a retry token. Returns true if budget allows, false if exhausted.
     pub fn try_acquire(&self) -> bool {
         let mut state = self.state.lock();
-        let now = Instant::now();
-        let elapsed = now.duration_since(state.last_update).as_secs_f64();
-        state.last_update = now;
-
-        state.tokens = (state.tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
+        state.refill(self.capacity as f64, self.fill_rate_per_sec);
 
         if state.tokens >= 1.0 {
             state.tokens -= 1.0;
@@ -50,10 +55,7 @@ impl RetryBudget {
     /// Count of currently available retry tokens.
     pub fn available_budget(&self) -> f64 {
         let mut state = self.state.lock();
-        let now = Instant::now();
-        let elapsed = now.duration_since(state.last_update).as_secs_f64();
-        state.last_update = now;
-        state.tokens = (state.tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
+        state.refill(self.capacity as f64, self.fill_rate_per_sec);
         state.tokens
     }
 

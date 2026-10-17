@@ -23,9 +23,9 @@ Defines retry attempt limits, initial and maximum delay intervals, backoff multi
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `max_attempts` | `u32` | `3` | Maximum number of attempts permitted before failing. |
-| `initial_delay` | `Duration` | `100ms` | Base backoff interval applied before the first retry. |
-| `max_delay` | `Duration` | `5s` | Maximum ceiling for computed backoff delays. |
+| `max_attempts` | `u32` | `5` | Maximum number of attempts permitted before failing. |
+| `initial_delay` | `Duration` | `200ms` | Base backoff interval applied before the first retry. |
+| `max_delay` | `Duration` | `10s` | Maximum ceiling for computed backoff delays. |
 | `multiplier` | `f64` | `2.0` | Exponential scaling factor applied per attempt. |
 | `jitter` | `bool` | `true` | When enabled, randomizes delay within `[0, computed_delay)`. |
 

@@ -3,7 +3,7 @@ use crate::circuit_breaker::guard::CircuitGuard;
 use crate::circuit_breaker::state::{CircuitState, InnerState};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Three-state circuit breaker preventing calls to failing external dependencies.
 #[derive(Debug, Clone)]
@@ -13,7 +13,11 @@ pub struct CircuitBreaker {
 }
 
 impl CircuitBreaker {
-    pub fn new(failure_threshold: u32, success_threshold: u32, reset_timeout: Duration) -> Self {
+    pub fn new(
+        failure_threshold: u32,
+        success_threshold: u32,
+        reset_timeout: std::time::Duration,
+    ) -> Self {
         Self::with_config(CircuitConfig::new(
             failure_threshold,
             success_threshold,
@@ -32,37 +36,42 @@ impl CircuitBreaker {
         &self.config
     }
 
-    /// Check if call is permitted under current circuit state.
+    /// Read-only check whether the circuit is currently in a state that permits calls.
+    /// Does not reserve probe slots or modify internal state.
     pub fn can_execute(&self) -> bool {
-        let mut inner = self.inner.lock();
-        self.check_can_execute(&mut inner)
+        let inner = self.inner.lock();
+        match inner.state {
+            CircuitState::Closed => true,
+            CircuitState::Open => {
+                Instant::now().duration_since(inner.last_state_change) >= self.config.reset_timeout
+            }
+            CircuitState::HalfOpen => {
+                inner.active_probes < self.config.effective_half_open_probes()
+            }
+        }
     }
 
-    /// Attempt to acquire an execution permit guard.
+    /// Attempt to acquire an RAII execution permit guard.
+    /// If in HalfOpen, reserves an active probe slot.
     pub fn try_acquire(&self) -> Option<CircuitGuard> {
         let mut inner = self.inner.lock();
-        if self.check_can_execute(&mut inner) {
+        let (permitted, was_probe) = self.try_permit(&mut inner);
+        if permitted {
             Some(CircuitGuard::new(
                 Arc::clone(&self.inner),
                 self.config.clone(),
+                was_probe,
             ))
         } else {
             None
         }
     }
 
-    fn check_can_execute(&self, inner: &mut InnerState) -> bool {
+    fn try_permit(&self, inner: &mut InnerState) -> (bool, bool) {
         match inner.state {
             CircuitState::Closed => {
-                if let Some(window) = self.config.failure_window {
-                    if let Some(last_fail) = inner.last_failure_time {
-                        if Instant::now().duration_since(last_fail) >= window {
-                            inner.failure_count = 0;
-                            inner.last_failure_time = None;
-                        }
-                    }
-                }
-                true
+                inner.prune_stale_failures(&self.config);
+                (true, false)
             }
             CircuitState::Open => {
                 if Instant::now().duration_since(inner.last_state_change)
@@ -70,20 +79,20 @@ impl CircuitBreaker {
                 {
                     inner.state = CircuitState::HalfOpen;
                     inner.success_count = 0;
-                    inner.half_open_probes = 1;
+                    inner.active_probes = 1;
                     inner.last_state_change = Instant::now();
-                    true
+                    (true, true)
                 } else {
-                    false
+                    (false, false)
                 }
             }
             CircuitState::HalfOpen => {
                 let max_probes = self.config.effective_half_open_probes();
-                if inner.half_open_probes < max_probes {
-                    inner.half_open_probes += 1;
-                    true
+                if inner.active_probes < max_probes {
+                    inner.active_probes += 1;
+                    (true, true)
                 } else {
-                    false
+                    (false, false)
                 }
             }
         }
@@ -92,38 +101,22 @@ impl CircuitBreaker {
     /// Record a successful call.
     pub fn on_success(&self) {
         let mut inner = self.inner.lock();
-        match inner.state {
-            CircuitState::Closed => {
-                inner.failure_count = 0;
-            }
-            CircuitState::HalfOpen => {
-                inner.success_count += 1;
-                if inner.success_count >= self.config.success_threshold {
-                    inner.reset();
-                }
-            }
-            CircuitState::Open => {}
+        if inner.active_probes > 0 {
+            inner.active_probes -= 1;
         }
+        inner.record_success(&self.config);
     }
 
     /// Record a failed call.
     pub fn on_failure(&self) {
         let mut inner = self.inner.lock();
-        match inner.state {
-            CircuitState::Closed => {
-                inner.failure_count += 1;
-                inner.last_failure_time = Some(Instant::now());
-                if inner.failure_count >= self.config.failure_threshold {
-                    inner.trip();
-                }
-            }
-            CircuitState::HalfOpen => {
-                inner.trip();
-            }
-            CircuitState::Open => {}
+        if inner.active_probes > 0 {
+            inner.active_probes -= 1;
         }
+        inner.record_failure(&self.config);
     }
 
+    /// Observe the current circuit state, lazily reconciling recovery timeout.
     pub fn state(&self) -> CircuitState {
         let mut inner = self.inner.lock();
         if inner.state == CircuitState::Open
@@ -131,14 +124,19 @@ impl CircuitBreaker {
         {
             inner.state = CircuitState::HalfOpen;
             inner.success_count = 0;
-            inner.half_open_probes = 0;
+            inner.active_probes = 0;
             inner.last_state_change = Instant::now();
         }
         inner.state
     }
 
+    /// Read-only inspection of the current circuit state.
+    pub fn current_state(&self) -> CircuitState {
+        self.state()
+    }
+
     pub fn failure_count(&self) -> u32 {
-        self.inner.lock().failure_count
+        self.inner.lock().failure_count(&self.config)
     }
 
     /// Manually reset circuit to Closed state.

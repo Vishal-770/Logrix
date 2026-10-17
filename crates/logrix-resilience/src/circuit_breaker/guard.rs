@@ -1,40 +1,46 @@
 use crate::circuit_breaker::config::CircuitConfig;
-use crate::circuit_breaker::state::{CircuitState, InnerState};
+use crate::circuit_breaker::state::InnerState;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::Instant;
 
-/// RAII execution guard that tracks an in-flight circuit permit.
+/// RAII execution permit that tracks active in-flight executions.
 ///
 /// If dropped without calling `record_success()` or `finish()`,
-/// it safely records a failure to avoid probe starvation.
+/// it safely decrements `active_probes` and records a failure.
 #[derive(Debug)]
 pub struct CircuitGuard {
     inner: Arc<Mutex<InnerState>>,
     config: CircuitConfig,
     finished: bool,
+    was_probe: bool,
 }
 
 impl CircuitGuard {
-    pub(crate) fn new(inner: Arc<Mutex<InnerState>>, config: CircuitConfig) -> Self {
+    pub(crate) fn new(
+        inner: Arc<Mutex<InnerState>>,
+        config: CircuitConfig,
+        was_probe: bool,
+    ) -> Self {
         Self {
             inner,
             config,
             finished: false,
+            was_probe,
         }
     }
 
-    /// Record that the execution was successful.
+    /// Record that the execution was successful and release active probe.
     pub fn record_success(mut self) {
         self.finish(true);
     }
 
-    /// Record that the execution failed.
+    /// Record that the execution failed and release active probe.
     pub fn record_failure(mut self) {
         self.finish(false);
     }
 
     /// Explicitly finish the execution permit with success or failure.
+    /// Subsequent calls are idempotent no-ops.
     pub fn finish(&mut self, success: bool) {
         if self.finished {
             return;
@@ -42,33 +48,14 @@ impl CircuitGuard {
         self.finished = true;
 
         let mut inner = self.inner.lock();
+        if self.was_probe && inner.active_probes > 0 {
+            inner.active_probes -= 1;
+        }
+
         if success {
-            match inner.state {
-                CircuitState::Closed => {
-                    inner.failure_count = 0;
-                }
-                CircuitState::HalfOpen => {
-                    inner.success_count += 1;
-                    if inner.success_count >= self.config.success_threshold {
-                        inner.reset();
-                    }
-                }
-                CircuitState::Open => {}
-            }
+            inner.record_success(&self.config);
         } else {
-            match inner.state {
-                CircuitState::Closed => {
-                    inner.failure_count += 1;
-                    inner.last_failure_time = Some(Instant::now());
-                    if inner.failure_count >= self.config.failure_threshold {
-                        inner.trip();
-                    }
-                }
-                CircuitState::HalfOpen => {
-                    inner.trip();
-                }
-                CircuitState::Open => {}
-            }
+            inner.record_failure(&self.config);
         }
     }
 }

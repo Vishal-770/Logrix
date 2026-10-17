@@ -104,6 +104,11 @@ impl ManagedProvider {
         self.breaker.can_execute()
     }
 
+    /// Attempt to acquire an execution permit guard for this provider.
+    pub fn try_acquire(&self) -> Option<logrix_resilience::CircuitGuard> {
+        self.breaker.try_acquire()
+    }
+
     /// Record a successful call with measured roundtrip latency.
     pub async fn record_success(&self, latency: Duration) {
         self.breaker.on_success();

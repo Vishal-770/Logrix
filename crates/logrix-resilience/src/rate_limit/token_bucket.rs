@@ -1,7 +1,6 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::warn;
 
 #[derive(Debug)]
 struct BucketState {
@@ -9,7 +8,16 @@ struct BucketState {
     last_refill: Instant,
 }
 
-/// Token-bucket rate limiter for managing RPC and endpoint throughput limits.
+impl BucketState {
+    fn refill(&mut self, capacity: f64, refill_rate_per_sec: f64) {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_refill).as_secs_f64();
+        self.last_refill = now;
+        self.tokens = (self.tokens + elapsed * refill_rate_per_sec).min(capacity);
+    }
+}
+
+/// Token bucket rate limiter supporting fractional refill bursts and single-mutex state encapsulation.
 #[derive(Debug, Clone)]
 pub struct TokenBucketRateLimiter {
     capacity: f64,
@@ -18,29 +26,24 @@ pub struct TokenBucketRateLimiter {
     state: Arc<Mutex<BucketState>>,
 }
 
-/// Backward-compatible alias for the standard token bucket rate limiter.
-pub type RateLimiter = TokenBucketRateLimiter;
-
 impl TokenBucketRateLimiter {
     pub fn new(capacity: u32, refill_rate_per_sec: f64) -> Self {
-        let cap = capacity as f64;
         Self {
-            capacity: cap,
+            capacity: capacity as f64,
             refill_rate_per_sec,
             min_sleep_floor: Duration::from_millis(1),
             state: Arc::new(Mutex::new(BucketState {
-                tokens: cap,
+                tokens: capacity as f64,
                 last_refill: Instant::now(),
             })),
         }
     }
 
-    /// Set a custom starting token balance (e.g. 0.0 for cold-start warmup).
+    /// Set a custom initial token balance (e.g. 0.0 for cold-start warmup).
     #[must_use]
     pub fn with_initial_tokens(self, tokens: f64) -> Self {
-        let clamped = tokens.clamp(0.0, self.capacity);
         let mut state = self.state.lock();
-        state.tokens = clamped;
+        state.tokens = tokens.clamp(0.0, self.capacity);
         state.last_refill = Instant::now();
         drop(state);
         self
@@ -60,10 +63,7 @@ impl TokenBucketRateLimiter {
         }
 
         let mut state = self.state.lock();
-        let now = Instant::now();
-        let elapsed = now.duration_since(state.last_refill).as_secs_f64();
-        state.last_refill = now;
-        state.tokens = (state.tokens + elapsed * self.refill_rate_per_sec).min(self.capacity);
+        state.refill(self.capacity, self.refill_rate_per_sec);
 
         if state.tokens >= cost {
             state.tokens -= cost;
@@ -73,16 +73,13 @@ impl TokenBucketRateLimiter {
         }
     }
 
-    /// Acquire tokens, sleeping asynchronously if rate limit is reached.
-    ///
-    /// If requested cost exceeds total capacity, it is safely clamped to capacity
-    /// to prevent infinite loop deadlocks.
+    /// Asynchronously acquire `cost` tokens, computing the exact wait without busy-spinning.
     pub async fn acquire(&self, cost: f64) {
         let effective_cost = if cost > self.capacity {
-            warn!(
-                cost,
+            tracing::warn!(
+                requested = cost,
                 capacity = self.capacity,
-                "Requested rate limit cost exceeds capacity; clamping to capacity"
+                "Requested rate limiter cost exceeds capacity; clamping to capacity to prevent deadlock"
             );
             self.capacity
         } else {
@@ -92,50 +89,35 @@ impl TokenBucketRateLimiter {
         loop {
             let wait_duration = {
                 let mut state = self.state.lock();
-                let now = Instant::now();
-                let elapsed = now.duration_since(state.last_refill).as_secs_f64();
-                state.last_refill = now;
-                state.tokens =
-                    (state.tokens + elapsed * self.refill_rate_per_sec).min(self.capacity);
+                state.refill(self.capacity, self.refill_rate_per_sec);
 
                 if state.tokens >= effective_cost {
                     state.tokens -= effective_cost;
-                    None
-                } else if self.refill_rate_per_sec > 0.0 {
-                    let missing = effective_cost - state.tokens;
-                    let secs = missing / self.refill_rate_per_sec;
-                    Some(Duration::from_secs_f64(secs).max(self.min_sleep_floor))
-                } else {
-                    Some(Duration::from_millis(10))
+                    return;
                 }
+
+                let missing = effective_cost - state.tokens;
+                let needed_secs = missing / self.refill_rate_per_sec;
+                Duration::from_secs_f64(needed_secs).max(self.min_sleep_floor)
             };
 
-            match wait_duration {
-                None => return,
-                Some(delay) => tokio::time::sleep(delay).await,
-            }
+            tokio::time::sleep(wait_duration).await;
         }
     }
 
-    /// Approximate count of currently available tokens (synchronous inspector).
     pub fn available_tokens(&self) -> f64 {
         let mut state = self.state.lock();
-        let now = Instant::now();
-        let elapsed = now.duration_since(state.last_refill).as_secs_f64();
-        state.last_refill = now;
-        state.tokens = (state.tokens + elapsed * self.refill_rate_per_sec).min(self.capacity);
+        state.refill(self.capacity, self.refill_rate_per_sec);
         state.tokens
     }
 
-    /// Configured maximum capacity of the rate limiter.
-    #[must_use]
     pub fn capacity(&self) -> f64 {
         self.capacity
     }
 
-    /// Configured refill rate per second.
-    #[must_use]
     pub fn refill_rate(&self) -> f64 {
         self.refill_rate_per_sec
     }
 }
+
+pub type RateLimiter = TokenBucketRateLimiter;
