@@ -4009,6 +4009,7 @@ name = "logrix-resilience"
 version = "0.7.3"
 dependencies = [
  "logrix-core",
+ "parking_lot",
  "rand 0.8.8",
  "serde",
  "thiserror 2.0.21",
