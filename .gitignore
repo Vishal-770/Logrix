@@ -37,6 +37,9 @@ node_modules/
 # Graphify
 graphify-out/
 
+# Private CLI task coordination
+.omnirush/
+
 # Local reports and review notes
 report.md
 *_REVIEW_REPORT.md

@@ -1,244 +1,217 @@
 # logrix-webhook
 
-Asynchronous, queue-backed webhook dispatcher and delivery audit engine for Logrix.
+Queue-backed HTTP delivery, HMAC signing/verification, and PostgreSQL endpoint
+and delivery-summary storage. `WebhookDispatcherService` consumes
+`QueueType::Webhook`; indexing and webhook REST management live in other crates.
 
-## Overview
-This crate delivers external HTTP callbacks for blockchain reorganizations and entity mutation events without blocking the indexing pipeline. The worker consumes from `QueueType::Webhook` and dispatches cryptographically signed payloads to registered subscriber URLs.
+## Prerequisites and minimal usage
 
----
+Use the workspace Rust toolchain/locked dependencies, Tokio, an implementation
+of `QueuePort` (CLI: RabbitMQ or SQS), and reachable HTTP(S) receivers. Migrated
+PostgreSQL is optional for a programmatic/default-URL-only worker and required
+for registered endpoints/audit queries. From the workspace root, with the binary
+built, queue/database configured, and `WEBHOOK_SECRET` set in the environment:
 
-## Architectural Data Flow
-
-```
-   [ Blockchain Nodes / RPC Gateway ]
-                  |
-                  v
-          [ logrix ingester ]
-      +-----------+-----------+
-      v                       v
-[ QueueType::Live ]   [ QueueType::Backfill ]
-      +-----------+-----------+
-                  |
-                  v (consumed by)
-         [ logrix processor ]
-                  |
-   +--------------+--------------+
-   |                             |
-   v                             v
-Reorg Detected?          Entity Mutated?
-(e.g. fork unwound)      (e.g. Transfer, Approval)
-   |                             |
-   v                             v
-Emits: "event.reverted"   Emits: "entity_mutation"
-   +--------------+--------------+
-                  |
-                  v (published to)
-        [ QueueType::Webhook ] (RabbitMQ / AWS SQS)
-                  |
-                  v (consumed by)
-      [ WebhookDispatcherService ]
-       - Validates events filter
-       - Computes HMAC-SHA256 signature
-       - Dispatches with per-endpoint retries
-       - Records audit log in PostgreSQL
-                  |
-                  v (HTTP POST)
-   [ Downstream Webhook Receivers ]
+```sh
+./target/debug/logrix migrate
+./target/debug/logrix --webhook-url https://hooks.example.com/logrix \
+  --webhook-max-retries 3 webhook-dispatcher
 ```
 
----
+That URL is illustrative; replace it with a receiver. Root flags go before the
+subcommand. The dedicated command runs without `ENABLE_WEBHOOKS`; setting that
+flag instead starts a dispatcher inside `processor` (including all-in-one).
 
-## Core Features
+In an async Rust application depending on `logrix-core` and `logrix-webhook`,
+the caller supplies a configured queue, optional store, URL, secret, and shutdown
+future returning `()`:
 
-1. **HMAC-SHA256 Signatures**:
-   - Every outgoing request contains the header `X-Logrix-Signature: t={timestamp},v1={hex_digest}`.
-   - Prevents request spoofing and protects against replay attacks by rejecting timestamps outside tolerance windows.
+```rust
+use logrix_core::ports::QueuePort;
+use logrix_webhook::{WebhookConfig, WebhookDispatcherService, WebhookStore};
+use std::{future::Future, sync::Arc};
 
-2. **Per-Endpoint Retry Configuration**:
-   - **Default (At-Most-Once)**: When `max_retries` is 0 or omitted, the worker executes a single attempt, logs the result, and acknowledges the message immediately.
-   - **Custom Retries**: Endpoints can configure custom retry counts (e.g., 3, 5). Dispatches use full-jitter exponential backoff before marking failure.
-
-3. **Event Filtering**:
-   - Endpoints can subscribe to specific events (e.g. `["reorg"]` or `["Transfer"]`).
-   - Wildcard subscriptions (`["*"]` or empty list `[]`) receive all events.
-
-4. **Target Deduplication**:
-   - If a URL is configured both via database registration and through static CLI flags (`--webhook-url`), it is dispatched only once per event.
-
-5. **Delivery Audit Trail**:
-   - Every delivery records its execution metrics into PostgreSQL `logrix_webhook_deliveries`:
-     - Attempt number (`attempt`)
-     - Retry indicator (`is_retry`)
-     - HTTP response code (`status_code`)
-     - Latency in milliseconds (`latency_ms`)
-     - Error message if failed (`error_message`)
-
----
-
-## Outgoing HTTP Request Headers & Payload
-
-### Headers Sent to Your Server
-```http
-POST /your-webhook-endpoint HTTP/1.1
-Host: api.yourserver.com
-Content-Type: application/json
-X-Logrix-Delivery-ID: 7f1396b1-419b-449e-b816-e42776c59b32
-X-Logrix-Event: Transfer
-X-Logrix-Chain-Id: 421614
-X-Logrix-Signature: t=1728310000,v1=9a8f27b1c4e0d4a9...
-```
-
-### JSON Body Format
-```json
-{
-  "event": "reorg",
-  "chain_id": 421614,
-  "timestamp": 1728310000,
-  "data": {
-    "fork_block": 105230,
-    "fork_hash": "0xabc123...",
-    "reorg_depth": 2
-  }
+async fn run_worker<F: Future<Output = ()> + Send>(
+    queue: Arc<dyn QueuePort>, store: Option<WebhookStore>,
+    url: String, secret: String, shutdown: F,
+) {
+    let service = WebhookDispatcherService::new_with_config(
+        queue, store, Some(url), secret, WebhookConfig::default(),
+    );
+    service.run_loop_with_shutdown(shutdown).await;
 }
 ```
 
----
+`process_one()` returns `Ok(false)` when the queue is empty, `Ok(true)` after
+ack/dead-letter handling, and typed errors for queue/store failures. The loop
+logs errors and waits its configured backoff; shutdown can cancel an in-flight
+`process_one` because it races that future. It does not guarantee delivery drain.
 
-## How to Verify Webhook Signatures (Receiver Example)
+## Events, filtering, and queue outcome
 
-Every webhook is signed with HMAC-SHA256 using the endpoint's secret.
+Custom queue messages become `WebhookPayload { event: job_type, chain_id,
+timestamp, data: payload }`. The outer timestamp is dispatch-time Unix seconds.
+Non-custom messages become event `unknown`, chain 1, with diagnostic data.
 
-### Node.js / TypeScript Example
-```typescript
-import crypto from "crypto";
+The built-in producer is `ReorgHandler`: its job type is **`event.reverted`**
+and its nested payload says `event: "chain.reorg"`, with chain ID, fork block,
+fork hash, depth, and an RFC3339 timestamp. HTTP `X-Logrix-Event` and the outer
+body `event` therefore say `event.reverted`, not `reorg` or `chain.reorg`.
+The API registration validator knows `reorg`, `checkpoint`, and dynamic entity
+names; it normally rejects `event.reverted`. A registered `["reorg"]` filter
+will not receive these rollback jobs. Empty `events: []` receives them.
 
-function verifyLogrixSignature(
-  rawBody: Buffer | string,
-  signatureHeader: string,
-  secret: string,
-  toleranceSecs: number = 300
-): boolean {
-  // 1. Parse header: t=1728310000,v1=abcdef...
-  const parts = signatureHeader.split(",");
-  let timestamp = 0;
-  let expectedSig = "";
+No normal CLI entity-write or checkpoint path publishes corresponding webhook
+jobs: PostgreSQL entity notifications feed GraphQL subscriptions, not this
+queue. Callers can publish custom job types, but accepted API event names alone
+do not establish a built-in producer.
 
-  for (const part of parts) {
-    const [k, v] = part.split("=");
-    if (k === "t") timestamp = parseInt(v, 10);
-    if (k === "v1") expectedSig = v;
-  }
+- Database endpoints must be active. Filters match exact, case-sensitive
+  job-type strings, or all events when empty. `["*"]` is literal, despite being
+  accepted by API validation. The default URL is unfiltered.
+- Matching database endpoints are delivered sequentially. Duplicate registered
+  URLs can each receive a request. A matched database URL suppresses the same
+  exact default URL, even if its database delivery fails; other filters do not.
+- If any delivery fails (including partial success), the whole queue message is
+  dead-lettered. If none fail, it is acknowledged, including when no endpoint
+  matches and no default URL exists. It is not automatically requeued for HTTP
+  retry after this dispatch. Broker redelivery or manual replay can still cause
+  duplicate requests; single-attempt settings are not at-most-once guarantees.
 
-  // 2. Reject stale timestamps (prevent replay attacks)
-  const now = Math.floor(Date.now() / 1000);
-  if (Math.abs(now - timestamp) > toleranceSecs) {
-    return false;
-  }
+## HTTP contract
 
-  // 3. Compute HMAC-SHA256 over `${timestamp}.${rawBody}`
-  const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(`${timestamp}.`);
-  hmac.update(rawBody);
-  const computed = hmac.digest("hex");
+POST body is JSON with `event`, numeric `chain_id`, Unix-seconds `timestamp`, and
+`data`. Headers: `Content-Type: application/json`, `X-Logrix-Delivery-ID` (UUID),
+`X-Logrix-Event`, `X-Logrix-Chain-Id`, and `X-Logrix-Signature`.
+Success is HTTP 2xx. All non-2xx statuses and request errors are eligible for
+configured retries. Body bytes, signature timestamp, and delivery ID are reused
+within one dispatch call, but a replay creates a new ID.
 
-  return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(expectedSig));
+## Signature verification
+
+`sign_payload` signs `decimal_timestamp + "." + raw_body_bytes` with HMAC-SHA256
+and formats `t=<seconds>,v1=<hex>`. Receivers must verify the raw body before
+reserializing JSON. In a Rust receiver depending on `logrix-webhook`:
+
+```rust
+fn accept_signature(secret: &str, header: &str, raw_body: &[u8]) -> bool {
+    logrix_webhook::verify_signature(secret, header, raw_body, 300)
 }
 ```
 
----
+`verify_signature` checks the digest using `Mac::verify_slice` and rejects
+timestamps more than the caller's tolerance in either past or future. It does
+not maintain a replay-ID cache; repeat requests inside the window can verify.
+`generate_secret()` returns `whsec_` plus 32 random alphanumeric characters.
+`sanitize_webhook_url` masks embedded user-info only, not query/path secrets;
+HTTP error strings may still include URLs.
 
-## Configuration & Tuning
+## Configuration: three different retry meanings
 
-### 1. Declarative Manifest Configuration (`logrix.yaml`)
+| Setting/API | Default | Meaning |
+|---|---|---|
+| `WebhookEndpoint.max_retries` (database, REST, manifest seeding) | 0 | Additional retries; dispatcher uses `saturating_add(1)` total attempts |
+| `WebhookConfig.max_retries` / CLI `WEBHOOK_MAX_RETRIES` | 1 | Total attempts for the default URL; 0 is clamped to 1 |
+| `dispatch_with_retries(..., max_attempts)` | Caller supplies | Total attempts, clamped to at least 1 |
+| `WebhookHttpClient::dispatch(...)` | 1 attempt | Always one, regardless of the client's constructor argument |
 
-Declare webhooks and runtime delivery parameters directly in `logrix.yaml`:
+`WebhookHttpClient::new(timeout, max_retries)` builds a retry policy, but the
+actual dispatch loop limit comes from `dispatch_with_retries`'s argument. Sleeps
+use `RetryPolicy` jittered exponential delays (200 ms base, 4-second cap).
+Retries are inside one dispatch call, not a durable delayed-retry scheduler.
+
+### Library configuration: `WebhookConfig`
+
+| Field | Default | Meaning |
+|---|---|---|
+| `timeout` | 5 seconds | Per HTTP request timeout, not whole-dispatch timeout |
+| `max_retries` | 1 | Default URL total attempt count |
+| `worker_idle_sleep` | 100 ms | Pause after empty queue poll |
+| `worker_error_backoff` | 500 ms | Pause after a queue/store/ack/dead-letter error |
+
+All fields are public. `WebhookConfig::new(timeout, max_retries, idle, backoff)`
+and `WebhookDispatcherService::new_with_config` accept explicit values;
+`new` uses defaults. `WebhookHttpClient::default()` uses a 5-second timeout.
+The HTTP pool keeps idle connections for 90 seconds, up to 10 idle per host.
+This library reads no CLI environment variables or YAML itself.
+
+### Manifest seeding is CLI-owned
+
+A complete native manifest with a receive-all endpoint (the named environment
+variable must exist) is:
 
 ```yaml
-indexing:
-  webhookTimeoutSecs: 5          # Outgoing HTTP POST request timeout in seconds
-  webhookMaxRetries: 3           # Default retry attempts for webhook deliveries
-
+schema_version: "1"
+chain_id: 421614
+contracts: []
 webhooks:
-  # Fast at-most-once delivery
-  - url: "https://api.mybackend.com/webhooks/transfers"
-    events: ["Transfer"]
-
-  # Retry-enabled delivery with custom attempts and secret from env
-  - url: "https://critical.mybackend.com/webhooks/reorgs"
-    secret: "${CRITICAL_WEBHOOK_SECRET}"
-    events: ["reorg"]
-    max_retries: 5
+  - url: "https://hooks.example.com/logrix"
+    secret: "${LOGRIX_ENDPOINT_SECRET}"
+    events: []
+    maxRetries: 3
 ```
 
-| `logrix.yaml` Key | Type | Default Value | Required? | Description |
-|---|---|---|---|---|
-| `indexing.webhookTimeoutSecs` | `integer` | `5` seconds | Optional | Outgoing delivery HTTP request timeout |
-| `indexing.webhookMaxRetries` | `integer` | `1` attempt | Optional | Global retry attempts ceiling |
-| `webhooks[].url` | `string` | N/A | Required | Destination HTTP/HTTPS callback endpoint |
-| `webhooks[].events` | `string[]` | `["reorg"]` | Optional | Subscribed event filters |
-| `webhooks[].secret` | `string` | None | Optional | HMAC-SHA256 signature signing secret |
-| `webhooks[].max_retries` | `integer` | `1` | Optional | Per-endpoint retry count override |
+`url` is required; `events` defaults to `[]`; `secret` and `maxRetries` are
+optional (`max_retries` is an alias). Direct CLI seeding generates missing
+secrets and defaults missing retry counts to 0. Only `webhook-dispatcher` seeds
+these entries when its optional database connection succeeds; it skips URLs
+already active and silently ignores manifest/seed failures. The embedded
+processor worker does not seed them. SDK `export-values` is different: omitted
+events/retries become `["reorg"]`/3 in the exported manifest. Runtime manifest
+`indexing.webhookTimeoutSecs`/`webhookMaxRetries` are not supported; the SDK can
+map those project settings to Helm environment instead.
 
-### 2. Environment Variables & CLI Options
+### CLI environment and flags
 
 | Variable | CLI Flag | Default Value | Required? | Description |
 |---|---|---|---|---|
-| `ENABLE_WEBHOOKS` | `--enable-webhooks` | `false` | Optional | Opt-in toggle to activate webhook worker loop in all-in-one runner |
+| `ENABLE_WEBHOOKS` | `--enable-webhooks` | `false` | Optional | Embedded processor worker, including all-in-one; dedicated runner always runs |
 | `WEBHOOK_URL` | `--webhook-url` | None | Optional | Static fallback URL for external reorg and event notifications |
 | `WEBHOOK_SECRET` | `--webhook-secret` | `""` | Optional | Webhook HMAC-SHA256 signing secret for default fallback URL |
 | `WEBHOOK_TIMEOUT_SECS`| `--webhook-timeout-secs`| `5` seconds | Optional | Outgoing HTTP POST request timeout |
-| `WEBHOOK_MAX_RETRIES` | `--webhook-max-retries` | `1` attempt | Optional | Maximum retry delivery attempts before logging failure |
+| `WEBHOOK_MAX_RETRIES` | `--webhook-max-retries` | `1` total attempt | Optional | Default URL only, not database endpoint retry count |
+| `WEBHOOK_WORKER_IDLE_MS` | `--webhook-worker-idle-ms` | `100` ms | Optional | Empty-poll sleep |
+| `WEBHOOK_WORKER_BACKOFF_MS` | `--webhook-worker-backoff-ms` | `500` ms | Optional | Error backoff |
 
-### 3. Programmatic Configuration (`WebhookConfig`)
+The CLI also owns `--manifest-path` / `MANIFEST_PATH` (unset), database and queue
+arguments. Empty default secret causes CLI runners to generate a secret at
+startup. Processor configuration expands `${VAR}` in default URL/secret, but
+the dedicated runner passes those CLI strings as-is. See
+[CLI reference](../logrix-cli/README.md) and [configuration](../../docs/configuration.md).
 
-| Field | Default Value | Required? | Description |
-|---|---|---|---|
-| `timeout` | `5s` | Optional | Outgoing delivery HTTP client request timeout |
-| `max_retries` | `1` | Optional | Max consecutive delivery retries |
-| `worker_idle_sleep` | `100ms` | Optional | Sleep duration when webhook queue is empty |
-| `worker_error_backoff`| `500ms` | Optional | Backoff delay before retrying polling after network error |
+## Delivery audit and error limitations
 
----
+- `WebhookStore` manages endpoints and delivery summaries using an existing
+  `sqlx::PgPool`; it does not run migrations. Database operation failures return
+  typed `LogrixError`s (insert failures permanent, most other operations transient).
+  The dispatcher propagates endpoint-list/queue errors and does not acknowledge
+  a message when listing endpoints fails.
+- HTTP failures return `DeliveryResult`, not a Rust `Err`. `attempts_taken`
+  reflects actual HTTP loop iterations; latency covers attempts plus retry
+  sleeps, not just the last request. HTTP client construction uses `expect`.
+- Database-target delivery makes one best-effort summary write after its entire
+  dispatch. There is no row per retry. The SQL insert/read omits `attempt` and
+  `is_retry`; reads reconstruct them as **1 and false**, losing actual retry
+  history. The last recorded status may precede a later transport failure.
+- Default-URL deliveries are not recorded. Audit insert failures are ignored
+  and do not change ack/dead-letter decisions. The API's test ping likewise
+  records best effort. This is not a complete delivery audit or replay ledger.
+- The management API is provided by [logrix-api](../logrix-api/README.md), whose
+  CLI port defaults to 4000. It lists active endpoints, can get/update/delete by
+  ID, rotate secrets, test ping, and query summary rows. Its test ping uses one
+  attempt, not endpoint retries or dispatcher configuration.
 
-## Alternative Dispatch Methods
+## Tests and related code
 
-### CLI Standalone Runner
-```bash
-logrix webhook \
-  --database-url postgres://logrix:logrix@localhost:5432/logrix \
-  --rabbitmq-url amqp://logrix:logrix@localhost:5672/%2f \
-  --webhook-url https://api.mybackend.com/webhooks/default \
-  --webhook-secret whsec_my_custom_secret \
-  --webhook-timeout-secs 10 \
-  --webhook-max-retries 3
+From the workspace root with cached dependencies:
+
+```sh
+cargo test -p logrix-webhook --offline --locked
 ```
 
-### Dynamic Management REST API
-Manage webhooks dynamically at runtime via `logrix-api` (Port 8080).
-See `crates/logrix-api/README.md` for complete endpoint curl examples.
-
----
-
-## Programmatic Worker & Graceful Shutdown
-
-The `WebhookDispatcherService` integrates seamlessly with container shutdown signals (SIGINT / SIGTERM):
-
-```rust
-use logrix_webhook::WebhookDispatcherService;
-use std::sync::Arc;
-
-let dispatcher = WebhookDispatcherService::new(
-    queue,
-    Some(store),
-    Some("https://api.mybackend.com/webhooks".into()),
-    "whsec_production_secret",
-);
-
-// Runs until cancellation signal is received, draining in-flight HTTP deliveries
-dispatcher.run_loop_with_shutdown(tokio::signal::ctrl_c()).await;
-```
-
-## Security & Secret Hygiene
-
-- **Constant-Time Verification**: `verify_signature` performs constant-time comparison (`Mac::verify_slice`) preventing timing side-channel attacks.
-- **Credential Masking in Logs**: Webhook endpoints and HTTP warnings automatically sanitize sensitive embedded credentials via `sanitize_webhook_url`.
+[Tests](tests/) cover HMAC freshness/tampering, unreachable HTTP delivery,
+endpoint structures, and shutdown signaling; they do not establish persisted
+per-attempt audit coverage. Related: [dispatcher](src/dispatcher.rs),
+[target selection](src/target.rs), [audit SQL](src/deliveries.rs),
+[reorg producer](../logrix-reconciler/src/rollback.rs), and
+[configuration](../../docs/configuration.md).

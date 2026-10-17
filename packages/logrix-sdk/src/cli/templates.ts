@@ -323,81 +323,123 @@ export function readmeTemplate(projectName: string): string {
 
 Blockchain indexer built with [Logrix](https://github.com/Vishal-770/Logrix).
 
-## Development Workflow
+## Develop and export
 
-### 1. Install dependencies
+Run commands from this project directory after reviewing the contract address,
+start block, RPC URLs, ABI, and event mappings in \`logrix.yaml\`:
+
 \`\`\`bash
 npm install
-\`\`\`
-
-### 2. Configure \`logrix.yaml\`
-Set your chain, contract addresses, and event handlers.
-To add additional contracts:
-\`\`\`bash
-npx logrix add contract AnotherContract --address 0x... --start-block 0
-\`\`\`
-
-### 3. Generate typed bindings
-\`\`\`bash
 npm run codegen
 \`\`\`
-Generates \`src/generated/events.ts\` and \`src/generated/schema.ts\`.
 
-### 4. Validate configuration
+Current SDK compilation workaround: change imports/re-exports of
+\`"@logrix/sdk"\` to \`"@logrix/sdk/src/runtime/index"\` in \`src/mapping.ts\`,
+\`src/generated/events.ts\`, and \`src/generated/schema.ts\`. The root currently
+re-exports testing source that \`asc\` cannot parse (optional properties/nullish
+coalescing). Repeat the generated-file adjustment after each codegen. Then:
+
 \`\`\`bash
 npm run validate
-\`\`\`
-
-### 5. Write handler logic
-Implement your event indexing logic in \`src/mapping.ts\`.
-
-### 6. Compile WebAssembly handler
-\`\`\`bash
-npm run build
-\`\`\`
-Produces \`build/mapping.wasm\`.
-
-### 7. Export Helm deployment bundle
-\`\`\`bash
+npm run build:asc
 npm run export-values
 \`\`\`
-Produces \`indexer-values.yaml\` bundling your WASM binary, GraphQL schema, and contract manifest.
-Environment placeholders such as \${ALCHEMY_API_KEY} remain symbolic in generated files. Fill and apply \`deploy/secrets.example.yaml\` before deploying, and never commit real credentials.
 
----
+The scaffold always starts with ERC-20 Transfer/Approval ABI and handlers. A
+different address/name does not fetch a different ABI. After ABI/schema edits,
+regenerate bindings and adapt the handler yourself. \`add contract\` can copy a
+local ABI with \`--abi <path>\` or try \`--fetch-abi\` (falls back to ERC-20 on
+failure); it does not write handler code. See the
+[SDK CLI reference](https://github.com/Vishal-770/Logrix/blob/main/packages/logrix-sdk/README.md#cli-reference)
+for all flags and limitations.
 
-## Deployment (Helm)
+### Files and scripts
 
-### Mode 1: Self-Hosted Deployment (Default)
-Deploys out-of-the-box with built-in PostgreSQL and RabbitMQ pods. No extra infrastructure config needed:
-\`\`\`bash
-helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
-  -f indexer-values.yaml
-\`\`\`
-*(Optional S3 cold block archiving can be enabled with \`--set builtIn.minio=true\`)*
+- Source: \`logrix.yaml\`, \`schema.graphql\`, \`abis/\`, \`src/mapping.ts\`.
+- \`codegen\`: overwrites \`src/generated/events.ts\` and \`src/generated/schema.ts\`.
+- \`validate\`: checks manifest/file shape; does not compile or prove ABI/handler correctness.
+- \`build:asc\`: compiles \`src/mapping.ts\` to \`build/mapping.wasm\`.
+- \`build\`: invokes \`logrix build\`; currently an existing first \`mapping.file\`
+  overrides its compiler input, so repeated builds can try compiling the output
+  WASM as source. Use \`build:asc\` for reliable rebuilds with this layout.
+- \`export-values\`: embeds the schema, converted runtime manifest, and base64 WASM
+  into \`indexer-values.yaml\`. It always reads \`build/mapping.wasm\`, regardless
+  of \`mapping.file\` or \`build --out\`. All exported contracts share the mounted
+  \`/etc/logrix/handlers/mapping.wasm\`.
 
-*(To use an existing database or queue securely, configure credentials in \`deploy/secrets.example.yaml\`, run \`kubectl apply -f deploy/secrets.example.yaml\`, and pass \`--set config.existingSecret=logrix-secrets\`)*
+The generated package has no \`test\` script. Optional \`npx logrix test\` checks
+basic files, compiles \`build/test_mapping.wasm\`, and invokes \`node --test\` if
+tests are present; it neither generates bindings nor executes WASM handlers.
+Its \`--watch\` flag has no effect, and no TypeScript/AssemblyScript Node loader
+is supplied. \`npx logrix status\` probes live RPC endpoints rather than runtime
+database progress; it does not expand environment placeholders and prints URLs.
 
-Port-forward and open the GraphQL playground:
-\`\`\`bash
-kubectl port-forward svc/${projectName}-logrix-api 4000:4000
-\`\`\`
-Visit **http://localhost:4000/** in your browser.
+### Handler language and ABI
 
-### Mode 2: Full AWS Production (EKS + Terraform)
-Deploys with Aurora Serverless PostgreSQL, Amazon SQS, and KEDA autoscaling:
-1. *(Optional)* If provisioning AWS infrastructure from scratch, clone https://github.com/Vishal-770/Logrix and run \`deploy/terraform/aws\`.
-2. Configure credentials in \`deploy/secrets.example.yaml\` and apply:
-   \`\`\`bash
-   kubectl apply -f deploy/secrets.example.yaml
-   \`\`\`
-3. Deploy Helm release:
-   \`\`\`bash
-   helm install ${projectName} oci://ghcr.io/vishal-770/charts/logrix \\
-     -f deploy/values-aws.yaml \\
-     -f indexer-values.yaml \\
-     --set config.existingSecret=logrix-secrets
-   \`\`\`
+Handler files are AssemblyScript, compiled by \`asc\`, not ordinary Node.js or
+browser TypeScript. The host writes UTF-8 event JSON into exported \`memory\`,
+uses exported \`allocate(size)\`, and calls \`handle_event(ptr, len) -> i32\`.
+Keep the allocator export. Zero succeeds; a negative result or trap fails the
+invocation. The SDK uses \`env.logrix_db_get/set/remove\`, \`env.logrix_emit\`,
+and \`env.logrix_log\`; the host also registers them under \`logrix\` and supplies
+\`env.abort\`. State/entity changes are staged for the Rust processor.
+
+Parse with \`EventLog.fromJson\` and dispatch by topic0 (and address for multiple
+contracts). The host does not call named \`eventHandlers.handler\` functions.
+Generated event classes decode ABI fields; generated entity classes expose
+\`load\`, \`remove\`, and \`save\`. Review decoder limitations in the SDK README:
+signed Solidity integers are not sign-decoded, BigInt arithmetic assumes
+non-negative normalized inputs, and entity JSON escaping/types are limited.
+Current Rust event JSON has no block timestamp, so \`event.blockTimestamp\`
+defaults to zero; numeric metadata also uses an \`i32\` intermediate in parsing.
+
+## Configuration and secrets
+
+Helm export maps network/start-block settings and supported \`indexing\` keys to
+chart \`config\` values, which become process environment variables. Infrastructure
+(DB/queue URLs, image, S3, replicas, KEDA) needs separate values/Secrets.
+Direct Rust \`MANIFEST_PATH=logrix.yaml\` loading does not configure process RPC,
+chain ID, start block, schema path, or all tuning fields from this SDK manifest.
+See the [configuration reference](https://github.com/Vishal-770/Logrix/blob/main/docs/configuration.md).
+
+Literal placeholders such as \`\${ALCHEMY_API_KEY}\` stay symbolic in export;
+the CLI does not read \`.env\`. At startup the Rust RPC gateway and manifest
+loader expand references from the process environment. Missing/invalid references
+are configuration errors on those paths. Webhook secrets written as a pure
+\`\${WEBHOOK_SECRET}\` reference are preserved; literal/mixed secrets become
+\`\${WEBHOOK_SECRET}\` (or numbered references for later subscriptions).
+
+References cause export to set \`config.existingSecret\` (default \`logrix-secrets\`).
+New \`deploy/secrets.example.yaml\` files contain \`CHANGE_ME\` entries for RPC,
+fallback RPC, DB, and discovered names. Prepare a private Secret in the release
+namespace. Secret env keys override chart ConfigMap keys: remove keys intended
+to inherit from the ConfigMap, or set their full intended value. Do not apply
+untouched examples or commit populated credentials. Existing examples stay
+unchanged unless \`npx logrix export-values --deploy-profiles\` is used, which
+overwrites both \`deploy/values-aws.yaml\` and \`deploy/secrets.example.yaml\`.
+Neither init nor export creates \`deploy/values-local.yaml\` despite CLI help text.
+
+## Deployment handoff
+
+Use Helm/Kubernetes/Terraform separately with pre-built, versioned runtime images.
+Review the chart's backing services and autoscaling prerequisites before applying
+\`indexer-values.yaml\`; the default chart enables KEDA and needs its CRDs or an
+override. The AWS profile has example account/role/SQS identifiers to replace;
+it does not provision infrastructure.
+
+Current source-chart blocker: export sets \`MANIFEST_PATH\`, but the chart does
+not mount the inline manifest into the ingester. That process reads the file at
+startup and fails when absent. Supply a consumer-managed ingester ConfigMap
+volume/mount patch or equivalent readable manifest before deployment; the
+exported bundle is not deployable unchanged with this chart/runtime combination.
+
+Versions differ: the Rust workspace is 0.7.3, SDK package 0.7.0, CLI version output
+0.6.0, generated SDK dependency \`^0.6.0\`, and generated AWS image tag \`0.6.0\`.
+Check the installed lockfile and explicitly select a tested runtime image.
+
+- [Helm chart instructions](https://github.com/Vishal-770/Logrix/blob/main/deploy/helm/logrix/README.md)
+- [Raw Kubernetes instructions](https://github.com/Vishal-770/Logrix/blob/main/deploy/k8s/README.md)
+- [AWS Terraform instructions](https://github.com/Vishal-770/Logrix/blob/main/deploy/terraform/aws/README.md)
 `;
 }
 

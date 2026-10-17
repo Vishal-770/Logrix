@@ -1,5 +1,9 @@
 # Logrix: Work Breakdown & Implementation Protocol
 
+> Historical milestone notes. Completion/test labels below are not current
+> verification, and some described features remain unimplemented. Use the
+> [maintained documentation](../README.md) and [plan status](README.md).
+
 **Protocol Rules:**
 1. **Never code without prior alignment:** Before starting any Part, a deep conversation must occur to clarify assumptions, edge cases, and eliminate hallucinations.
 2. **Strict Git Tracking:** Each Part is implemented in dedicated, well-scoped commits with no messy files or unverified changes.
