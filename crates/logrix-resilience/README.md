@@ -69,12 +69,21 @@ if cb.can_execute().await {
 |---|---|---|---|
 | `capacity` | `u32` | `100` tokens | Maximum bucket burst capacity |
 | `refill_rate` | `f64` | `50.0` tokens/sec | Tokens added back per second |
+| `initial_tokens` | `f64` | `capacity` | Initial balance (set via `with_initial_tokens`) |
+| `min_sleep_floor` | `Duration` | `1ms` | Minimum delay floor (set via `with_min_sleep_floor`) |
 
 ```rust
 use logrix_resilience::RateLimiter;
+use std::time::Duration;
 
-let limiter = RateLimiter::new(100, 50.0);
-limiter.acquire(1.0).await; // Waits if tokens exhausted
+let limiter = RateLimiter::new(100, 50.0)
+    .with_initial_tokens(0.0) // cold-start warmup
+    .with_min_sleep_floor(Duration::from_micros(500));
+
+if limiter.try_acquire(1.0) {
+    // Non-blocking acquisition
+}
+limiter.acquire(1.0).await; // Waits asynchronously if tokens exhausted
 ```
 
 ### 3. `RetryPolicy`

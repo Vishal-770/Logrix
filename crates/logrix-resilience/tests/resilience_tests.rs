@@ -29,13 +29,14 @@ fn test_retry_budget_exhaustion() {
     assert!(!budget.try_acquire());
 }
 
-#[tokio::test]
-async fn test_rate_limiter_tokens() {
+#[test]
+fn test_rate_limiter_tokens() {
     let limiter = RateLimiter::new(5, 10.0);
-    assert!(limiter.try_acquire(3.0).await);
-    assert!(limiter.try_acquire(2.0).await);
+    assert!(limiter.try_acquire(3.0));
+    assert!(limiter.try_acquire(2.0));
     // Not enough tokens left
-    assert!(!limiter.try_acquire(1.0).await);
+    assert!(!limiter.try_acquire(1.0));
+    assert!(!limiter.try_acquire(100.0));
 }
 
 #[tokio::test]
@@ -106,11 +107,25 @@ async fn test_circuit_breaker_manual_overrides_and_probe_limiting() {
 #[tokio::test]
 async fn test_rate_limiter_acquire_computed_wait() {
     let limiter = RateLimiter::new(2, 100.0); // 100 tokens/sec
-    assert!(limiter.try_acquire(2.0).await);
+    assert!(limiter.try_acquire(2.0));
 
     // Acquire will calculate needed time (approx 10ms for 1 token) and succeed without spinning
     limiter.acquire(1.0).await;
-    assert!(limiter.available_tokens().await >= 0.0);
+    assert!(limiter.available_tokens() >= 0.0);
+}
+
+#[tokio::test]
+async fn test_rate_limiter_builder_and_oversized_cost() {
+    let limiter = RateLimiter::new(10, 100.0)
+        .with_initial_tokens(0.0)
+        .with_min_sleep_floor(Duration::from_micros(500));
+
+    assert!(limiter.available_tokens() < 0.5);
+    assert!(!limiter.try_acquire(1.0));
+
+    // Oversized cost (20.0 > capacity 10.0) safely clamped without hanging
+    limiter.acquire(20.0).await;
+    assert!(limiter.available_tokens() >= 0.0);
 }
 
 #[tokio::test]
