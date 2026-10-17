@@ -45,6 +45,7 @@ alloy-json-abi = { version = "0.8" }
 
 # Utilities
 rand = "0.8"
+parking_lot = "0.12"
 
 # Error Handling & Observability
 thiserror = "2.0"

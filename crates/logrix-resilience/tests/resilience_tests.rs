@@ -19,14 +19,14 @@ async fn test_retry_policy_delays() {
     assert_eq!(policy.delay_for_attempt(5), Duration::from_millis(1000));
 }
 
-#[tokio::test]
-async fn test_retry_budget_exhaustion() {
+#[test]
+fn test_retry_budget_exhaustion() {
     let budget = RetryBudget::new(3, 0.0); // 3 tokens, 0 refill rate
-    assert!(budget.try_acquire().await);
-    assert!(budget.try_acquire().await);
-    assert!(budget.try_acquire().await);
+    assert!(budget.try_acquire());
+    assert!(budget.try_acquire());
+    assert!(budget.try_acquire());
     // Exhausted
-    assert!(!budget.try_acquire().await);
+    assert!(!budget.try_acquire());
 }
 
 #[tokio::test]
@@ -125,7 +125,7 @@ async fn test_retry_policy_builder_and_budget_inspector() {
     assert!(!policy.should_retry(5));
 
     let budget = RetryBudget::new(5, 0.0);
-    assert_eq!(budget.available_budget().await, 5.0);
-    assert!(budget.try_acquire().await);
-    assert_eq!(budget.available_budget().await, 4.0);
+    assert_eq!(budget.available_budget(), 5.0);
+    assert!(budget.try_acquire());
+    assert_eq!(budget.available_budget(), 4.0);
 }

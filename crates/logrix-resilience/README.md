@@ -56,6 +56,7 @@ indexing:
 use logrix_resilience::CircuitBreaker;
 use std::time::Duration;
 
+<<<<<<< HEAD
 let cb = CircuitBreaker::new(5, 2, Duration::from_secs(30));
 if cb.can_execute().await {
     // Perform network call
@@ -93,4 +94,20 @@ use std::time::Duration;
 let policy = RetryPolicy::new(3, Duration::from_millis(200), Duration::from_secs(5))
     .with_multiplier(2.0)
     .with_jitter(true);
+```
+
+### 4. `RetryBudget`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `capacity` | `u32` | Custom | Maximum retry burst capacity |
+| `fill_rate_per_sec` | `f64` | Custom | Retry tokens replenished per second |
+
+```rust
+use logrix_resilience::RetryBudget;
+
+let budget = RetryBudget::new(10, 2.0);
+if budget.try_acquire() {
+    // Retry permitted synchronously without .await
+}
 ```

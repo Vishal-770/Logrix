@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Mutex;
 
 #[derive(Debug)]
 struct BudgetState {
@@ -31,8 +31,8 @@ impl RetryBudget {
     }
 
     /// Try to acquire a retry token. Returns true if budget allows, false if exhausted.
-    pub async fn try_acquire(&self) -> bool {
-        let mut state = self.state.lock().await;
+    pub fn try_acquire(&self) -> bool {
+        let mut state = self.state.lock();
         let now = Instant::now();
         let elapsed = now.duration_since(state.last_update).as_secs_f64();
         state.last_update = now;
@@ -48,8 +48,8 @@ impl RetryBudget {
     }
 
     /// Count of currently available retry tokens.
-    pub async fn available_budget(&self) -> f64 {
-        let mut state = self.state.lock().await;
+    pub fn available_budget(&self) -> f64 {
+        let mut state = self.state.lock();
         let now = Instant::now();
         let elapsed = now.duration_since(state.last_update).as_secs_f64();
         state.last_update = now;
