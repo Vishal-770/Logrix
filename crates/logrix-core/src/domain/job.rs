@@ -1,4 +1,5 @@
 use super::chain::ChainId;
+use crate::error::{ErrorSource, LogrixError, LogrixResult};
 use alloy_primitives::B256;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -55,20 +56,40 @@ pub struct BlockRangeJob {
 }
 
 impl BlockRangeJob {
-    pub fn new(
+    pub fn try_new(
         chain_id: ChainId,
         from_block: u64,
         to_block: u64,
         partition_key: impl Into<String>,
-    ) -> Self {
-        Self {
+    ) -> LogrixResult<Self> {
+        if from_block > to_block {
+            return Err(LogrixError::validation(
+                ErrorSource::Internal,
+                format!(
+                    "Block range is inverted: from_block ({from_block}) is greater than to_block ({to_block})"
+                ),
+            ));
+        }
+
+        Ok(Self {
             job_id: Uuid::new_v4().to_string(),
             chain_id,
             from_block,
             to_block,
             partition_key: partition_key.into(),
             attempt: 1,
-        }
+        })
+    }
+
+    /// Construct a range when inverted input is a programming error.
+    pub fn new(
+        chain_id: ChainId,
+        from_block: u64,
+        to_block: u64,
+        partition_key: impl Into<String>,
+    ) -> Self {
+        Self::try_new(chain_id, from_block, to_block, partition_key)
+            .expect("block range construction requires from_block <= to_block")
     }
 
     #[must_use]

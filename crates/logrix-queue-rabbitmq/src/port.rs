@@ -74,6 +74,7 @@ impl QueuePort for RabbitMQQueue {
                 Ok(Some(MessageHandle::new(
                     delivery.delivery.delivery_tag.to_string(),
                     message,
+                    queue_type,
                 )))
             }
             None => Ok(None),

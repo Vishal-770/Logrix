@@ -54,7 +54,8 @@ fn test_queue_message_versioned_serialization() {
 
 #[test]
 fn test_block_range_split_half() {
-    let range = BlockRangeJob::new(ChainId::ETHEREUM, 1000, 1999, "0xcontract");
+    let range = BlockRangeJob::try_new(ChainId::ETHEREUM, 1000, 1999, "0xcontract")
+        .expect("valid block range");
     assert_eq!(range.block_count(), 1000);
 
     let (first, second) = range.split_half();
@@ -68,11 +69,21 @@ fn test_block_range_split_half() {
     assert_eq!(second.block_count(), 500);
 
     // Single block range cannot split second half
-    let single = BlockRangeJob::new(ChainId::ETHEREUM, 100, 100, "0xcontract");
+    let single = BlockRangeJob::try_new(ChainId::ETHEREUM, 100, 100, "0xcontract")
+        .expect("valid single block range");
     let (single_first, single_second) = single.split_half();
     assert_eq!(single_first.from_block, 100);
     assert_eq!(single_first.to_block, 100);
     assert!(single_second.is_none());
+
+    let mut inverted = single;
+    inverted.from_block = 101;
+    inverted.to_block = 100;
+    let (unchanged, second) = inverted.split_half();
+    assert_eq!(unchanged.from_block, 101);
+    assert_eq!(unchanged.to_block, 100);
+    assert!(second.is_none());
+    assert_eq!(unchanged.block_count(), 0);
 }
 
 #[test]
@@ -97,12 +108,13 @@ fn test_event_log_idempotency_key() {
 
 #[test]
 fn test_checkpoint_creation() {
-    let cp = Checkpoint::new(
+    let cp = Checkpoint::try_new(
         ChainId::ARBITRUM_SEPOLIA,
         1500000,
         b256!("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
         true,
-    );
+    )
+    .expect("non-zero block hash is valid");
     assert_eq!(cp.chain_id, ChainId::ARBITRUM_SEPOLIA);
     assert_eq!(cp.last_indexed_block, 1500000);
     assert!(cp.is_finalized);

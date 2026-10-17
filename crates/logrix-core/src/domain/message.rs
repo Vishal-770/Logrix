@@ -70,27 +70,19 @@ impl QueueMessage {
 pub struct MessageHandle {
     pub receipt_id: String,
     pub message: QueueMessage,
-    pub source_queue: Option<QueueType>,
+    pub source_queue: QueueType,
 }
 
 impl MessageHandle {
-    pub fn new(receipt_id: impl Into<String>, message: QueueMessage) -> Self {
-        Self {
-            receipt_id: receipt_id.into(),
-            message,
-            source_queue: None,
-        }
-    }
-
-    pub fn with_queue(
+    pub fn new(
         receipt_id: impl Into<String>,
         message: QueueMessage,
-        queue_type: QueueType,
+        source_queue: QueueType,
     ) -> Self {
         Self {
             receipt_id: receipt_id.into(),
             message,
-            source_queue: Some(queue_type),
+            source_queue,
         }
     }
 }

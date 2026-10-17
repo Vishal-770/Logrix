@@ -79,7 +79,7 @@ pub async fn handle_live_block(
                         tokio::time::sleep(Duration::from_millis(500)).await;
                     }
                 } else {
-                    let gap = BlockRangeJob::new(
+                    let gap = BlockRangeJob::try_new(
                         ctx.config.chain_id,
                         fork_block + 1,
                         env.block_number,
@@ -89,7 +89,7 @@ pub async fn handle_live_block(
                             fork_block + 1,
                             env.block_number
                         ),
-                    );
+                    )?;
                     if ctx
                         .queue
                         .publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap))
@@ -111,12 +111,12 @@ pub async fn handle_live_block(
             from_block,
             to_block,
         }) => {
-            let gap = BlockRangeJob::new(
+            let gap = BlockRangeJob::try_new(
                 ctx.config.chain_id,
                 from_block,
                 to_block,
                 format!("{}:{from_block}-{to_block}", ctx.config.chain_id),
-            );
+            )?;
             let _ = ctx
                 .queue
                 .publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap))

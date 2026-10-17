@@ -10,6 +10,7 @@ Compiles the unified binary (`logrix`) supporting standalone workers and all-in-
 - **Queue Fault Tolerance & Exponential Backoff**: The ingester automatically catches queue disconnections and retries publishing with exponential backoff (100ms up to 5s) instead of crashing, while the processor backs off on queue outages and resumes consuming once connectivity returns.
 - **Ingestion Backpressure Throttling**: The ingester monitors total queue backlog (`Live` + `Backfill`) via `QueuePort::depth()`. If the backlog exceeds `--max-queue-depth` (default: 1,000 jobs), it pauses ingestion until processor pods burn down the queue, preventing RabbitMQ/SQS memory and disk overflow.
 - **Database Saturation Protection**: Processors enforce bounded connection pools (`DATABASE_MAX_CONNECTIONS = 10`), preventing horizontally scaled pods (e.g. up to 50 pods via KEDA) from saturating PostgreSQL connection limits. Store write failures back off before nacking to prevent hot CPU spin loops.
+- **Fail-Closed Kubernetes Leadership**: The Kubernetes Lease adapter is infrastructure code in `src/leader/`, outside `logrix-core`. It requires valid TLS certificates, bounds HTTP requests with a timeout, and renews leases using `resourceVersion` optimistic concurrency. HTTP errors and malformed Lease payloads keep the process in standby.
 
 ---
 

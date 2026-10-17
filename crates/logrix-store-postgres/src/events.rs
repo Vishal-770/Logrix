@@ -167,12 +167,12 @@ impl StorePort for PostgresStore {
                     format!("Corrupted checkpoint block hash '{hash_str}': {e}"),
                 )
             })?;
-            Ok(Some(Checkpoint::new(
+            Ok(Some(Checkpoint::try_new(
                 chain_id,
                 last_block as u64,
                 hash,
                 is_finalized,
-            )))
+            )?))
         } else {
             Ok(None)
         }

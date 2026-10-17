@@ -39,6 +39,7 @@ graphify-out/
 
 # Local reports and review notes
 report.md
+**/AUDIT_REPORT.md
 *_REVIEW_REPORT.md
 *_DOCUMENTATION_AUDIT.md
 PR_*_REVIEW_REPORT.md
@@ -51,3 +52,4 @@ snap5-1.png
 arbitrum-uniswap-indexer/node_modules/
 arbitrum-uniswap-indexer/build/
 packages/logrix-sdk/dist/*.test.js
+.omnirush/

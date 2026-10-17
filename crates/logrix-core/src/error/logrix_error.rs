@@ -97,6 +97,10 @@ impl LogrixError {
     pub fn fatal(source: ErrorSource, message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Fatal, source, message)
     }
+
+    pub fn validation(source: ErrorSource, message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Validation, source, message)
+    }
 }
 
 impl fmt::Display for LogrixError {

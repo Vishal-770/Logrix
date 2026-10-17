@@ -1,4 +1,3 @@
-use alloy_primitives::B256;
 use logrix_blob_s3::{compress_zstd, S3BlobStore};
 use logrix_chain_evm::decode_erc20_transfer;
 use logrix_core::{
@@ -23,12 +22,12 @@ pub async fn index_envelope(
         process_entities(store, engine, chain_id_u64, &envelope.logs).await?;
     }
 
-    let checkpoint = Checkpoint::new(
+    let checkpoint = Checkpoint::try_new(
         envelope.chain_id,
         envelope.block_number,
         envelope.block_hash,
         true,
-    );
+    )?;
     store
         .write_events_and_checkpoint(&envelope.logs, &checkpoint)
         .await?;
@@ -52,6 +51,7 @@ pub async fn index_logs_batch(
     store: &PostgresStore,
     chain_id: logrix_core::domain::ChainId,
     to_block: u64,
+    to_block_hash: alloy_primitives::B256,
     logs: &[EventLog],
     engine_opt: Option<&UserLogicEngine>,
 ) -> LogrixResult<()> {
@@ -61,7 +61,7 @@ pub async fn index_logs_batch(
         process_entities(store, engine, chain_id.as_u64(), logs).await?;
     }
 
-    let checkpoint = Checkpoint::new(chain_id, to_block, B256::ZERO, true);
+    let checkpoint = Checkpoint::try_new(chain_id, to_block, to_block_hash, true)?;
     store.write_events_and_checkpoint(logs, &checkpoint).await?;
 
     Ok(())

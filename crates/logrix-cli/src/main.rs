@@ -10,6 +10,7 @@ pub mod indexer;
 pub mod ingester;
 pub mod ingester_ops;
 pub mod ingester_types;
+pub mod leader;
 pub mod processor;
 pub mod processor_types;
 pub mod shutdown;
@@ -20,9 +21,7 @@ pub mod webhook_runner;
 use alloy_primitives::Address;
 use clap::Parser;
 use logrix_api::start_api_server_with_schema;
-use logrix_core::{
-    domain::ChainId, ports::LeaderElectionPort, KubernetesLeaseElector, LocalLeaderElector,
-};
+use logrix_core::{domain::ChainId, ports::LeaderElectionPort, LocalLeaderElector};
 use logrix_store_postgres::PostgresStore;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -33,6 +32,7 @@ use args::{Cli, Commands};
 use backfill::run_backfill;
 use factory::{create_queue_adapter, create_rpc_gateway};
 use ingester::{run_ingester, IngesterConfig};
+use leader::KubernetesLeaseElector;
 use processor::{run_processor, ProcessorConfig};
 use webhook_runner::run_webhook_dispatcher;
 
