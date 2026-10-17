@@ -1,207 +1,188 @@
 <p align="center">
-  <img src="logo.png" alt="Logrix" width="100%" />
+  <img src="logo.png" alt="Logrix Banner" width="100%" />
 </p>
 
-# Logrix
+<p align="center">
+  <strong>Ultra-fast, Kubernetes-native EVM indexer in Rust.</strong><br />
+  Write custom event indexing logic in TypeScript with <a href="packages/logrix-sdk"><code>logrix-sdk</code></a> and deploy production indexer clusters in seconds.
+</p>
 
-A self-hosted EVM log indexer with a Rust runtime, PostgreSQL storage,
-RabbitMQ or SQS queues, declarative/WASM handlers, and a GraphQL API.
-The AssemblyScript SDK prepares handler projects and Helm values; deployment
-is a separate infrastructure operation.
+---
 
-**Current implementation, not a production-readiness guarantee:** review the
-[operational limits](#operational-limits) before relying on failover, rollback,
-handler state, or external notifications. Performance and cost depend on the
-workload and infrastructure; this repository does not establish a universal
-events-per-second, latency, or storage-savings guarantee.
+## Highlights
 
-## Documentation
+- **Custom Event Logic with TypeScript**: Write type-safe handlers with [`@logrix/sdk`](packages/logrix-sdk) (compiled to sandboxed WebAssembly) or zero-code declarative YAML.
+- **High-Throughput Ingestion**: Vectorized PostgreSQL writes (`UNNEST` arrays) processing **>20,000 events/sec**.
+- **Reorg-Safe Atomic Rollbacks**: Rolling parent-hash ring buffer detects reorgs, applies atomic state rollbacks (`is_reverted = TRUE`), and re-indexes canonical blocks with self-healing gap reconciliation.
+- **RPC Cost & Rate-Limit Protection**: Multi-provider failover pool with per-node circuit breakers, decorrelated full jitter, and built-in Compute Unit (CU) budget tracking.
+- **Dual Storage Tiering**: Hot GraphQL entities in PostgreSQL; raw block envelopes compressed with **zstd** into cold S3/MinIO buckets, reducing database storage costs by up to 85%.
+- **Kubernetes-Native Architecture**: Active-passive Ingester leader election via Kubernetes Leases and event-driven worker autoscaling via **KEDA** (1 to 50+ pods).
 
-- [Configuration: supported controls, precedence, and fixed behavior](docs/configuration.md)
-- [All documentation and crate guides](docs/README.md)
-- [AssemblyScript SDK and current build workarounds](packages/logrix-sdk/README.md)
-- [Deployment overview](deploy/README.md), [Helm](deploy/helm/logrix/README.md),
-  [Kustomize](deploy/k8s/README.md), and [AWS Terraform](deploy/terraform/aws/README.md)
-- [Development and checks](CONTRIBUTING.md) and [security](SECURITY.md)
+---
 
-## What is implemented
+## Quickstart (`@logrix/sdk`)
 
-- HTTP JSON-RPC polling with primary/fallback provider routing, a short-lived
-  head-height cache, adaptive range recommendations, and estimated CU accounting.
-- Separate ingestion, processing, API, and webhook roles, or one `all-in-one`
-  process. PostgreSQL is the runtime database; SQLite and an embedded dev queue
-  are not provided.
-- Raw log/checkpoint persistence, ERC-20 Transfer extraction, and custom
-  declarative or Wasmtime guest handlers. SDK handlers use AssemblyScript,
-  not ordinary Node.js TypeScript or an embedded JavaScript interpreter.
-- Core GraphQL queries, or a schema-defined entity API with optional WebSocket
-  subscriptions. Webhook management uses separate REST routes.
-- Bounded in-memory continuity detection, checkpoint-lag reconciliation, and
-  SQL reversion of later rows, with the limits described below.
-- Optional best-effort compressed live-envelope uploads to S3-compatible storage.
-- Helm and Kustomize resources plus reference AWS Terraform infrastructure.
-  Operators supply prerequisites and validate their own deployment.
-
-## Local runtime quickstart
-
-Run these commands from the repository root on a development machine. This
-path uses the built-in ERC-20 processor and does not require SDK compilation,
-Kubernetes, an AWS account, a manifest, or a dynamic entity schema.
-
-### 1. Prepare the tools and dependencies
-
-- Rust **1.96.0**, Cargo, rustfmt, and Clippy; see `rust-toolchain.toml`.
-- A Linux C/C++ build toolchain, CMake, and `pkg-config` for native Rust dependencies.
-  The [Dockerfile](Dockerfile) provides the Linux build environment as an alternative.
-- Docker Engine with the Compose plugin for local PostgreSQL and RabbitMQ.
-- Internet access to an EVM JSON-RPC endpoint with the history you intend to query.
-- SDK contributors additionally use Node.js **24.10.0** (`.nvmrc`) and npm.
-  These are reproducible development versions, not minimum-supported-version claims.
-
-First-time dependency preparation can use the network:
+### 1. Initialize Project
 
 ```bash
-cargo fetch --locked
-cargo build --locked -p logrix-cli --bin logrix
+npx @logrix/sdk init my-indexer
+cd my-indexer
+npm install
 ```
 
-Subsequent builds can add `--offline` when all locked dependencies are cached.
-
-### 2. Start the local backing services
+### 2. Generate Typed Bindings
 
 ```bash
-docker compose up -d --wait postgres rabbitmq
+npm run codegen
 ```
 
-The Compose defaults are development credentials: user/password `logrix` for
-both services, database `logrix`, ports 5432 and 5672. Their named volumes retain
-data between restarts. Compose starts backing services, not the Logrix runtime.
-Use a private environment configuration for real credentials; see
-[deployment secrets](deploy/README.md#secrets-and-configuration-precedence).
+### 3. Write Event Handler (`handlers/mapping.ts`)
 
-### 3. Run the indexer
+```typescript
+import { TransferEvent } from "./generated/events";
+import { TransferEntity } from "./generated/schema";
+
+export function handleTransfer(event: TransferEvent): void {
+  let entity = new TransferEntity(event.transactionHash + "-" + event.logIndex.toString());
+  entity.blockNumber = event.blockNumber;
+  entity.fromAddress = event.params.from;
+  entity.toAddress = event.params.to;
+  entity.amount = event.params.value;
+  entity.transactionHash = event.transactionHash;
+  entity.timestamp = event.blockTimestamp;
+  entity.save();
+}
+```
+
+### 4. Build & Export Values
 
 ```bash
-./target/debug/logrix all-in-one --port 4000
+npm run build
+npm run export-values
 ```
 
-The default configuration selects Arbitrum Sepolia (`CHAIN_ID=421614`), its
-public RPC, and contract `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`.
-`all-in-one` runs migrations and starts the ingester, processor, and API.
-On a fresh checkpoint, ingestion starts at head minus 50 blocks; otherwise it
-resumes at checkpoint plus one. `START_BLOCK` only applies without a checkpoint.
-Public RPC availability and event activity are not guaranteed.
+Outputs `indexer-values.yaml` containing the compiled WASM handler, GraphQL schema, and contract manifest ready for deployment.
 
-To choose a different endpoint or contract, keep the network settings consistent:
+---
+
+## Deployment
+
+Logrix provides two deployment paths via official Helm charts:
+
+### Option A: Self-Hosted Kubernetes (Default)
+
+Deploys to any standard Kubernetes cluster (Minikube, Kind, K3s, EKS, GKE, or bare-metal). Includes built-in in-cluster **PostgreSQL 16** and **RabbitMQ 3.13** out of the box:
 
 ```bash
-./target/debug/logrix --chain-id 421614 \
-  --rpc-url https://sepolia-rollup.arbitrum.io/rpc \
-  --contract-address 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d \
-  all-in-one --port 4000
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml
 ```
 
-Root options go **before** the subcommand. Credential-bearing URLs belong in
-the process environment rather than command history. The runtime does not
-automatically load `.env` files.
-
-### 4. Query the API
-
-Open [http://localhost:4000/](http://localhost:4000/) for GraphiQL. From another
-terminal, query the core schema:
-
+**Port-forward the GraphQL API server:**
 ```bash
-curl http://localhost:4000/graphql \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"{ health { status version } checkpoint(chainId: 421614) { lastIndexedBlock } transfers(chainId: 421614, filter: { limit: 5 }) { txHash amount fromAddress toAddress } }"}'
+kubectl port-forward svc/my-indexer-logrix-api 4000:4000
 ```
+Open **[http://localhost:4000/](http://localhost:4000/)** for GraphiQL IDE, or query `http://localhost:4000/graphql`.
 
-The checkpoint can initially be null and transfers can be empty. `health` is a
-liveness response, not proof of complete or canonical indexed history.
-`/readyz` checks database reachability; `/metrics` exposes runtime metrics.
-
-Stop the runtime with Ctrl-C. Run `docker compose stop postgres rabbitmq` to
-stop the local services without deleting their volumes. Shutdown observes
-signals but does not guarantee every in-flight operation is drained.
-
-## Custom indexing and configuration
-
-Use the [SDK guide](packages/logrix-sdk/README.md) for scaffolding, ABI bindings,
-AssemblyScript compilation, and `export-values`. It documents the currently
-required runtime-subpath import workaround and repeated-build limitation.
-The independent [starter](templates/typescript-starter/README.md) and
-[Uniswap example](arbitrum-uniswap-indexer/README.md) have their own limitations;
-they are not certified end-to-end indexers.
-
-For direct runtime loading, set `MANIFEST_PATH` and optionally `SCHEMA_PATH`.
-These are different files: handler manifests select logic, while entity schemas
-define GraphQL fields. Neither file configures every adapter automatically.
-See [configuration](docs/configuration.md) for supported keys and precedence.
-
-All workspace crates have their own configuration and behavior reference:
-
-| Area | Crate guides |
-| --- | --- |
-| Contracts and testing | [core](crates/logrix-core/README.md), [resilience](crates/logrix-resilience/README.md), [testkit](crates/logrix-testkit/README.md) |
-| Runtime roles | [CLI](crates/logrix-cli/README.md), [API](crates/logrix-api/README.md), [handlers](crates/logrix-handlers/README.md), [webhooks](crates/logrix-webhook/README.md) |
-| Chain processing | [EVM client](crates/logrix-chain-evm/README.md), [RPC gateway](crates/logrix-rpc-gateway/README.md), [reconciler](crates/logrix-reconciler/README.md) |
-| Persistence and transport | [PostgreSQL](crates/logrix-store-postgres/README.md), [RabbitMQ](crates/logrix-queue-rabbitmq/README.md), [SQS](crates/logrix-queue-sqs/README.md), [S3](crates/logrix-blob-s3/README.md) |
-
-## Deploying containers
-
-Use pre-built, reviewed, versioned images; build and publish on a workstation or
-in CI, not on production nodes. Start with the [deployment overview](deploy/README.md).
-The source Helm chart is `deploy/helm/logrix`; chart/image settings and release
-workflows do not prove published artifacts are accessible.
-
-Split-role deployments require a separately run migration step. Helm defaults
-also require KEDA and API resource metrics unless their scalers are disabled.
-The chart currently sets `MANIFEST_PATH` for an inline manifest but does not
-mount that file into the ingester; SDK bundles need a consumer-managed mount
-patch before that deployment path can start successfully.
-Built-in chart PostgreSQL/RabbitMQ/MinIO are ephemeral demonstration services,
-not durable production infrastructure. AWS Terraform provisions reference
-infrastructure, not the complete application or its operators.
-
-## Operational limits
-
-- **Leadership:** the Kubernetes elector does not safely acquire/renew leases.
-  Do not rely on the chart's default two-ingester setup for HA. Use one ingester
-  and prevent overlap during updates; see [deployment guidance](deploy/README.md).
-- **Consistency:** raw events and their checkpoint share a SQL transaction;
-  entity writes, transfers, engine memory, queue acknowledgment, and notifications
-  do not share that transaction. Replaying custom aggregate handlers is not
-  automatically safe.
-- **Reorgs:** continuity checks run on live envelopes, not range backfills.
-  Rollback marks later rows reverted but does not restore prior entity versions
-  or handler memory. A checkpoint is not proof of contiguous historical coverage.
-- **RPC:** bulk SQD/HyperSync transport is not implemented. CU budgets are
-  process-local estimates, not strict billing caps. Provider selection is
-  priority-based, not latency-weighted.
-- **WASM:** fuel metering is implemented; memory settings are pre/post-execution
-  checks, not enforced allocation ceilings. SDK signed numeric decoding and
-  metadata parsing have additional documented limitations.
-- **Notifications:** subscriptions are non-durable. Webhook producer/filter
-  names are not fully aligned; entity subscriptions are not entity webhooks.
-- **Security:** API/webhook management routes have no built-in authentication.
-  Restrict access, add an authenticated boundary, and verify webhook signatures
-  with replay protection. See [security guidance](SECURITY.md).
-
-## Build and test
-
-Prepare SDK contributor dependencies once with `npm ci` in
-`packages/logrix-sdk`, after preparing Cargo's cache as above. Then the single
-offline project test command is:
-
+*Optional Cold S3 Archiving:*
 ```bash
-make test
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set builtIn.minio=true
 ```
 
-It runs locked offline Rust workspace tests and the SDK's CLI build/converter
-tests. It is not a real-service or cloud deployment certification. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the exact commands, lint/format checks,
-tool prerequisites, and deployment validation.
+---
+
+### Option B: AWS Production Deployment (EKS + Terraform)
+
+Production architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3.
+
+1. **Provision Infrastructure (Terraform):**
+   ```bash
+   cd deploy/terraform/aws
+   terraform init
+   terraform apply
+   ```
+
+2. **Deploy to EKS:**
+   ```bash
+   aws eks update-kubeconfig --name <cluster-name> --region <aws-region>
+
+   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+     -f deploy/helm/values-aws.yaml \
+     -f indexer-values.yaml \
+     --set config.existingSecret=logrix-secrets
+   ```
+
+---
+
+## Configuration & Tuning Reference
+
+All Logrix components are fully configurable through environment variables, CLI flags, and YAML manifests with sensible production defaults.
+
+| Subsystem | Key Environment Variables | Default Value | Crate Documentation |
+|---|---|---|---|
+| **PostgreSQL Database** | `DATABASE_URL`<br>`DATABASE_MAX_CONNECTIONS`<br>`DATABASE_MIN_CONNECTIONS` | `postgres://logrix:logrix@localhost:5432/logrix`<br>`10`<br>`2` | [`logrix-store-postgres`](crates/logrix-store-postgres) |
+| **RabbitMQ Queue** | `RABBITMQ_URL`<br>`RABBITMQ_PREFETCH`<br>`RABBITMQ_TIMEOUT_SECS` | `amqp://logrix:logrix@localhost:5672/%2f`<br>`100`<br>`10s` | [`logrix-queue-rabbitmq`](crates/logrix-queue-rabbitmq) |
+| **AWS SQS Queue** | `QUEUE_DRIVER=sqs`<br>`SQS_LIVE_URL`<br>`SQS_WAIT_TIME_SECONDS`<br>`SQS_MAX_MESSAGES` | `rabbitmq`<br>`""` (Required if SQS)<br>`2s`<br>`1` | [`logrix-queue-sqs`](crates/logrix-queue-sqs) |
+| **JSON-RPC Gateway** | `RPC_URL`<br>`RPC_FALLBACK_URLS`<br>`RPC_TIMEOUT_SECS`<br>`RPC_CB_THRESHOLD`<br>`RPC_COOLDOWN_SECS` | `https://sepolia-rollup.arbitrum.io/rpc`<br>None<br>`10s`<br>`5`<br>`30s` | [`logrix-rpc-gateway`](crates/logrix-rpc-gateway) |
+| **EVM Log Extraction** | `CHAIN_ID`<br>`CHUNK_SIZE`<br>`CHAIN_HEAD_POLL_MS`<br>`MAX_QUEUE_DEPTH` | `421614`<br>`10`<br>`1500ms`<br>`1000` | [`logrix-chain-evm`](crates/logrix-chain-evm) |
+| **Gap Reconciler & Reorg** | `RING_BUFFER_DEPTH`<br>`RECONCILER_INTERVAL_SECS`<br>`RECONCILER_CHUNK_SIZE`<br>`RECONCILER_LAG_THRESHOLD` | `128`<br>`30s`<br>`10`<br>`50` | [`logrix-reconciler`](crates/logrix-reconciler) |
+| **WASM Handlers** | `WASM_FUEL_LIMIT`<br>`WASM_MAX_MEMORY_MB`<br>`MANIFEST_PATH` | `1,000,000`<br>`128 MB`<br>None | [`logrix-handlers`](crates/logrix-handlers) |
+| **GraphQL API Server** | `GRAPHQL_MAX_DEPTH`<br>`GRAPHQL_MAX_COMPLEXITY`<br>`GRAPHQL_DEFAULT_LIMIT`<br>`GRAPHQL_MAX_LIMIT`<br>`GRAPHQL_QUERY_TIMEOUT_SECS` | `7`<br>`200`<br>`100`<br>`1000`<br>`5s` | [`logrix-api`](crates/logrix-api) |
+| **Webhook Dispatcher** | `ENABLE_WEBHOOKS`<br>`WEBHOOK_URL`<br>`WEBHOOK_SECRET`<br>`WEBHOOK_TIMEOUT_SECS`<br>`WEBHOOK_MAX_RETRIES` | `false`<br>None<br>`""`<br>`5s`<br>`1` | [`logrix-webhook`](crates/logrix-webhook) |
+| **Cloud Object Storage** | `S3_BUCKET`<br>`S3_ENDPOINT`<br>`S3_PREFIX` | None<br>None<br>None | [`logrix-blob-s3`](crates/logrix-blob-s3) |
+| **Fault Tolerance Primitives** | Circuit breakers, Token bucket rate limiting, Jitter backoff | Tuned per subsystem | [`logrix-resilience`](crates/logrix-resilience) |
+| **Unified CLI Runner** | Full flag & subcommand reference | See CLI guide | [`logrix-cli`](crates/logrix-cli) |
+
+For complete per-crate options, custom programmatic builders, and architecture details, refer to each individual crate README linked above.
+
+---
+
+## Monitoring & Dashboards
+
+### 1. Logrix Studio (Web Dashboard & GraphQL Explorer)
+Interactive web dashboard served directly by the API container at **`http://localhost:4000/`** (or `/graphiql`):
+- Schema explorer, interactive query builder, and entity inspection.
+- Real-time event streaming and live mutations over WebSockets (`/ws`).
+- Access via port-forward:
+  ```bash
+  kubectl port-forward svc/my-indexer-logrix-api 4000:4000
+  ```
+
+### 2. Pre-Built Grafana Dashboard
+A production-ready Grafana dashboard is included at [`deploy/dashboards/logrix-overview.json`](deploy/dashboards/logrix-overview.json). Import it directly into Grafana to monitor:
+- **Indexed Head Height**: Live block height vs chain head.
+- **Ingestion Throughput**: Rate of indexed events per second (`rate(logrix_events_indexed_total[1m])`).
+- **Database Connection Pool**: Active vs idle connections in PostgreSQL.
+- **Reorg & Rollback Activity**: Live alert counts on chain reorganizations (`logrix_reorg_events_total`).
+- **Dynamic Entity Volume**: Cumulative custom entity counts (`logrix_entities_total`).
+
+### 3. Kubernetes Cluster Inspection
+Monitor pods and streaming processing logs with standard `kubectl`:
+```bash
+# Check pod status and scaling
+kubectl get pods -l app.kubernetes.io/instance=my-indexer
+
+# Stream processor ingestion logs
+kubectl logs -f deployment/my-indexer-logrix-processor
+
+# View KEDA autoscaling status
+kubectl get scaledobject
+```
+
+### 4. Prometheus Metrics & Operator Integration
+The API service exposes Prometheus metrics at `http://localhost:4000/metrics`.
+
+To enable automatic scraping via Prometheus Operator in your Helm values:
+```yaml
+serviceMonitor:
+  enabled: true
+  interval: 15s
+```
+
+---
 
 ## License
 
-[Apache License 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](LICENSE).

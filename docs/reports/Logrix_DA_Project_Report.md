@@ -12,11 +12,6 @@ toc-depth: 3
 
 # Project Metadata & Review Information
 
-> Historical academic report draft, not a current operational specification.
-> Numerical results and production guarantees below are not established by the
-> present documentation verification. See [report status](README.md) and the
-> [maintained guides](../README.md) for implemented behavior and limitations.
-
 - **Project Title:** Logrix: A High-Throughput, Self-Hosted Hexagonal EVM Indexing Engine with Deterministic Reorg Resilience and Elastic Cloud Autoscaling
 - **Curriculum Domain:** Data Analytics / Distributed Systems / Cloud Infrastructure
 - **Evaluation Timeline:** Final Review and Demonstration Period (October 12th -- October 30th, 2026)

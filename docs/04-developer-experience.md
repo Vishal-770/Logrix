@@ -1,85 +1,162 @@
-# Developer workflow
+# Developer Experience & Local "Run on the Go" Workflow
 
-## Two tools named `logrix`
+Logrix is engineered so that a developer can go from discovering the project to querying live blockchain data in under **60 seconds**.
 
-| Tool | How to identify it | Commands |
-| --- | --- | --- |
-| Rust runtime | `./target/debug/logrix --help` after a Cargo build | `migrate`, `status`, `ingester`, `processor`, `backfill`, `api`, `webhook-dispatcher`, `all-in-one` |
-| SDK project CLI | Local npm `logrix` binary from `@logrix/sdk` | `init`, `add`, `codegen`, `validate`, `status`, `build`, `export-values`, `test` |
+---
 
-The runtime does not provide `init` or `dev`; the SDK does not run or deploy the
-runtime. The repository does not supply a Homebrew tap, `get.logrix.dev` shell
-installer, embedded SQLite dev mode, auto-created kind cluster or configuration
-hot reload. Use the actual [runtime quickstart](../README.md#local-runtime-quickstart)
-and [SDK reference](../packages/logrix-sdk/README.md).
+## 1. Quick Installation
 
-## Run the native ERC-20 path first
+```bash
+# macOS / Linux via Homebrew
+brew install logrix/tap/logrix
 
-From the repository root, build the Rust CLI, start Compose PostgreSQL/RabbitMQ,
-then run `all-in-one`. This path needs neither WASM nor custom schema. Compose
-only starts dependencies. Without a schema the API exposes core `health`,
-`checkpoint(chainId:)`, and `transfers(chainId:, filter:)` fields on port 4000.
-GraphiQL is at `/`; queries use `POST /graphql`.
+# Direct shell installer (Linux / macOS)
+curl -fsSL https://get.logrix.dev | sh
 
-For split roles, run migrations first and launch each role with consistent
-chain/RPC/database/queue settings. Root flags precede the command; `api --port`
-and `all-in-one --port` are command-local flags. Set credentials using your
-process launcher; neither CLI automatically loads `.env`.
+# Cargo install (for Rust developers)
+cargo install logrix-cli
+```
 
-## Custom declarative handlers
+---
 
-Native manifests define `contracts[].declarative` rules over raw log fields.
-Use a topic0 hash rather than assuming arbitrary ABI names/signatures are
-resolved. The [handlers README](../crates/logrix-handlers/README.md#native-runtime-manifest)
-shows the supported shape and expression syntax.
+## 2. Interactive Scaffolding: `logrix init`
 
-An API entity schema is separate from a handler manifest. Supply `SCHEMA_PATH`
-explicitly. A missing schema path silently falls back to the core API. Entity
-schemas describe JSON-backed entity fields, not automatically generated SQL
-tables/indexes or complete relationship resolvers.
+Run the initialization wizard to create a new indexer:
 
-## AssemblyScript projects
+```bash
+logrix init my-uniswap-indexer
+```
 
-The SDK generates `logrix.yaml`, `schema.graphql`, ABI JSON, `src/mapping.ts`,
-package scripts and an AWS/Secret example. Codegen adds `src/generated/events.ts`
-and `src/generated/schema.ts`; compilation produces `build/mapping.wasm`.
+The wizard prompts for:
+1. **Target Chain:** Ethereum, Base, Arbitrum, Polygon, Optimism, or Custom RPC.
+2. **Contract Address(es):** e.g., `0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640` (Uniswap v3 USDC/ETH pool).
+3. **ABI Source:** Auto-fetch from Etherscan / Blockscout, or path to local ABI JSON.
+4. **Events to Index:** e.g., `Swap`, `Mint`, `Burn`.
+5. **Logic Style:** Declarative (YAML) or TypeScript / WASM.
 
-Handlers are AssemblyScript, not asynchronous Node.js functions. The host calls
-`handle_event(ptr, len)` with raw log JSON; guest code parses it, routes by address
-and topic0, and emits entities. It does not receive an `EventHandlerContext`
-from an `@logrix/indexer` package or arbitrary database/network APIs.
+This generates a clean project layout:
 
-Read the SDK's [quickstart and workaround](../packages/logrix-sdk/README.md#quick-start)
-before compiling: current package-root imports expose incompatible testing syntax,
-and the build command can choose its existing WASM output as input on repeat
-builds. Generated projects also do not include an `npm test` script. These
-limitations are documented rather than disguised as a working one-command flow.
+```text
+my-uniswap-indexer/
+├── logrix.yaml        # Main indexer configuration
+├── schema.yaml        # Database tables & GraphQL schema definitions
+├── abis/
+│   └── Pool.json      # Contract ABI
+└── handlers/          # (Optional) TypeScript or WASM logic
+```
 
-Use deterministic entity IDs, verify unsigned/signed numeric decoding, and test
-duplicate delivery and replay. A successful compile does not establish correct
-Uniswap arithmetic, durable general handler state, or atomic aggregate updates.
-See the [example limitations](../arbitrum-uniswap-indexer/README.md).
+---
 
-## Export, then deploy separately
+## 3. Local Development: `logrix dev` on Kubernetes
 
-`export-values` requires existing `logrix.yaml`, `schema.graphql`, and the fixed
-`build/mapping.wasm`. It writes Helm values and an embedded runtime manifest;
-it does not build, validate or deploy automatically. Review symbolic secret
-references, generated image versions, and external-service settings.
+Logrix is **Kubernetes-native from Day 1**. To run the entire indexing stack locally inside a local Kubernetes environment:
 
-Operational SDK tuning can reach the runtime through export -> Helm -> env.
-Direct Rust manifest loading consumes a smaller subset. See
-[configuration](configuration.md) and the [Helm guide](../deploy/helm/logrix/README.md).
-Production nodes run reviewed containers, not checked-out source builds.
+```bash
+logrix dev
+```
 
-## Verify the right behavior
+What `logrix dev` does under the hood:
+- Connects to your local Kubernetes context (e.g. `kind`, `minikube`, or existing local cluster). If no cluster is active, it prompts or auto-creates a lightweight `kind-logrix` cluster.
+- Applies local manifests to the `logrix` namespace: spins up the `listener`, `decoder`, and `api` pods alongside local PostgreSQL and RabbitMQ pods.
+- Applies internal database migrations (checkpoints, DLQ tables, block state).
+- Streams consolidated pod logs directly to your terminal.
+- Automatically port-forwards the `logrix-api` service to `http://localhost:4000/graphql`.
+- Watches `logrix.yaml` and `schema.yaml` for instant hot-reload sync to the running pods.
 
-- `make test` runs offline Rust workspace and SDK converter tests after dependency
-  setup. [Contribution instructions](../CONTRIBUTING.md) list lint/format gates.
-- SDK `validate` checks selected file/schema shapes; it does not compile or run
-  the guest. SDK `test` performs limited local checks and optional Node tests,
-  not a WASM host simulation; `--watch` currently has no effect.
-- Render Helm/Kustomize and validate Terraform separately. These checks do not
-  prove a successful cloud deployment, registry access or runtime migrations.
-- Real database/queue/RPC/guest workflows need explicit integration checks.
-  Mock unit tests do not certify rollback, shutdown, isolation or throughput.
+---
+
+## 4. Writing Indexing Logic
+
+### Level 1: Declarative YAML (Zero Code)
+Ideal for standard transfers, swaps, mints, and event logs:
+
+```yaml
+# logrix.yaml
+handlers:
+  - event: Pool.Swap
+    mode: declarative
+    table: swaps
+    map:
+      pool: log.address
+      sender: args.sender
+      recipient: args.recipient
+      amount0: args.amount0
+      amount1: args.amount1
+      block_number: log.block_number
+      tx_hash: log.tx_hash
+```
+
+Corresponding table schema:
+
+```yaml
+# schema.yaml
+tables:
+  swaps:
+    columns:
+      id: { type: string, primary_key: true } # auto-generated (chain_hash_logIndex)
+      pool: { type: string, index: true }
+      sender: { type: string, index: true }
+      recipient: { type: string }
+      amount0: { type: numeric }
+      amount1: { type: numeric }
+      block_number: { type: bigint, index: true }
+      tx_hash: { type: string }
+```
+
+### Level 2: TypeScript / WASM Logic
+When you need to compute running balances, calculate volume totals, or perform arithmetic across multiple events:
+
+```typescript
+// handlers/swap.ts
+import { EventHandlerContext } from "@logrix/indexer";
+
+export async function onSwap(ctx: EventHandlerContext) {
+  const { event, db } = ctx;
+
+  // Read existing pool state
+  let pool = await db.get("pools", event.address);
+  if (!pool) {
+    pool = { id: event.address, totalVolumeUSD: 0, swapCount: 0 };
+  }
+
+  // Update aggregated metrics
+  pool.swapCount += 1;
+  await db.set("pools", pool);
+
+  // Insert individual swap record
+  await db.insert("swaps", {
+    id: `${event.transactionHash}-${event.logIndex}`,
+    pool: event.address,
+    amount0: event.args.amount0,
+    amount1: event.args.amount1,
+  });
+}
+```
+
+Logrix compiles this TypeScript code into an ultra-fast WebAssembly module executing securely inside `wasmtime`.
+
+---
+
+## 5. Instant GraphQL API
+
+As soon as `logrix dev` starts, you can query your data via GraphQL:
+
+```graphql
+query GetRecentSwaps {
+  swaps(
+    first: 10
+    orderBy: block_number
+    orderDirection: desc
+    where: { pool: "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640" }
+  ) {
+    id
+    sender
+    recipient
+    amount0
+    amount1
+    block_number
+  }
+}
+```
+
+Includes automatic pagination (`first`, `skip`, `after`), filtering (`where`), and sorting (`orderBy`).

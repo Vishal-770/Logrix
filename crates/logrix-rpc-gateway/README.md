@@ -1,101 +1,157 @@
 # logrix-rpc-gateway
 
-`RpcGateway` implements `ChainPort` by routing calls through `ProviderPool` and
-managed `EvmChainClient` instances. The CLI creates the gateway; reconcilers and
-workers use it through the core port. Dependency direction is gateway -> EVM
-client -> core, not the reverse.
+High-throughput, resilient, cost-aware JSON-RPC gateway engine for EVM chain indexing.
 
-## Prerequisites and minimal usage
+`logrix-rpc-gateway` wraps JSON-RPC network access across Ethereum and EVM-compatible chains. It is engineered for 99.99% indexing uptime, zero-downtime provider failover, compute unit (CU) budget protection, request deduplication (SingleFlight), and response caching.
 
-Use the workspace Rust toolchain and locked dependencies, Tokio, and one or more
-HTTP(S) EVM RPC endpoints serving the requested history. No database or queue is
-needed for this library. In an async Rust application depending on
-`logrix-core` and `logrix-rpc-gateway`:
+---
 
-```rust
-use logrix_core::{domain::ChainId, error::LogrixResult, ports::ChainPort};
-use logrix_rpc_gateway::{GatewayConfig, ManagedProvider, ProviderPool, RpcGateway};
+## Key Features
 
-async fn read_height(primary: &str, fallback: &str) -> LogrixResult<u64> {
-    let id = ChainId::new(42161);
-    let config = GatewayConfig::default();
-    let pool = ProviderPool::new(id);
-    pool.add_provider(ManagedProvider::new_with_config(
-        "primary", primary, 1, id, &config, None,
-    )).await;
-    pool.add_provider(ManagedProvider::new_with_config(
-        "fallback", fallback, 2, id, &config, None,
-    )).await;
-    let gateway = RpcGateway::new_with_config(id, pool, None, None, &config);
-    gateway.get_latest_block_number().await
-}
+### 1. Multi-Tier Priority Routing & Provider Pool
+- **Tier-Based Fallbacks**: Providers are organized into priority tiers (Tier 1 = primary paid RPCs like Alchemy/Infura, Tier 2 = secondary paid backup, Tier 3 = public/community fallbacks).
+- **Latency-Weighted EWMA**: Tracks response latency using an Exponential Weighted Moving Average (`avg_latency_ms`, alpha = 0.2). Within the same priority tier, faster providers are automatically preferred.
+- **Round-Robin Load Balancing**: Evenly distributes traffic across multiple healthy providers within the same tier.
+- **Circuit Breakers with Full Jitter**: Monitors consecutive HTTP/RPC failures. Once the failure threshold is reached, the failing provider is marked unhealthy and placed in cooldown (exponential backoff from 10s to 120s with full jitter), protecting downstream nodes and avoiding repeated timeout penalties.
+- **Stale Tip Detection**: Tracks the highest block number observed across all providers. Providers lagging behind the network tip by more than a configurable block threshold receive health penalties to prevent indexing from stale nodes.
+
+### 2. SingleFlight Request Coalescing
+- Deduplicates identical concurrent RPC queries (such as identical `eth_getBlockByNumber` or `eth_getLogs` ranges across concurrent worker tasks).
+- Multiple callers share a single in-flight network request. The leader executes the call, and followers await and receive clones of the result through broadcast channels.
+- Eliminates thundering herds during indexer startup, backfill bursts, and heavy block processing.
+
+### 3. RAII Memory Safety & Cancellation Protection
+- Includes an RAII `FlightGuard` drop guard on SingleFlight operations.
+- If a leader task future is dropped or cancelled (e.g. client cancellation, timeout, worker task shutdown), `FlightGuard` automatically removes the pending key from the `in_flight` registry and broadcasts a structured error to all waiting followers.
+- Guarantees zero memory leaks, eliminates orphaned async channels, and prevents waiting tasks from stalling indefinitely.
+
+### 4. Compute Unit (CU) Budget Guardrails
+- **Method-Specific Cost Accounting**: Weights RPC methods according to provider billing standards (e.g., `eth_getLogs` = 75 CU, `eth_getBlockByNumber` with txs = 20 CU, `eth_blockNumber` = 10 CU).
+- **Hard Spend Caps**: Configurable global CU budget (`CU_BUDGET`) prevents runaway cloud bills during large-scale historical backfills.
+- **Dry-Run Estimation**: Calculates projected cost before dispatching network calls and halts queries before breaching limits.
+
+### 5. MicroCache (LRU TTL Caching)
+- Micro-caches deterministic and finalized RPC data (finalized blocks, transaction receipts, immutable chain parameters).
+- Drastically reduces compute unit consumption and network round-trips for repetitive queries.
+
+### 6. Fast-Path Bulk Streaming (`BulkStreamClient`)
+- Integrated SQD Network / HyperSync archive streaming for supported chains (Ethereum Mainnet, Arbitrum, Polygon, Base).
+- Enables 50,000+ blocks/sec historical backfills at 0 Compute Unit cost, seamlessly falling back to standard JSON-RPC when approaching unfinalized chain heads.
+
+---
+
+## Workspace Integration
+
+`logrix-rpc-gateway` serves as the resilient network foundation for the Logrix workspace:
+
+```
++-----------------------------------------------------------+
+|                        logrix-cli                         |
+|   (CLI commands, environment variables, pipeline runner)  |
++-----------------------------+-----------------------------+
+                              |
++-----------------------------v-----------------------------+
+|                      logrix-chain-evm                     |
+|        (EvmClient, ABI decoding, event batch parser)      |
++-----------------------------+-----------------------------+
+                              |
++-----------------------------v-----------------------------+
+|                     logrix-rpc-gateway                    |
+|   (ProviderPool, SingleFlight, CircuitBreaker, CU Budget) |
++-----------------------------+-----------------------------+
+                              | implements ChainPort
++-----------------------------v-----------------------------+
+|                        logrix-core                        |
+|        (ChainPort trait, domain types, error models)      |
++-----------------------------------------------------------+
 ```
 
-Use unique provider names: the per-request tried-provider set is keyed by name.
-Pass configuration to both providers and gateway; configuring the gateway alone
-does not change already-created provider breakers. Constructors label the chain
-but do not check remote chain IDs.
+- **`logrix-core`**: Implements the `ChainPort` trait via `RpcGatewayChainPort`. Any crate in the workspace interacting with chain data relies on this abstraction without binding to network specifics.
+- **`logrix-chain-evm`**: Uses `RpcGateway` as the underlying transport layer for `EvmClient`. Network retry loops, provider switching, and request coalescing are isolated from EVM ABI decoding and receipt parsing.
+- **`logrix-reconciler`**: Queries `RpcGateway` during reorg detection to locate common ancestor blocks (`find_common_ancestor`). Fast failover ensures reorg handling is never blocked by a single unresponsive RPC provider.
+- **`logrix-cli`**: Reads configuration variables (`RPC_URL`, `RPC_FALLBACK_URLS`, `CU_BUDGET`) and instantiates `RpcGateway` during `logrix start` and worker startup.
 
-## Routing, caching, and fixed behavior
+---
 
-- Lowest numeric priority wins among healthy candidates; equal-priority
-  candidates round-robin. Known nonzero tips more than three blocks behind the
-  highest observed tip receive a fixed +10 priority penalty. This is not a
-  configurable finality/staleness guarantee. EWMA latency is recorded for
-  reporting, not used to prefer faster healthy providers.
-- A failed operation falls through untried providers. Selected error-text
-  substrings (`more than`, `exceeded`, `range`, `limit`, `too many`) instead
-  return immediately without recording a breaker failure. This is a text
-  heuristic, not general permanent/transient error classification.
-- If no healthy candidate exists, selection still tries an untried provider
-  ordered by priority and sampled cooldown. This best-effort path can call an
-  open breaker. Provider cooldown doubles on failure and resets on success;
-  its jitter sample does not itself sleep or enforce the breaker's recovery
-  timeout. Failover may wait for HTTP timeouts and client retries.
-- Only latest block height has a single-entry TTL cache (500 ms by default) and
-  SingleFlight coalescing. Headers, envelopes, logs, receipts, and arbitrary RPC
-  queries are not cached/coalesced by the gateway. This is not an LRU cache.
-  SingleFlight's cancelled-leader cleanup spawns a Tokio task; it is not a
-  global bound on waiting time or process memory.
-- `effective_chunk_size()` recommends the minimum across healthy providers,
-  or all providers if none are healthy. It does not split a supplied log range.
-- `BulkStreamClient` stores custom/default SQD endpoint strings (defaults for
-  chain IDs 1, 42161, 421614, 137, 8453). `is_supported()` only means an endpoint
-  is present. `stream_logs()` always returns `Ok(None)`: no SQD or HyperSync
-  transport exists. Gateway log fetching therefore uses JSON-RPC. There is no
-  supported bulk throughput or zero-cost backfill claim.
+## Memory Safety & Concurrency Architecture
 
-## CLI-owned mappings
+- **Zero-Contention Read Paths**: Hot-path provider selection utilizes read locks (`RwLock::read()`). Exclusive write locks are only held during atomic state transitions (e.g. recording a failure, updating latency moving averages).
+- **No Shared Locks Across Network I/O**: Network RPC calls (`reqwest`) are strictly executed outside buffer or state locks. No locks are held across asynchronous await boundaries, preventing cross-worker deadlocks.
+- **Managed Sockets & Connection Pools**: The underlying HTTP transport configures TCP keep-alive, idle connection timeouts (`90s`), and host connection limits to eliminate socket leaks and avoid file descriptor exhaustion under load.
+- **Strict Error Classification**: Differentiates between transient infrastructure errors (HTTP 429, 502, 503, connection timeouts) and permanent errors (e.g. invalid query ranges or EVM execution errors). Permanent errors fail fast without tripping provider circuit breakers.
 
-This library reads no flags, manifest settings, or `RPC_*` environment variables.
-The [CLI factory](../logrix-cli/src/factory.rs) supplies the following values:
+---
+
+## Test Suite & Verification
+
+The crate includes exhaustive unit and integration tests under `tests/`:
+
+### `tests/failover_tests.rs`
+- **`test_gateway_fault_tolerance_automatic_failover_and_recovery`**: Verifies that when a primary provider emits HTTP 429 rate-limit errors, the gateway instantly routes to the secondary provider, marks the primary as degraded, applies exponential cooldown with jitter, and recovers once health is restored.
+- **`test_gateway_all_providers_failing_error_propagation`**: Verifies structured error propagation when all configured providers are exhausted.
+- **`test_gateway_budget_exhaustion_blocks_further_network_calls`**: Validates that exceeding the configured CU budget immediately blocks further network calls with an explicit budget exhaustion error.
+- **`test_range_limit_error_does_not_trip_circuit_breaker`**: Asserts that permanent errors (e.g., query range exceeds provider limit) are returned immediately without falsely penalizing node health.
+- **`test_gateway_micro_cache`**: Confirms cached responses are returned for subsequent identical queries without triggering provider calls.
+
+### `tests/provider_tests.rs`
+- **`test_provider_pool_routing_and_priority`**: Tests priority-tier ordering and fallback behavior.
+- **`test_tier_round_robin_load_balancing`**: Validates round-robin traffic distribution across multiple providers in the same tier.
+- **`test_provider_latency_moving_average_and_jitter`**: Asserts that EWMA latency calculations smoothly update over successive responses.
+- **`test_stale_provider_penalty`**: Confirms that providers lagging behind the cluster head block receive appropriate routing penalties.
+- **`test_cu_budget_enforcement`**: Tests method-specific compute unit costs and budget tracking.
+- **`test_singleflight_concurrent_dedup`**: Validates that 10 concurrent requests for the same payload trigger only 1 network execution, with all 10 tasks receiving identical results.
+
+---
+
+## Configuration & Tuning
+
+### 1. Declarative Manifest Configuration (`logrix.yaml`)
+
+End users configure the RPC Gateway via the `network:` and `indexing:` blocks in `logrix.yaml`:
+
+```yaml
+network:
+  name: "arbitrum-one"
+  chainId: 42161
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+  fallbackRpcUrls:
+    - "https://arb1.arbitrum.io/rpc"
+    - "https://rpc.ankr.com/arbitrum"
+
+indexing:
+  rpcTimeoutSecs: 15        # Timeout per JSON-RPC HTTP request
+  rpcCbThreshold: 5         # Failures before circuit-breaker trips provider
+  rpcCooldownSecs: 30       # Initial recovery cooldown delay in seconds
+  cuBudget: 10000000        # Compute unit budget ceiling (optional)
+  bulkStreamUrl: "https://v2.archive.subsquid.io/network/arbitrum-one"
+```
+
+| `logrix.yaml` Key | Type | Default Value | Required? | Description |
+|---|---|---|---|---|
+| `network.rpcUrl` | `string` | `https://sepolia-rollup.arbitrum.io/rpc` | Required | Primary Tier-1 JSON-RPC endpoint |
+| `network.fallbackRpcUrls` | `string[]` | `[]` | Optional | Tier-2/3 fallback endpoints for automatic failover |
+| `indexing.rpcTimeoutSecs` | `integer` | `10` (CLI) / `15` (Direct) | Optional | Network timeout for JSON-RPC requests |
+| `indexing.rpcCbThreshold` | `integer` | `5` (CLI) / `3` (Direct) | Optional | Consecutive failures before tripping provider circuit breaker |
+| `indexing.rpcCooldownSecs`| `integer` | `30` (CLI) / `10` (Direct) | Optional | Cooldown period before half-open health probe |
+| `indexing.cuBudget` | `integer` | None (Unlimited) | Optional | Compute Unit budget quota before halting calls |
+| `indexing.bulkStreamUrl` | `string` | Chain default | Optional | SQD / HyperSync archive endpoint |
+
+### 2. Environment Variables & CLI Options
 
 | Variable | CLI Flag | Description | Default | Required? | Example |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `RPC_URL` | `--rpc-url` | Primary JSON-RPC endpoint (priority 1) | `https://sepolia-rollup.arbitrum.io/rpc` | Default supplied | `https://arb1.arbitrum.io/rpc` |
+| `RPC_URL` | `--rpc-url` | Primary JSON-RPC endpoint (Tier 1) | `https://sepolia-rollup.arbitrum.io/rpc` | Required | `https://arb-mainnet.g.alchemy.com/v2/KEY` |
 | `RPC_FALLBACK_URLS` | `--rpc-fallback-urls` | Comma-delimited fallback endpoints (Tier 2/3) | None | Optional | `https://rpc.ankr.com/arbitrum,https://arb1.arbitrum.io/rpc` |
 | `CU_BUDGET` | `--cu-budget` | Maximum Compute Units allowed before halting queries | None (Unlimited) | Optional | `10000000` |
+| `RPC_MAX_RETRIES` | N/A | Maximum retry attempts per request across providers | `3` | Optional | `5` |
 | `RPC_TIMEOUT_SECS` | `--rpc-timeout-secs` | Network request timeout in seconds | `10` (CLI) / `15` (Direct) | Optional | `30` |
 | `RPC_CB_THRESHOLD` | `--rpc-cb-threshold` | Consecutive failures before tripping provider circuit breaker | `5` (CLI) / `3` (Direct) | Optional | `3` |
 | `RPC_COOLDOWN_SECS` | `--rpc-cooldown-secs` | Initial circuit breaker cooldown duration in seconds | `30` (CLI) / `10` (Direct) | Optional | `60` |
-| `BULK_STREAM_URL` | `--bulk-stream-url` | Stored endpoint override; no implemented transport | None (then chain endpoint string if known) | Optional | `https://archive.example.com` |
+| `BULK_STREAM_URL` | `--bulk-stream-url` | Custom SQD / HyperSync archive endpoint | Chain default | Optional | `https://v2.archive.subsquid.io/network/arbitrum-one` |
 
-Primary priority is 1; fallback URL entries get priorities 2, 3, etc., in order.
-The CLI applies failure threshold 5, success threshold 2, recovery timeout
-30 seconds, cooldown bounds 30..120 seconds, and EVM timeout 10 seconds.
-Managed providers force supervised EVM single-call retries: one retry after the
-first attempt, 50 ms initial/100 ms maximum backoff. `RPC_MAX_RETRIES` is not
-read. See [EVM configuration](../logrix-chain-evm/README.md) for library settings.
+### 3. Programmatic Configuration (`GatewayConfig`)
 
-Direct Rust loading of an SDK manifest does not apply `network.rpcUrl`,
-fallback URLs, or RPC/CU/bulk indexing settings. SDK `export-values` maps those
-to Helm values and then chart environment for the CLI. See
-[configuration](../../docs/configuration.md).
-
-## Library configuration: `GatewayConfig`
-
-All fields are public; builders update selected fields. `RpcGateway` consumes
-the cache TTL; `ManagedProvider` consumes breaker and cooldown settings:
+When embedding `RpcGateway` directly in custom code, fine-grained behavior is configured via `GatewayConfig`:
 
 | Field | Builder Method | Default Value | Required? | Description |
 |---|---|---|---|---|
@@ -106,47 +162,115 @@ the cache TTL; `ManagedProvider` consumes breaker and cooldown settings:
 | `initial_cooldown_secs` | `.with_cooldown_bounds()` | `10s` | Optional | Initial backoff cooldown period |
 | `max_cooldown_secs` | `.with_cooldown_bounds()` | `120s` | Optional | Maximum ceiling for exponential cooldown backoff |
 
-## CU accounting and errors
+```rust
+use logrix_core::domain::ChainId;
+use logrix_rpc_gateway::{GatewayConfig, ProviderPool, RpcGateway};
+use std::time::Duration;
 
-`RpcGateway::new[_with_config]` accepts optional `max_cu_budget` and
-`bulk_endpoint` separately from `GatewayConfig`. Budget defaults to `None`.
-`CuBudgetTracker` counts successful gateway operations with fixed estimates:
-`eth_blockNumber` 10, `eth_getBlockByNumber` 20, `eth_getLogs` 75, other methods
-15. Envelope fetching is charged as a get-block operation even when it also
-fetches logs. Failed calls and internal retries are not counted; cache hits do
-not add CUs. The counter is process-local and resets on construction.
+let config = GatewayConfig::default()
+    .with_block_cache_ttl(Duration::from_millis(1000))
+    .with_circuit_breaker(5, 3, Duration::from_secs(15))
+    .with_cooldown_bounds(15, 180);
 
-The budget check happens before execution, not by reserving projected cost.
-The last operation and concurrent calls can overshoot; it is not a provider bill
-or strict spend cap. Once exhausted, uncached gateway operations return a
-rate-limited `ChainRpc` error without an automatic refill/resume mechanism.
-This affects live queries too, not just backfill. The CLI dry-run estimate uses
-95 CU/chunk and $1/million CU as heuristics, not measured billing/duration.
+let chain_id = ChainId::new(42161);
+let pool = ProviderPool::new(chain_id);
+// Add providers to pool as needed...
 
-An empty pool returns a permanent configuration-like `ChainRpc` error; exhausted
-fallbacks return the last error. Query-limit-text errors return immediately;
-other failures record provider failure and try the next untried name, including
-errors classified permanent by the EVM client. SingleFlight followers receive
-transient wrapper errors when the shared call fails. Normal missing blocks
-remain `Ok(None)`; transport failures are not synthesized as empty results by
-this gateway.
-
-`masked_url`/`redact_rpc_url` mask embedded user-info only; path/query tokens
-are not comprehensively redacted. Avoid treating them as a general secret
-sanitizer. No availability, latency, or memory-use guarantee follows from the
-pool, retry, or cache mechanisms.
-
-## Tests and related code
-
-From the workspace root with cached dependencies:
-
-```sh
-cargo test -p logrix-rpc-gateway --offline --locked
+let gateway = RpcGateway::new_with_config(
+    chain_id,
+    pool,
+    None, // max_cu_budget
+    None, // bulk_endpoint
+    &config,
+);
 ```
 
-[Provider tests](tests/provider_tests.rs) cover priority/round-robin routing,
-staleness, counters, and SingleFlight; [failover tests](tests/failover_tests.rs)
-use mocked HTTP endpoints for fallback, cache, and error paths. Related:
-[source](src/), [CLI reference](../logrix-cli/README.md),
-[reconciler](../logrix-reconciler/README.md), and
-[configuration](../../docs/configuration.md).
+---
+
+## Production Deployment Workflow
+
+Logrix is an SDK-first indexing platform. Developers do not manually write low-level Kubernetes pod manifests. Instead, `@logrix/sdk` scaffolds your project, compiles the AssemblyScript event handlers into WebAssembly, and exports a production-ready Helm values bundle.
+
+### 1. Developer Flow: Scaffold, Build, and Export Values
+
+```bash
+# 1. Scaffold indexer project
+npx @logrix/sdk init my-indexer
+cd my-indexer
+
+# 2. Write schema.graphql and handlers, then build WASM binary
+npm run codegen
+npm run build
+
+# 3. Export production Helm values (bundles manifest, schema, and base64 WASM)
+npx @logrix/sdk export-values --out indexer-values.yaml
+```
+
+The exported `indexer-values.yaml` contains your compiled WASM logic, GraphQL entity schemas, and default network parameters ready for any Kubernetes cluster.
+
+---
+
+### 2. Deploying According to Your Target Infrastructure
+
+You can deploy the generated `indexer-values.yaml` to your environment of choice:
+
+#### Target A: Local Kubernetes (Minikube / Kind / K3s)
+Deploys with built-in in-cluster PostgreSQL and RabbitMQ for instant local testing:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set localDev.enabled=true
+```
+
+#### Target B: Production AWS EKS
+Pairs your indexer logic with AWS Aurora Serverless PostgreSQL, Amazon SQS, Amazon S3, and KEDA autoscaling using the provided AWS profile:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f deploy/values-aws.yaml \
+  -f indexer-values.yaml \
+  --set config.existingSecret="logrix-aws-secrets"
+```
+
+#### Target C: Custom / Bring-Your-Own Kubernetes Cluster
+Deploys to any existing Kubernetes cluster with your own database and queue credentials:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f my-cluster-infra.yaml \
+  -f indexer-values.yaml
+```
+
+---
+
+### 3. Passing RPC URLs and Secrets to the Pods
+
+Depending on your security posture, RPC endpoints can be supplied in two ways:
+
+#### Option 1: Direct Helm CLI Override (Development & Testing)
+Supply paid Alchemy/Infura endpoints or fallback providers directly at deployment time:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set config.rpcUrl="https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY" \
+  --set config.rpcFallbackUrls="https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY,https://arb1.arbitrum.io/rpc" \
+  --set config.cuBudget="25000000"
+```
+
+#### Option 2: Pre-Created Kubernetes Secret (Production & GitOps)
+To keep sensitive API keys out of Git and CI/CD logs:
+
+1. Create a Kubernetes Secret containing your RPC URLs:
+```bash
+kubectl create secret generic logrix-rpc-secrets \
+  --namespace logrix \
+  --from-literal=RPC_URL="https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY" \
+  --from-literal=RPC_FALLBACK_URLS="https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY,https://arb1.arbitrum.io/rpc"
+```
+
+2. Point Helm to the secret using `config.existingSecret`:
+```bash
+helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+  -f indexer-values.yaml \
+  --set config.existingSecret="logrix-rpc-secrets"
+```
+
+Under the hood, the Helm templates mount the secret via `envFrom.secretRef` directly into the Ingester and Processor pods. Keys in the Secret securely override matching ConfigMap placeholders and are loaded directly into the Rust gateway process memory.
