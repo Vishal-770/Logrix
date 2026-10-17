@@ -112,22 +112,28 @@ impl ManagedProvider {
     /// Record a successful call with measured roundtrip latency.
     pub async fn record_success(&self, latency: Duration) {
         self.breaker.on_success();
-        // Reset exponential cooldown back to configured initial
+        self.update_latency_and_reset_cooldown(latency);
+    }
+
+    /// Record a failed call or 429 rate limit.
+    pub async fn record_failure(&self) {
+        self.breaker.on_failure();
+        self.increment_cooldown();
+    }
+
+    /// Update latency and reset cooldown after successful call.
+    pub fn update_latency_and_reset_cooldown(&self, latency: Duration) {
         self.cooldown_secs
             .store(self.initial_cooldown_secs, Ordering::Relaxed);
 
-        // Exponential moving average for latency: 80% old + 20% new
         let ms = latency.as_millis() as u64;
         let old = self.avg_latency_ms.load(Ordering::Relaxed);
         let updated = ((old * 4) + ms) / 5;
         self.avg_latency_ms.store(updated, Ordering::Relaxed);
     }
 
-    /// Record a failed call or 429 rate limit.
-    pub async fn record_failure(&self) {
-        self.breaker.on_failure();
-
-        // Increment exponential cooldown: double up to max
+    /// Increment cooldown after failed call.
+    pub fn increment_cooldown(&self) {
         let current = self.cooldown_secs.load(Ordering::Relaxed);
         let next = (current * 2).min(self.max_cooldown_secs);
         self.cooldown_secs.store(next, Ordering::Relaxed);

@@ -143,7 +143,7 @@ impl RpcGateway {
                 Ok(val) => {
                     let elapsed = start.elapsed();
                     guard.record_success();
-                    provider.record_success(elapsed).await;
+                    provider.update_latency_and_reset_cooldown(elapsed);
                     self.budget.record_method(method);
                     return Ok(val);
                 }
@@ -177,7 +177,7 @@ impl RpcGateway {
                         error = %e,
                         "Provider call failed, tripping breaker and attempting fallback"
                     );
-                    provider.record_failure().await;
+                    provider.increment_cooldown();
                     last_err = Some(e);
                 }
             }

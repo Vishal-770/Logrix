@@ -47,7 +47,7 @@ let mut attempt = 1;
 while policy.should_retry(attempt) {
     let delay = policy.delay_for_attempt(attempt);
     tokio::time::sleep(delay).await;
-    
+
     // Execute request logic
     attempt += 1;
 }
