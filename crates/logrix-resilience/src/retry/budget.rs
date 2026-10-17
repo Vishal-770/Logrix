@@ -56,4 +56,14 @@ impl RetryBudget {
         state.tokens = (state.tokens + elapsed * self.fill_rate_per_sec).min(self.capacity as f64);
         state.tokens
     }
+
+    /// Return total configured token capacity.
+    pub fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
+    /// Return refill rate in tokens per second.
+    pub fn fill_rate_per_sec(&self) -> f64 {
+        self.fill_rate_per_sec
+    }
 }
