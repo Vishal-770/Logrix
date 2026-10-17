@@ -13,7 +13,7 @@ async fn test_gap_reconciler_respects_configured_chunk_size() {
     let mock_queue = Arc::new(MockQueuePort::new());
     let mock_chain = Arc::new(MockChainPort::new(chain_id));
 
-    let cp = Checkpoint::new(chain_id, 100, B256::ZERO, true);
+    let cp = Checkpoint::try_new(chain_id, 100, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[], &cp)
         .await

@@ -17,6 +17,7 @@
 - **RPC Cost & Rate-Limit Protection**: Multi-provider failover pool with per-node circuit breakers, decorrelated full jitter, and built-in Compute Unit (CU) budget tracking.
 - **Dual Storage Tiering**: Hot GraphQL entities in PostgreSQL; raw block envelopes compressed with **zstd** into cold S3/MinIO buckets, reducing database storage costs by up to 85%.
 - **Kubernetes-Native Architecture**: Active-passive Ingester leader election via Kubernetes Leases and event-driven worker autoscaling via **KEDA** (1 to 50+ pods).
+- **Strict Core Safety Contracts**: Core ports have no HTTP dependencies, queue handles preserve source lineage, and checkpoints require canonical non-zero block hashes.
 
 ---
 
@@ -136,6 +137,10 @@ All Logrix components are fully configurable through environment variables, CLI 
 | **Unified CLI Runner** | Full flag & subcommand reference | See CLI guide | [`logrix-cli`](crates/logrix-cli) |
 
 For complete per-crate options, custom programmatic builders, and architecture details, refer to each individual crate README linked above.
+
+### Core safety and adapter boundaries
+
+`logrix-core` contains domain models, typed errors, and pure port traits only. Runtime block ranges use `BlockRangeJob::try_new`, checkpoints use `Checkpoint::try_new`, and every `MessageHandle` carries the concrete source `QueueType`. Kubernetes Lease coordination is implemented by the CLI infrastructure adapter with valid TLS, bounded requests, fail-closed errors, and optimistic `resourceVersion` renewal.
 
 ---
 

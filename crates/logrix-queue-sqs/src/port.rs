@@ -101,7 +101,7 @@ impl QueuePort for SqsQueue {
                 )
             })?;
 
-            handles.push(MessageHandle::with_queue(receipt, queue_msg, queue_type));
+            handles.push(MessageHandle::new(receipt, queue_msg, queue_type));
         }
 
         if handles.is_empty() {
@@ -122,7 +122,7 @@ impl QueuePort for SqsQueue {
     }
 
     async fn ack(&self, handle: &MessageHandle) -> LogrixResult<()> {
-        let target = handle.source_queue.unwrap_or(QueueType::Live);
+        let target = handle.source_queue;
         let url = self.config().resolve_url(target)?;
         self.client()
             .delete_message()
@@ -141,7 +141,7 @@ impl QueuePort for SqsQueue {
     }
 
     async fn nack(&self, handle: &MessageHandle, requeue: bool) -> LogrixResult<()> {
-        let target = handle.source_queue.unwrap_or(QueueType::Live);
+        let target = handle.source_queue;
         let url = self.config().resolve_url(target)?;
         let visibility = if requeue { 0 } else { 300 };
 

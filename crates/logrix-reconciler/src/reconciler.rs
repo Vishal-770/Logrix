@@ -129,24 +129,24 @@ impl GapReconciler {
                 let mut cur = from_block;
                 while cur <= to_block {
                     let chunk_end = (cur + chunk_size - 1).min(to_block);
-                    let job = BlockRangeJob::new(
+                    let job = BlockRangeJob::try_new(
                         self.chain_id,
                         cur,
                         chunk_end,
                         format!("{}:{}-{}", self.chain_id, cur, chunk_end),
-                    );
+                    )?;
                     self.queue
                         .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                         .await?;
                     cur = chunk_end + 1;
                 }
             } else {
-                let job = BlockRangeJob::new(
+                let job = BlockRangeJob::try_new(
                     self.chain_id,
                     from_block,
                     to_block,
                     format!("{}:{}-{}", self.chain_id, from_block, to_block),
-                );
+                )?;
                 self.queue
                     .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                     .await?;

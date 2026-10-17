@@ -164,7 +164,7 @@
 - **Objective:** Production-grade Kubernetes orchestration with targeted KEDA, HPA, and Active-Passive Leader Election.
 - **Granular Steps Completed:**
   1. Implemented `LeaderElectionPort` port trait in `logrix-core/src/ports/leader.rs`.
-  2. Implemented `LocalLeaderElector` (for standalone/local testing) and `KubernetesLeaseElector` (`coordination.k8s.io/v1`) in `logrix-core/src/leader.rs`.
+  2. Implemented `LocalLeaderElector` (for standalone/local testing) in `logrix-core/src/leader.rs`; the Kubernetes Lease adapter (`coordination.k8s.io/v1`) belongs to `logrix-cli/src/leader/`.
   3. Integrated active-passive HA into CLI `run_ingester` with `--enable-leader-election`, `--lease-name`, `--k8s-namespace`, and `--pod-name` flags.
   4. Implemented two-tier graceful drain in CLI `run_processor`: listens for SIGTERM/SIGINT, pauses new message ingestion, and allows in-flight block processing to complete cleanly within Kubernetes `terminationGracePeriodSeconds: 60`.
   5. Built production Helm 3 chart in `deploy/helm/logrix/` (`Chart.yaml`, `values.yaml`, `_helpers.tpl`, `configmap.yaml`, `rbac.yaml`, `deployment-ingester.yaml`, `deployment-processor.yaml`, `deployment-api.yaml`, `scaledobject-processor.yaml`, `hpa-api.yaml`, `pdb.yaml`).

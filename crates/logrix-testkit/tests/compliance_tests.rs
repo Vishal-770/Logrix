@@ -79,14 +79,14 @@ async fn test_store_port_atomic_writes_and_reorg_rollback() {
     };
 
     // Atomic write block 100
-    let cp1 = Checkpoint::new(chain_id, 100, log1.block_hash, false);
+    let cp1 = Checkpoint::try_new(chain_id, 100, log1.block_hash, false).expect("valid hash");
     store
         .write_events_and_checkpoint(std::slice::from_ref(&log1), &cp1)
         .await
         .unwrap();
 
     // Atomic write block 101
-    let cp2 = Checkpoint::new(chain_id, 101, log2.block_hash, false);
+    let cp2 = Checkpoint::try_new(chain_id, 101, log2.block_hash, false).expect("valid hash");
     store
         .write_events_and_checkpoint(std::slice::from_ref(&log2), &cp2)
         .await

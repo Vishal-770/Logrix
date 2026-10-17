@@ -11,7 +11,8 @@ use std::collections::HashMap;
 
 #[test]
 fn test_sqs_message_json_roundtrip() {
-    let job = BlockRangeJob::new(ChainId::new(421614), 1000, 1500, "421614:1000-1500");
+    let job = BlockRangeJob::try_new(ChainId::new(421614), 1000, 1500, "421614:1000-1500")
+        .expect("valid range");
     let msg = QueueMessage::BackfillRange(job);
 
     let serialized = serde_json::to_string(&msg).expect("serialize SQS message");
@@ -33,17 +34,14 @@ fn test_message_handle_source_queue_scoping() {
     );
     let msg = QueueMessage::LiveBlock(job);
 
-    let handle_unscoped = MessageHandle::new("rcpt_1", msg.clone());
-    assert_eq!(handle_unscoped.source_queue, None);
-
-    let handle_scoped = MessageHandle::with_queue("rcpt_2", msg, QueueType::Backfill);
-    assert_eq!(handle_scoped.source_queue, Some(QueueType::Backfill));
-    assert_eq!(handle_scoped.receipt_id, "rcpt_2");
+    let handle = MessageHandle::new("rcpt_1", msg, QueueType::Backfill);
+    assert_eq!(handle.source_queue, QueueType::Backfill);
+    assert_eq!(handle.receipt_id, "rcpt_1");
 }
 
 #[test]
 fn test_sqs_batch_entry_builders() {
-    let job = BlockRangeJob::new(ChainId::new(1), 200, 300, "range-1");
+    let job = BlockRangeJob::try_new(ChainId::new(1), 200, 300, "range-1").expect("valid range");
     let msg = QueueMessage::BackfillRange(job);
 
     let send_entry = build_send_batch_entry("msg_1", &msg).expect("build send entry");

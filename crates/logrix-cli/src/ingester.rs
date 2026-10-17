@@ -133,12 +133,12 @@ pub async fn run_ingester(
                 let msg = QueueMessage::LiveBlock(job);
                 publish_with_retry(queue.as_ref(), QueueType::Live, &msg).await
             } else {
-                let job = BlockRangeJob::new(
+                let job = BlockRangeJob::try_new(
                     chain_id,
                     current_block,
                     to_block,
                     format!("{chain_id}:{current_block}-{to_block}"),
-                );
+                )?;
                 let msg = QueueMessage::BackfillRange(job);
                 publish_with_retry(queue.as_ref(), QueueType::Backfill, &msg).await
             };

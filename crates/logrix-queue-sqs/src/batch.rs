@@ -93,10 +93,16 @@ impl SqsQueue {
     /// Batch acknowledge messages up to AWS SQS limit (10 items per batch).
     pub async fn ack_batch(&self, handles: &[MessageHandle]) -> LogrixResult<()> {
         for chunk in handles.chunks(SQS_MAX_BATCH_SIZE) {
-            let target_queue = chunk
-                .first()
-                .and_then(|h| h.source_queue)
-                .unwrap_or(QueueType::Live);
+            let target_queue = chunk[0].source_queue;
+            if chunk
+                .iter()
+                .any(|handle| handle.source_queue != target_queue)
+            {
+                return Err(LogrixError::validation(
+                    ErrorSource::Queue,
+                    "SQS batch acknowledge cannot mix source queues",
+                ));
+            }
             let url = self.config().resolve_url(target_queue)?;
             let mut entries = Vec::with_capacity(chunk.len());
             for (idx, h) in chunk.iter().enumerate() {

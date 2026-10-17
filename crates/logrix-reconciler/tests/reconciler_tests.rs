@@ -26,7 +26,7 @@ async fn test_reorg_handler_executes_atomic_rollback_and_webhook_dispatch() {
         block_number: 104,
         block_hash: B256::ZERO,
     };
-    let cp = Checkpoint::new(chain_id, 105, B256::ZERO, true);
+    let cp = Checkpoint::try_new(chain_id, 105, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[dummy_event], &cp)
         .await
@@ -54,7 +54,7 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
     let mock_queue = Arc::new(MockQueuePort::new());
     let mock_chain = Arc::new(MockChainPort::new(chain_id));
 
-    let cp = Checkpoint::new(chain_id, 100, B256::ZERO, true);
+    let cp = Checkpoint::try_new(chain_id, 100, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[], &cp)
         .await
@@ -94,7 +94,7 @@ async fn test_gap_reconciler_deduplicates_in_flight_ranges() {
     let mock_queue = Arc::new(MockQueuePort::new());
     let mock_chain = Arc::new(MockChainPort::new(chain_id));
 
-    let cp = Checkpoint::new(chain_id, 100, B256::ZERO, true);
+    let cp = Checkpoint::try_new(chain_id, 100, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[], &cp)
         .await

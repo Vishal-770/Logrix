@@ -78,7 +78,8 @@ async fn test_heavy_indexer_pipeline_under_chaos_reorg() {
             let status = detector.check_envelope(&env).await.unwrap();
             assert_eq!(status, ContinuityStatus::Continuous);
 
-            let cp = Checkpoint::new(chain_id, env.block_number, env.block_hash, true);
+            let cp = Checkpoint::try_new(chain_id, env.block_number, env.block_hash, true)
+                .expect("canonical block hash is valid");
             store
                 .write_events_and_checkpoint(&env.logs, &cp)
                 .await
@@ -143,7 +144,8 @@ async fn test_heavy_indexer_pipeline_under_chaos_reorg() {
     assert_eq!(store.total_events().await, 4);
 
     // Step 4: Re-process the new canonical block 105
-    let cp_replayed = Checkpoint::new(chain_id, 105, forked_envelope.block_hash, true);
+    let cp_replayed =
+        Checkpoint::try_new(chain_id, 105, forked_envelope.block_hash, true).expect("valid hash");
     store
         .write_events_and_checkpoint(&forked_envelope.logs, &cp_replayed)
         .await

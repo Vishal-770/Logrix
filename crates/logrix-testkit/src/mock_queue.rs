@@ -52,7 +52,7 @@ impl QueuePort for MockQueuePort {
                 .lock()
                 .await
                 .insert(receipt_id.clone(), (queue_type, msg.clone()));
-            Ok(Some(MessageHandle::new(receipt_id, msg)))
+            Ok(Some(MessageHandle::new(receipt_id, msg, queue_type)))
         } else {
             Ok(None)
         }

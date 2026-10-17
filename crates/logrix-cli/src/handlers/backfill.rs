@@ -16,10 +16,21 @@ pub async fn handle_backfill_range(
         .await
     {
         Ok(logs) => {
+            let block = ctx
+                .gateway
+                .get_block_by_number(job.to_block)
+                .await?
+                .ok_or_else(|| {
+                    logrix_core::error::LogrixError::integrity(
+                        logrix_core::error::ErrorSource::ChainRpc,
+                        format!("Canonical block {} was not found", job.to_block),
+                    )
+                })?;
             match index_logs_batch(
                 ctx.store,
                 ctx.config.chain_id,
                 job.to_block,
+                block.hash,
                 &logs,
                 ctx.engine,
             )

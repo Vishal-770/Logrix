@@ -14,7 +14,7 @@ async fn test_gap_reconciler_resets_inflight_marker_on_reorg_rollback() {
     let mock_chain = Arc::new(MockChainPort::new(chain_id));
 
     // Initial checkpoint at 120
-    let cp = Checkpoint::new(chain_id, 120, B256::ZERO, true);
+    let cp = Checkpoint::try_new(chain_id, 120, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[], &cp)
         .await
@@ -37,7 +37,8 @@ async fn test_gap_reconciler_resets_inflight_marker_on_reorg_rollback() {
     assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
 
     // Now simulate a reorg rollback rewinding checkpoint to 110
-    let rolled_back_cp = Checkpoint::new(chain_id, 110, B256::ZERO, true);
+    let rolled_back_cp =
+        Checkpoint::try_new(chain_id, 110, B256::repeat_byte(2), true).expect("valid hash");
     mock_store
         .write_events_and_checkpoint(&[], &rolled_back_cp)
         .await

@@ -59,7 +59,8 @@ pub async fn run_backfill(
         let mut dispatched_count = 0;
         while curr <= to_block {
             let next = (curr + effective_chunk - 1).min(to_block);
-            let job = BlockRangeJob::new(chain_id, curr, next, format!("{chain_id}:{curr}-{next}"));
+            let job =
+                BlockRangeJob::try_new(chain_id, curr, next, format!("{chain_id}:{curr}-{next}"))?;
             queue
                 .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                 .await?;

@@ -23,6 +23,7 @@ logrix-handlers = { workspace = true }
 logrix-webhook = { workspace = true }
 logrix-blob-s3 = { workspace = true }
 sqlx = { workspace = true }
+async-trait = { workspace = true }
 
 clap = { workspace = true }
 tokio = { workspace = true }
@@ -33,7 +34,7 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+reqwest = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 logrix-testkit = { workspace = true }

@@ -34,6 +34,9 @@ pub enum ErrorClass {
     /// Unrecoverable system failure (wrong chain ID, revoked RPC credentials, invalid schema).
     /// Action: Halt the component immediately and alert loudly; never retry.
     Fatal,
+
+    /// Input violates a domain invariant and must be corrected before processing.
+    Validation,
 }
 
 impl ErrorClass {
@@ -49,7 +52,7 @@ impl ErrorClass {
     /// Whether this error represents a permanent failure that should be parked in the DLQ.
     #[must_use]
     pub fn is_permanent(&self) -> bool {
-        matches!(self, Self::Permanent)
+        matches!(self, Self::Permanent | Self::Validation)
     }
 
     /// Whether this error represents an unrecoverable failure requiring system halt.
