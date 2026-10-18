@@ -1,4 +1,5 @@
 use crate::store::PostgresStore;
+use alloy_primitives::B256;
 use async_trait::async_trait;
 use logrix_core::{
     domain::{ChainId, Checkpoint, EventLog},
@@ -178,7 +179,12 @@ impl StorePort for PostgresStore {
         }
     }
 
-    async fn rollback_to_block(&self, chain_id: ChainId, to_block: u64) -> LogrixResult<()> {
-        self.rollback_internal(chain_id, to_block).await
+    async fn rollback_to_block(
+        &self,
+        chain_id: ChainId,
+        to_block: u64,
+        fork_hash: B256,
+    ) -> LogrixResult<()> {
+        self.rollback_internal(chain_id, to_block, fork_hash).await
     }
 }
