@@ -1,4 +1,5 @@
 use super::KubernetesLeaseElector;
+use chrono::{Duration as ChronoDuration, Utc};
 use logrix_core::ports::LeaderElectionPort;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -30,9 +31,18 @@ async fn start_fixed_server(status: u16, body: &str, requests: usize) -> String 
 }
 
 fn lease_json(resource_version: &str) -> String {
+    lease_json_with_holder(resource_version, "pod-1", "2026-10-18T00:00:00Z")
+}
+
+fn lease_json_with_holder(resource_version: &str, holder: &str, renew_time: &str) -> String {
     format!(
-        r#"{{"apiVersion":"coordination.k8s.io/v1","kind":"Lease","metadata":{{"name":"lease","namespace":"default","resourceVersion":"{resource_version}"}},"spec":{{"holderIdentity":"pod-1","leaseDurationSeconds":15,"acquireTime":"2026-10-18T00:00:00Z","renewTime":"2026-10-18T00:00:00Z"}}}}"#
+        r#"{{"apiVersion":"coordination.k8s.io/v1","kind":"Lease","metadata":{{"name":"lease","namespace":"default","resourceVersion":"{resource_version}"}},"spec":{{"holderIdentity":"{holder}","leaseDurationSeconds":15,"acquireTime":"{renew_time}","renewTime":"{renew_time}"}}}}"#
     )
+}
+
+fn unexpired_other_holder_json(resource_version: &str) -> String {
+    let renew_time = (Utc::now() + ChronoDuration::seconds(60)).to_rfc3339();
+    lease_json_with_holder(resource_version, "pod-2", &renew_time)
 }
 
 #[tokio::test]
@@ -103,6 +113,47 @@ async fn test_kubernetes_lease_renews_with_resource_version() {
     let request = request_rx.await.expect("capture PUT request");
     assert!(request.starts_with("PUT "));
     assert!(request.contains(r#""resourceVersion":"7""#));
+}
+
+#[tokio::test]
+async fn test_kubernetes_lease_clears_cached_leader_for_unexpired_other_holder() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let address = listener.local_addr().expect("test server address");
+    tokio::spawn(async move {
+        let (mut get_stream, _) = listener.accept().await.expect("accept initial GET");
+        let mut request = [0_u8; 4096];
+        let _ = get_stream.read(&mut request).await;
+        write_json(&mut get_stream, &lease_json("7")).await;
+
+        let (mut put_stream, _) = listener.accept().await.expect("accept renewal PUT");
+        let _ = put_stream.read(&mut request).await;
+        write_json(&mut put_stream, &lease_json("8")).await;
+
+        let (mut get_stream, _) = listener.accept().await.expect("accept competing GET");
+        let _ = get_stream.read(&mut request).await;
+        write_json(&mut get_stream, &unexpired_other_holder_json("9")).await;
+    });
+
+    let elector = KubernetesLeaseElector::new_with_timeout(
+        "lease",
+        "default",
+        "pod-1",
+        Some(format!("http://{address}")),
+        None,
+        std::time::Duration::from_secs(1),
+    );
+    assert!(elector
+        .try_acquire_or_renew()
+        .await
+        .expect("renew succeeds"));
+    assert!(elector.is_leader().await);
+    assert!(!elector
+        .try_acquire_or_renew()
+        .await
+        .expect("standby succeeds"));
+    assert!(!elector.is_leader().await);
 }
 
 async fn write_json(stream: &mut tokio::net::TcpStream, body: &str) {

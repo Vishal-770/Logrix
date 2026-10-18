@@ -12,6 +12,7 @@ use tracing::{info, warn};
 use types::LeaseObject;
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVICE_ACCOUNT_CA_PATH: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
 
 /// Kubernetes Lease adapter for the core leader-election port.
 pub struct KubernetesLeaseElector {
@@ -59,8 +60,13 @@ impl KubernetesLeaseElector {
             .or_else(|| {
                 std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/token").ok()
             });
-        let client = Client::builder()
-            .timeout(request_timeout)
+        let mut client_builder = Client::builder().timeout(request_timeout);
+        if let Ok(ca_certificate) = std::fs::read(SERVICE_ACCOUNT_CA_PATH) {
+            let certificate = reqwest::Certificate::from_pem(&ca_certificate)
+                .expect("valid Kubernetes service-account CA certificate");
+            client_builder = client_builder.add_root_certificate(certificate);
+        }
+        let client = client_builder
             .build()
             .expect("valid Kubernetes HTTP client configuration");
 
@@ -148,7 +154,10 @@ impl LeaderElectionPort for KubernetesLeaseElector {
             if holder != self.identity {
                 match self.lease_expired(&current) {
                     Some(true) => {}
-                    Some(false) => return Ok(false),
+                    Some(false) => {
+                        self.is_leader.store(false, Ordering::SeqCst);
+                        return Ok(false);
+                    }
                     None => {
                         self.fail_closed("unable to determine current Lease expiry");
                         return Ok(false);
