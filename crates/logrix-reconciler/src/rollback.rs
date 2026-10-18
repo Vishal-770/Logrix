@@ -53,7 +53,7 @@ impl ReorgHandler {
 
         // 1. Soft-delete database state and rewind checkpoint
         self.store
-            .rollback_to_block(self.chain_id, fork_block)
+            .rollback_to_block(self.chain_id, fork_block, fork_hash)
             .await?;
 
         // 2. Rewind in-memory ring buffer

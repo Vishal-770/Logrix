@@ -1,4 +1,5 @@
 use crate::store::PostgresStore;
+use alloy_primitives::B256;
 use logrix_core::{
     domain::ChainId,
     error::{ErrorClass, ErrorSource, LogrixError, LogrixResult},
@@ -10,6 +11,7 @@ impl PostgresStore {
         &self,
         chain_id: ChainId,
         to_block: u64,
+        fork_hash: B256,
     ) -> LogrixResult<()> {
         let mut tx = self.pool().begin().await.map_err(|e| {
             LogrixError::new(
@@ -70,12 +72,14 @@ impl PostgresStore {
         sqlx::query(
             r#"
             UPDATE logrix_checkpoints
-            SET last_indexed_block = $2, is_finalized = FALSE, updated_at = NOW()
-            WHERE chain_id = $1 AND pipeline_id = $3
+            SET last_indexed_block = $2, last_block_hash = $3,
+                is_finalized = FALSE, updated_at = NOW()
+            WHERE chain_id = $1 AND pipeline_id = $4
             "#,
         )
         .bind(chain_id_val)
         .bind(to_block_val)
+        .bind(format!("{:#x}", fork_hash))
         .bind(self.pipeline_id())
         .execute(&mut *tx)
         .await

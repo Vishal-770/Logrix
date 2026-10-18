@@ -37,6 +37,12 @@ async fn test_reorg_handler_executes_atomic_rollback_and_webhook_dispatch() {
 
     let updated_cp = mock_store.get_checkpoint(chain_id).await.unwrap().unwrap();
     assert_eq!(updated_cp.last_indexed_block, 102);
+    assert_eq!(updated_cp.last_indexed_hash, fork_hash);
+
+    assert_eq!(
+        *mock_store.rollbacks.lock().await,
+        vec![(chain_id, 102, fork_hash)]
+    );
 
     assert_eq!(mock_queue.depth(QueueType::Webhook).await.unwrap(), 1);
     let handle = mock_queue

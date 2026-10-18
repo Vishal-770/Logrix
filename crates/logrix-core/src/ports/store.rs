@@ -1,5 +1,6 @@
 use crate::domain::{ChainId, Checkpoint, EventLog};
 use crate::error::LogrixResult;
+use alloy_primitives::B256;
 use async_trait::async_trait;
 
 /// Abstract database port for atomic event writes, checkpoints, and reorg rollbacks.
@@ -21,6 +22,12 @@ pub trait StorePort: Send + Sync {
 
     /// Roll back all indexed event rows and reset checkpoint after a blockchain reorg.
     ///
-    /// Deletes all event records where `block_number > to_block` and updates checkpoint.
-    async fn rollback_to_block(&self, chain_id: ChainId, to_block: u64) -> LogrixResult<()>;
+    /// Deletes all event records where `block_number > to_block` and updates checkpoint to the
+    /// canonical `fork_hash`.
+    async fn rollback_to_block(
+        &self,
+        chain_id: ChainId,
+        to_block: u64,
+        fork_hash: B256,
+    ) -> LogrixResult<()>;
 }

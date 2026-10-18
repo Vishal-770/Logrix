@@ -16,16 +16,28 @@ pub async fn handle_backfill_range(
         .await
     {
         Ok(logs) => {
-            let block = ctx
-                .gateway
-                .get_block_by_number(job.to_block)
-                .await?
-                .ok_or_else(|| {
-                    logrix_core::error::LogrixError::integrity(
-                        logrix_core::error::ErrorSource::ChainRpc,
-                        format!("Canonical block {} was not found", job.to_block),
-                    )
-                })?;
+            let block = match ctx.gateway.get_block_by_number(job.to_block).await {
+                Ok(Some(block)) => block,
+                Ok(None) => {
+                    warn!(
+                        block = job.to_block,
+                        "Canonical block was not found; requeueing backfill"
+                    );
+                    let _ = ctx.queue.nack(handle, true).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        block = job.to_block,
+                        "Canonical block lookup failed; requeueing backfill"
+                    );
+                    let _ = ctx.queue.nack(handle, true).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    return Ok(());
+                }
+            };
             match index_logs_batch(
                 ctx.store,
                 ctx.config.chain_id,

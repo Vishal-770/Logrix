@@ -101,7 +101,10 @@ async fn test_store_port_atomic_writes_and_reorg_rollback() {
     assert_eq!(cp.last_indexed_block, 101);
 
     // Rollback to block 100 (e.g. block 101 was reorged)
-    store.rollback_to_block(chain_id, 100).await.unwrap();
+    store
+        .rollback_to_block(chain_id, 100, log1.block_hash)
+        .await
+        .unwrap();
 
     // Event 101 must be deleted, event 100 remains
     assert_eq!(store.total_events().await, 1);
@@ -114,6 +117,7 @@ async fn test_store_port_atomic_writes_and_reorg_rollback() {
         .unwrap()
         .expect("checkpoint");
     assert_eq!(cp_after_reorg.last_indexed_block, 100);
+    assert_eq!(cp_after_reorg.last_indexed_hash, log1.block_hash);
 }
 
 #[tokio::test]

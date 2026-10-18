@@ -1,3 +1,4 @@
+use alloy_primitives::B256;
 use async_trait::async_trait;
 use logrix_core::{
     domain::{ChainId, Checkpoint, EventLog},
@@ -16,7 +17,7 @@ pub struct MockStorePort {
     /// Checkpoints keyed by chain ID
     checkpoints: Arc<Mutex<HashMap<u64, Checkpoint>>>,
     /// Rollback event log history for assertions
-    pub rollbacks: Arc<Mutex<Vec<(ChainId, u64)>>>,
+    pub rollbacks: Arc<Mutex<Vec<(ChainId, u64, B256)>>>,
 }
 
 impl MockStorePort {
@@ -64,20 +65,29 @@ impl StorePort for MockStorePort {
         Ok(store_checkpoints.get(&chain_id.as_u64()).cloned())
     }
 
-    async fn rollback_to_block(&self, chain_id: ChainId, to_block: u64) -> LogrixResult<()> {
+    async fn rollback_to_block(
+        &self,
+        chain_id: ChainId,
+        to_block: u64,
+        fork_hash: B256,
+    ) -> LogrixResult<()> {
         let mut store_events = self.events.lock().await;
         let mut store_checkpoints = self.checkpoints.lock().await;
 
         // Delete all events where block_number > to_block for this chain
         store_events.retain(|_, (c, event)| !(*c == chain_id && event.block_number > to_block));
 
-        // Update checkpoint last_indexed_block
+        // Update checkpoint position and canonical hash
         if let Some(cp) = store_checkpoints.get_mut(&chain_id.as_u64()) {
             cp.last_indexed_block = to_block;
+            cp.last_indexed_hash = fork_hash;
             cp.is_finalized = false;
         }
 
-        self.rollbacks.lock().await.push((chain_id, to_block));
+        self.rollbacks
+            .lock()
+            .await
+            .push((chain_id, to_block, fork_hash));
         Ok(())
     }
 }
