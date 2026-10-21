@@ -73,6 +73,8 @@ jobs:
 
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "v5.4.3"
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
