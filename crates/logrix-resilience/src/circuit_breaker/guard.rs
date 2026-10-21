@@ -13,6 +13,7 @@ pub struct CircuitGuard {
     config: CircuitConfig,
     finished: bool,
     was_probe: bool,
+    epoch: u64,
 }
 
 impl CircuitGuard {
@@ -20,12 +21,14 @@ impl CircuitGuard {
         inner: Arc<Mutex<InnerState>>,
         config: CircuitConfig,
         was_probe: bool,
+        epoch: u64,
     ) -> Self {
         Self {
             inner,
             config,
             finished: false,
             was_probe,
+            epoch,
         }
     }
 
@@ -48,7 +51,8 @@ impl CircuitGuard {
         self.finished = true;
 
         let mut inner = self.inner.lock();
-        if self.was_probe && inner.active_probes > 0 {
+        // Only decrement active_probes if the circuit is still in the same epoch
+        if self.was_probe && inner.epoch == self.epoch && inner.active_probes > 0 {
             inner.active_probes -= 1;
         }
 

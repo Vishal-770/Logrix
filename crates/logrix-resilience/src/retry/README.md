@@ -63,6 +63,8 @@ Guards systems against retry amplification by allocating a sliding token allowan
 
 - `new(capacity: u32, fill_rate_per_sec: f64) -> Self`: Instantiates a budget with maximum token capacity and replenishment velocity.
 - `try_acquire(&self) -> bool`: Consumes a single retry token if available; returns `false` if the budget is exhausted.
+- `acquire(&self).await`: Asynchronously waits until a retry token is available without spinning.
+- `time_until_available(&self) -> Duration`: Returns the duration until the next retry token will be replenished.
 - `available_budget(&self) -> f64`: Inspects current unreserved token balance.
 - `capacity(&self) -> u32`: Returns configured capacity limit.
 - `fill_rate_per_sec(&self) -> f64`: Returns replenishment rate in tokens per second.

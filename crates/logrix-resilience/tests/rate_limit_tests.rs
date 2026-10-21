@@ -55,3 +55,29 @@ async fn test_rate_limiter_concurrent_acquisition() {
         task.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn test_rate_limiter_edge_cases_negative_and_nan() {
+    let limiter = RateLimiter::new(10, 10.0);
+
+    // Negative and NaN cost must be rejected and not inject tokens
+    assert!(!limiter.try_acquire(-5.0));
+    assert!(!limiter.try_acquire(0.0));
+    assert!(!limiter.try_acquire(f64::NAN));
+    assert!(!limiter.try_acquire(f64::INFINITY));
+    assert!(!limiter.try_acquire(f64::NEG_INFINITY));
+
+    // Tokens must remain at 10.0, not increased
+    assert!(limiter.available_tokens() <= 10.0);
+
+    // acquire with negative or NaN should be safe no-op
+    limiter.acquire(-10.0).await;
+    limiter.acquire(f64::NAN).await;
+
+    // zero or negative refill rate in constructor must not panic
+    let zero_limiter = RateLimiter::new(5, 0.0);
+    assert_eq!(zero_limiter.refill_rate(), 1.0); // defaulted safely
+
+    let nan_limiter = RateLimiter::new(5, f64::NAN);
+    assert_eq!(nan_limiter.refill_rate(), 1.0);
+}

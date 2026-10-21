@@ -28,12 +28,19 @@ pub struct TokenBucketRateLimiter {
 
 impl TokenBucketRateLimiter {
     pub fn new(capacity: u32, refill_rate_per_sec: f64) -> Self {
+        let safe_capacity = (capacity as f64).max(0.0);
+        let safe_refill_rate = if refill_rate_per_sec.is_finite() && refill_rate_per_sec > 0.0 {
+            refill_rate_per_sec
+        } else {
+            1.0
+        };
+
         Self {
-            capacity: capacity as f64,
-            refill_rate_per_sec,
+            capacity: safe_capacity,
+            refill_rate_per_sec: safe_refill_rate,
             min_sleep_floor: Duration::from_millis(1),
             state: Arc::new(Mutex::new(BucketState {
-                tokens: capacity as f64,
+                tokens: safe_capacity,
                 last_refill: Instant::now(),
             })),
         }
@@ -42,8 +49,9 @@ impl TokenBucketRateLimiter {
     /// Set a custom initial token balance (e.g. 0.0 for cold-start warmup).
     #[must_use]
     pub fn with_initial_tokens(self, tokens: f64) -> Self {
+        let safe_tokens = if tokens.is_finite() { tokens } else { 0.0 };
         let mut state = self.state.lock();
-        state.tokens = tokens.clamp(0.0, self.capacity);
+        state.tokens = safe_tokens.clamp(0.0, self.capacity);
         state.last_refill = Instant::now();
         drop(state);
         self
@@ -58,7 +66,7 @@ impl TokenBucketRateLimiter {
 
     /// Try to acquire `cost` tokens immediately (synchronous, non-blocking).
     pub fn try_acquire(&self, cost: f64) -> bool {
-        if cost > self.capacity {
+        if !cost.is_finite() || cost <= 0.0 || cost > self.capacity {
             return false;
         }
 
@@ -75,6 +83,10 @@ impl TokenBucketRateLimiter {
 
     /// Asynchronously acquire `cost` tokens, computing the exact wait without busy-spinning.
     pub async fn acquire(&self, cost: f64) {
+        if !cost.is_finite() || cost <= 0.0 {
+            return;
+        }
+
         let effective_cost = if cost > self.capacity {
             tracing::warn!(
                 requested = cost,
@@ -97,8 +109,17 @@ impl TokenBucketRateLimiter {
                 }
 
                 let missing = effective_cost - state.tokens;
-                let needed_secs = missing / self.refill_rate_per_sec;
-                Duration::from_secs_f64(needed_secs).max(self.min_sleep_floor)
+                let needed_secs = if self.refill_rate_per_sec > 0.0 {
+                    missing / self.refill_rate_per_sec
+                } else {
+                    0.01
+                };
+
+                if needed_secs.is_finite() && needed_secs > 0.0 {
+                    Duration::from_secs_f64(needed_secs).max(self.min_sleep_floor)
+                } else {
+                    self.min_sleep_floor
+                }
             };
 
             tokio::time::sleep(wait_duration).await;

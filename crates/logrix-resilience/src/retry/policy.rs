@@ -41,13 +41,21 @@ impl RetryPolicy {
             return Duration::ZERO;
         }
 
+        let effective_multiplier = if self.multiplier.is_finite() && self.multiplier >= 1.0 {
+            self.multiplier
+        } else {
+            1.0
+        };
+
         let exp_delay = self.initial_delay.as_millis() as f64
-            * self.multiplier.powi((attempt - 1).min(10) as i32);
+            * effective_multiplier.powi((attempt - 1).min(10) as i32);
         let capped_millis = exp_delay.min(self.max_delay.as_millis() as f64);
 
         if self.jitter {
             let mut rng = rand::thread_rng();
-            let jittered = rng.gen_range(0.0..=capped_millis);
+            // Equal jitter: guaranteed floor of initial_delay / 2 to avoid 0ms retry storms
+            let min_floor = (self.initial_delay.as_millis() as f64 * 0.5).min(capped_millis);
+            let jittered = rng.gen_range(min_floor..=capped_millis);
             Duration::from_millis(jittered as u64)
         } else {
             Duration::from_millis(capped_millis as u64)
@@ -61,7 +69,11 @@ impl RetryPolicy {
 
     #[must_use]
     pub fn with_multiplier(mut self, multiplier: f64) -> Self {
-        self.multiplier = multiplier;
+        self.multiplier = if multiplier.is_finite() && multiplier >= 1.0 {
+            multiplier
+        } else {
+            1.0
+        };
         self
     }
 
