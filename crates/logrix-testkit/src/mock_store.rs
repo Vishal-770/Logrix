@@ -2,27 +2,62 @@ use alloy_primitives::B256;
 use async_trait::async_trait;
 use logrix_core::{
     domain::{ChainId, Checkpoint, EventLog},
-    error::LogrixResult,
+    error::{ErrorSource, LogrixError, LogrixResult},
     ports::StorePort,
 };
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
-/// Thread-safe in-memory StorePort for testing atomic writes, checkpoints, and reorg rollbacks.
+/// Thread-safe in-memory StorePort for testing atomic writes, checkpoints, reorg rollbacks, and faults.
 #[derive(Debug, Clone, Default)]
 pub struct MockStorePort {
-    /// Stored events keyed by idempotency key
     events: Arc<Mutex<HashMap<String, (ChainId, EventLog)>>>,
-    /// Checkpoints keyed by chain ID
     checkpoints: Arc<Mutex<HashMap<u64, Checkpoint>>>,
-    /// Rollback event log history for assertions
     pub rollbacks: Arc<Mutex<Vec<(ChainId, u64, B256)>>>,
+    injected_errors: Arc<AtomicUsize>,
+    simulated_latency: Arc<Mutex<Option<Duration>>>,
 }
 
 impl MockStorePort {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configures artificial latency for database queries and writes.
+    pub async fn set_simulated_latency(&self, latency: Duration) {
+        *self.simulated_latency.lock().await = Some(latency);
+    }
+
+    /// Injects `count` transient database errors.
+    pub fn inject_transient_errors(&self, count: usize) {
+        self.injected_errors.store(count, Ordering::SeqCst);
+    }
+
+    async fn apply_latency_and_check_error(&self) -> LogrixResult<()> {
+        if let Some(delay) = *self.simulated_latency.lock().await {
+            tokio::time::sleep(delay).await;
+        }
+        let mut curr = self.injected_errors.load(Ordering::SeqCst);
+        while curr > 0 {
+            match self.injected_errors.compare_exchange_weak(
+                curr,
+                curr - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    return Err(LogrixError::transient(
+                        ErrorSource::Database,
+                        "Simulated database lock contention or timeout",
+                    ));
+                }
+                Err(actual) => curr = actual,
+            }
+        }
+        Ok(())
     }
 
     pub async fn total_events(&self) -> usize {
@@ -46,13 +81,12 @@ impl StorePort for MockStorePort {
         events: &[EventLog],
         checkpoint: &Checkpoint,
     ) -> LogrixResult<()> {
+        self.apply_latency_and_check_error().await?;
         let mut store_events = self.events.lock().await;
         let mut store_checkpoints = self.checkpoints.lock().await;
 
-        // Atomic write: all events + checkpoint
         for event in events {
             let key = event.idempotency_key(checkpoint.chain_id);
-            // Idempotent write: duplicate keys are safely updated/ignored
             store_events.insert(key, (checkpoint.chain_id, event.clone()));
         }
 
@@ -61,6 +95,7 @@ impl StorePort for MockStorePort {
     }
 
     async fn get_checkpoint(&self, chain_id: ChainId) -> LogrixResult<Option<Checkpoint>> {
+        self.apply_latency_and_check_error().await?;
         let store_checkpoints = self.checkpoints.lock().await;
         Ok(store_checkpoints.get(&chain_id.as_u64()).cloned())
     }
@@ -71,13 +106,12 @@ impl StorePort for MockStorePort {
         to_block: u64,
         fork_hash: B256,
     ) -> LogrixResult<()> {
+        self.apply_latency_and_check_error().await?;
         let mut store_events = self.events.lock().await;
         let mut store_checkpoints = self.checkpoints.lock().await;
 
-        // Delete all events where block_number > to_block for this chain
         store_events.retain(|_, (c, event)| !(*c == chain_id && event.block_number > to_block));
 
-        // Update checkpoint position and canonical hash
         if let Some(cp) = store_checkpoints.get_mut(&chain_id.as_u64()) {
             cp.last_indexed_block = to_block;
             cp.last_indexed_hash = fork_hash;

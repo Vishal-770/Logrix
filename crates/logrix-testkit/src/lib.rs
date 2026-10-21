@@ -1,5 +1,6 @@
 //! Test utilities, mocks, and conformance testing kit for Logrix adapters.
 
+pub mod in_flight;
 pub mod mock_chain;
 pub mod mock_queue;
 pub mod mock_store;
