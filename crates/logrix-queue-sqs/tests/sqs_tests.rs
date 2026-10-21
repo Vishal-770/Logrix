@@ -4,7 +4,6 @@ use logrix_core::domain::{
 };
 use logrix_queue_sqs::{
     batch::{build_delete_batch_entry, build_send_batch_entry},
-    queue::SQS_MAX_VISIBILITY_TIMEOUT,
     SqsClientConfig,
 };
 use std::collections::HashMap;
@@ -53,8 +52,15 @@ fn test_sqs_batch_entry_builders() {
 }
 
 #[test]
-fn test_sqs_visibility_extension_uses_maximum_timeout() {
+fn test_sqs_visibility_constants() {
+    use logrix_queue_sqs::{
+        DEFAULT_MAX_MESSAGES, DEFAULT_WAIT_TIME_SECONDS, SQS_BUFFERED_VISIBILITY_TIMEOUT,
+        SQS_MAX_VISIBILITY_TIMEOUT,
+    };
     assert_eq!(SQS_MAX_VISIBILITY_TIMEOUT, 43_200);
+    assert_eq!(SQS_BUFFERED_VISIBILITY_TIMEOUT, 120);
+    assert_eq!(DEFAULT_WAIT_TIME_SECONDS, 2);
+    assert_eq!(DEFAULT_MAX_MESSAGES, 1);
 }
 
 #[tokio::test]

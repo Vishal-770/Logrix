@@ -7,6 +7,9 @@ use logrix_core::{
 use std::collections::HashMap;
 use tracing::info;
 
+pub const DEFAULT_WAIT_TIME_SECONDS: i32 = 2;
+pub const DEFAULT_MAX_MESSAGES: i32 = 1;
+
 /// SQS client manager and queue URL resolver.
 #[derive(Clone)]
 pub struct SqsClientConfig {
@@ -21,8 +24,8 @@ impl SqsClientConfig {
         Self {
             client,
             queue_urls,
-            wait_time_seconds: 2,
-            max_number_of_messages: 1,
+            wait_time_seconds: DEFAULT_WAIT_TIME_SECONDS,
+            max_number_of_messages: DEFAULT_MAX_MESSAGES,
         }
     }
 

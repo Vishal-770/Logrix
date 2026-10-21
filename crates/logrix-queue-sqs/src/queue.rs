@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub const SQS_MAX_VISIBILITY_TIMEOUT: i32 = 43_200;
+pub const SQS_BUFFERED_VISIBILITY_TIMEOUT: i32 = 120;
 
 /// AWS SQS implementation of `QueuePort`.
 #[derive(Clone)]
@@ -44,7 +45,7 @@ impl SqsQueue {
                 .change_message_visibility()
                 .queue_url(url)
                 .receipt_handle(&handle.receipt_id)
-                .visibility_timeout(SQS_MAX_VISIBILITY_TIMEOUT)
+                .visibility_timeout(SQS_BUFFERED_VISIBILITY_TIMEOUT)
                 .send()
                 .await
                 .map_err(|e| {
