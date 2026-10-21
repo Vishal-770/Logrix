@@ -2,6 +2,7 @@ use std::time::Duration;
 
 pub const DEFAULT_EXCHANGE: &str = "logrix.events";
 pub const DEFAULT_PREFETCH: u16 = 100;
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// RabbitMQ connection and topology configuration.
 #[derive(Debug, Clone)]
@@ -15,12 +16,21 @@ pub struct RabbitMQConfig {
 
 impl RabbitMQConfig {
     pub fn new(amqp_url: impl Into<String>) -> Self {
+        let prefetch_count = std::env::var("RABBITMQ_PREFETCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_PREFETCH);
+        let connection_timeout = std::env::var("RABBITMQ_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_TIMEOUT);
         Self {
             amqp_url: amqp_url.into(),
-            prefetch_count: DEFAULT_PREFETCH,
+            prefetch_count,
             exchange_name: DEFAULT_EXCHANGE.to_string(),
             queue_prefix: None,
-            connection_timeout: Duration::from_secs(10),
+            connection_timeout,
         }
     }
 

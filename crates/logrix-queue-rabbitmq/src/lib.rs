@@ -9,6 +9,8 @@ pub mod producer;
 pub mod queue;
 pub mod topology;
 
-pub use config::{redact_amqp_url, RabbitMQConfig, DEFAULT_EXCHANGE, DEFAULT_PREFETCH};
+pub use config::{
+    redact_amqp_url, RabbitMQConfig, DEFAULT_EXCHANGE, DEFAULT_PREFETCH, DEFAULT_TIMEOUT,
+};
 pub use queue::RabbitMQQueue;
 pub use topology::QueueTopology;
