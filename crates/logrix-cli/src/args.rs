@@ -27,6 +27,10 @@ pub struct Cli {
     #[arg(long, env = "DATABASE_MIN_CONNECTIONS", default_value_t = 2)]
     pub database_min_connections: u32,
 
+    /// Database statement execution timeout in seconds
+    #[arg(long, env = "DATABASE_STATEMENT_TIMEOUT_SECS", default_value_t = 30)]
+    pub database_statement_timeout_secs: u64,
+
     /// Ingester queue backpressure threshold: maximum unconsumed queue depth before throttling
     #[arg(long, env = "MAX_QUEUE_DEPTH", default_value_t = 1000)]
     pub max_queue_depth: u64,

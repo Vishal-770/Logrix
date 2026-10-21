@@ -1,7 +1,17 @@
 use logrix_core::error::{ErrorClass, ErrorSource, LogrixError, LogrixResult};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool,
+};
+use std::str::FromStr;
 use std::time::Duration;
 use tracing::info;
+
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+pub const DEFAULT_MIN_CONNECTIONS: u32 = 2;
+pub const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+pub const DEFAULT_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Configuration for PostgreSQL connection pool.
 #[derive(Debug, Clone)]
@@ -12,6 +22,7 @@ pub struct PostgresConfig {
     pub min_connections: u32,
     pub acquire_timeout: Duration,
     pub idle_timeout: Duration,
+    pub statement_timeout: Duration,
 }
 
 impl PostgresConfig {
@@ -19,18 +30,24 @@ impl PostgresConfig {
         let max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(10);
+            .unwrap_or(DEFAULT_MAX_CONNECTIONS);
         let min_connections = std::env::var("DATABASE_MIN_CONNECTIONS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(2);
+            .unwrap_or(DEFAULT_MIN_CONNECTIONS);
+        let statement_timeout_secs = std::env::var("DATABASE_STATEMENT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_STATEMENT_TIMEOUT);
         Self {
             database_url: database_url.into(),
             pipeline_id: pipeline_id.into(),
             max_connections,
             min_connections,
-            acquire_timeout: Duration::from_secs(10),
-            idle_timeout: Duration::from_secs(600),
+            acquire_timeout: DEFAULT_ACQUIRE_TIMEOUT,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            statement_timeout: statement_timeout_secs,
         }
     }
 
@@ -57,6 +74,12 @@ impl PostgresConfig {
         self.idle_timeout = timeout;
         self
     }
+
+    #[must_use]
+    pub fn statement_timeout(mut self, timeout: Duration) -> Self {
+        self.statement_timeout = timeout;
+        self
+    }
 }
 
 /// Production PostgreSQL implementation of `StorePort`.
@@ -78,12 +101,25 @@ impl PostgresStore {
 
     /// Create a new PostgresStore with user-customized pool configuration.
     pub async fn connect_with_config(config: &PostgresConfig) -> LogrixResult<Self> {
+        let pg_opts = PgConnectOptions::from_str(&config.database_url)
+            .map_err(|e| {
+                LogrixError::new(
+                    ErrorClass::Permanent,
+                    ErrorSource::Database,
+                    format!("Invalid PostgreSQL connection URL: {e}"),
+                )
+            })?
+            .options([(
+                "statement_timeout",
+                format!("{}ms", config.statement_timeout.as_millis()),
+            )]);
+
         let pool = PgPoolOptions::new()
             .max_connections(config.max_connections)
             .min_connections(config.min_connections)
             .acquire_timeout(config.acquire_timeout)
             .idle_timeout(config.idle_timeout)
-            .connect(&config.database_url)
+            .connect_with(pg_opts)
             .await
             .map_err(|e| {
                 LogrixError::new(

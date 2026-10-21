@@ -14,6 +14,7 @@ data:
   DATABASE_URL: {{ default (printf "postgres://logrix:logrixpassword@%s-postgres:5432/logrix" (include "logrix.fullname" .)) .Values.config.databaseUrl | quote }}
   DATABASE_MAX_CONNECTIONS: {{ .Values.config.databaseMaxConnections | default 10 | quote }}
   DATABASE_MIN_CONNECTIONS: {{ .Values.config.databaseMinConnections | default 2 | quote }}
+  DATABASE_STATEMENT_TIMEOUT_SECS: {{ .Values.config.databaseStatementTimeoutSecs | default 30 | quote }}
   MAX_QUEUE_DEPTH: {{ .Values.config.maxQueueDepth | default 1000 | quote }}
   {{- if or (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio) .Values.config.s3Bucket }}
   S3_BUCKET: {{ default "logrix-blocks" .Values.config.s3Bucket | quote }}

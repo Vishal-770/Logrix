@@ -15,6 +15,9 @@ fn postgres_config(cli: &Cli) -> PostgresConfig {
     PostgresConfig::new(&cli.database_url, "default")
         .max_connections(cli.database_max_connections)
         .min_connections(cli.database_min_connections)
+        .statement_timeout(std::time::Duration::from_secs(
+            cli.database_statement_timeout_secs,
+        ))
 }
 
 pub async fn run_all_in_one(

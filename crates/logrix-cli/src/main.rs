@@ -60,7 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Connecting to PostgreSQL and running migrations...");
             let pg_cfg = logrix_store_postgres::PostgresConfig::new(&cli.database_url, "default")
                 .max_connections(cli.database_max_connections)
-                .min_connections(cli.database_min_connections);
+                .min_connections(cli.database_min_connections)
+                .statement_timeout(std::time::Duration::from_secs(
+                    cli.database_statement_timeout_secs,
+                ));
             let store = PostgresStore::connect_with_config(&pg_cfg).await?;
             store.migrate().await?;
             info!("Migrations finished successfully.");
@@ -112,7 +115,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Api { port } => {
             let pg_cfg = logrix_store_postgres::PostgresConfig::new(&cli.database_url, "default")
                 .max_connections(cli.database_max_connections)
-                .min_connections(cli.database_min_connections);
+                .min_connections(cli.database_min_connections)
+                .statement_timeout(std::time::Duration::from_secs(
+                    cli.database_statement_timeout_secs,
+                ));
             let store = Arc::new(PostgresStore::connect_with_config(&pg_cfg).await?);
             let addr = SocketAddr::from(([0, 0, 0, 0], port));
             let broadcaster = Arc::new(logrix_api::SubscriptionBroadcaster::default());
