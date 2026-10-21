@@ -1,5 +1,5 @@
 use alloy_primitives::Address;
-use logrix_blob_s3::S3BlobStore;
+use logrix_blob_s3::{S3BlobStore, S3Config};
 use logrix_core::{domain::ChainId, error::LogrixResult, ports::QueuePort};
 use logrix_handlers::UserLogicEngine;
 use logrix_reconciler::{ReorgDetector, ReorgHandler};
@@ -72,6 +72,17 @@ impl ProcessorConfig {
             webhook_worker_backoff_ms: cli.tuning.webhook_worker_backoff_ms,
         })
     }
+
+    pub async fn init_blob_store(&self) -> LogrixResult<Option<S3BlobStore>> {
+        if let Some(ref bucket) = self.s3_bucket {
+            let s3_conf =
+                S3Config::from_env(bucket, self.s3_prefix.clone(), self.s3_endpoint.as_deref())
+                    .await?;
+            Ok(Some(S3BlobStore::new(s3_conf)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 pub struct ProcessorContext<'a> {
@@ -100,4 +111,31 @@ impl<'a> ProcessorContext<'a> {
         }
         vec![self.config.target_contract]
     }
+}
+
+pub async fn load_user_engine(
+    config: &ProcessorConfig,
+    store: &PostgresStore,
+) -> Result<Option<UserLogicEngine>, Box<dyn std::error::Error>> {
+    let Some(ref path) = config.manifest_path else {
+        return Ok(None);
+    };
+
+    let manifest = logrix_handlers::Manifest::from_file(path)?;
+    let mut engine = UserLogicEngine::new(manifest)?
+        .with_global_limits(config.wasm_fuel_limit, config.wasm_max_memory_mb);
+    for contract in &engine.manifest().contracts.clone() {
+        if let Some(ref wasm_path) = contract.wasm_handler {
+            let resolved = if std::path::Path::new(wasm_path).exists() {
+                wasm_path.clone()
+            } else if std::path::Path::new("/etc/logrix/handlers/mapping.wasm").exists() {
+                "/etc/logrix/handlers/mapping.wasm".to_string()
+            } else {
+                wasm_path.clone()
+            };
+            engine.load_wasm_handler_file(contract.address, resolved)?;
+        }
+    }
+    crate::warmup::prewarm_state_store(store, &engine, config.chain_id.as_u64()).await;
+    Ok(Some(engine))
 }

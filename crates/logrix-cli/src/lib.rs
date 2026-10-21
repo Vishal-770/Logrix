@@ -12,6 +12,7 @@ pub mod ingester_ops;
 pub mod ingester_types;
 pub mod leader;
 pub mod processor;
+pub mod processor_loop;
 pub mod processor_types;
 pub mod shutdown;
 pub mod status_tui;
