@@ -150,3 +150,31 @@ async fn test_gateway_micro_cache() {
     gateway.set_cached_block(12345).await;
     assert_eq!(gateway.get_cached_block().await, Some(12345));
 }
+
+#[tokio::test]
+async fn test_shrinkable_error_does_not_trip_circuit_breaker() {
+    let chain_id = ChainId::ARBITRUM_SEPOLIA;
+    let pool = ProviderPool::new(chain_id);
+    let p = ManagedProvider::new(
+        "healthy-node-shrinkable",
+        "http://localhost:8545",
+        1,
+        chain_id,
+    );
+    pool.add_provider(p.clone()).await;
+
+    let gateway = RpcGateway::new(chain_id, pool, None, None);
+
+    let res: LogrixResult<String> = gateway
+        .execute_with_fallback("eth_getLogs", |_| async move {
+            Err(LogrixError::new(
+                ErrorClass::Shrinkable,
+                ErrorSource::ChainRpc,
+                "Log response size exceeds limit",
+            ))
+        })
+        .await;
+
+    assert!(res.is_err());
+    assert!(p.is_healthy().await);
+}

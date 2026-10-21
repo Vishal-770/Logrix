@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing::debug;
 
-type FlightChannel = broadcast::Sender<Result<String, String>>;
+type FlightChannel = broadcast::Sender<LogrixResult<String>>;
 type FlightMap = Arc<Mutex<HashMap<String, FlightChannel>>>;
 
 /// In-flight singleflight request coordinator.
@@ -55,8 +55,7 @@ impl SingleFlight {
                 // Clean up map and broadcast to followers
                 let mut map = self.in_flight.lock().await;
                 if let Some(tx) = map.remove(key) {
-                    let broadcast_payload = outcome.clone().map_err(|e| e.to_string());
-                    let _ = tx.send(broadcast_payload);
+                    let _ = tx.send(outcome.clone());
                 }
                 return outcome;
             }
@@ -64,12 +63,7 @@ impl SingleFlight {
 
         // We are a follower. Await broadcast result.
         match rx.recv().await {
-            Ok(Ok(val)) => Ok(val),
-            Ok(Err(err_msg)) => Err(LogrixError::new(
-                ErrorClass::Transient,
-                ErrorSource::ChainRpc,
-                format!("SingleFlight broadcast error: {err_msg}"),
-            )),
+            Ok(res) => res,
             Err(e) => Err(LogrixError::new(
                 ErrorClass::Transient,
                 ErrorSource::ChainRpc,
@@ -93,7 +87,12 @@ impl Drop for FlightGuard {
             tokio::spawn(async move {
                 let mut map = in_flight.lock().await;
                 if let Some(tx) = map.remove(&key) {
-                    let _ = tx.send(Err("SingleFlight leader task cancelled".to_string()));
+                    let err = LogrixError::new(
+                        ErrorClass::Transient,
+                        ErrorSource::ChainRpc,
+                        "SingleFlight leader task cancelled",
+                    );
+                    let _ = tx.send(Err(err));
                 }
             });
         }

@@ -93,7 +93,7 @@ impl ChainPort for RpcGateway {
         number: u64,
         addresses: &[Address],
     ) -> LogrixResult<Option<BlockEnvelope>> {
-        self.execute_with_fallback("eth_getBlockByNumber", |provider| {
+        self.execute_with_fallback("eth_getBlockEnvelope", |provider| {
             let addrs = addresses.to_vec();
             async move {
                 let env = provider

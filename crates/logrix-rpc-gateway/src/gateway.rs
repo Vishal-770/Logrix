@@ -109,16 +109,17 @@ impl RpcGateway {
         F: FnMut(ManagedProvider) -> Fut,
         Fut: std::future::Future<Output = LogrixResult<T>>,
     {
-        if self.budget.is_exhausted() {
-            return Err(LogrixError::rate_limited(
+        let cu_cost = crate::budget::method_cu(method);
+        let reservation = self.budget.try_reserve(cu_cost).ok_or_else(|| {
+            LogrixError::rate_limited(
                 ErrorSource::ChainRpc,
                 format!(
                     "RPC Compute Unit budget exhausted ({} CUs consumed). Pausing queries.",
                     self.budget.total_consumed()
                 ),
                 None,
-            ));
-        }
+            )
+        })?;
 
         let mut last_err = None;
         let all_providers = self.pool.all_providers().await;
@@ -144,19 +145,19 @@ impl RpcGateway {
                     let elapsed = start.elapsed();
                     guard.record_success();
                     provider.update_latency_and_reset_cooldown(elapsed);
-                    self.budget.record_method(method);
+                    reservation.commit();
                     return Ok(val);
                 }
                 Err(e) => {
-                    let err_msg = e.to_string();
-                    let is_query_limit = err_msg.contains("more than")
-                        || err_msg.contains("exceeded")
-                        || err_msg.contains("range")
-                        || err_msg.contains("limit")
-                        || err_msg.contains("too many");
+                    let is_query_limit = e.class == ErrorClass::Shrinkable || {
+                        let err_msg = e.to_string();
+                        !matches!(e.class, ErrorClass::RateLimited { .. })
+                            && (err_msg.contains("more than")
+                                || err_msg.contains("range")
+                                || err_msg.contains("block range"))
+                    };
 
                     if is_query_limit {
-                        // Do not trip circuit breaker on healthy providers when range is oversized
                         guard.record_success();
                         warn!(
                             provider = provider.name(),
