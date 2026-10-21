@@ -71,6 +71,7 @@ pub async fn run_all_in_one(
         max_limit: cli.graphql_max_limit,
         query_timeout_secs: cli.tuning.graphql_query_timeout_secs,
         chain_id: Some(cli.chain_id),
+        allowed_origins: Vec::new(),
     };
     let broadcaster = Arc::new(logrix_api::SubscriptionBroadcaster::default());
     broadcaster

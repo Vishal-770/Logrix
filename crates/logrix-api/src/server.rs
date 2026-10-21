@@ -1,11 +1,13 @@
+use crate::config::ApiConfig;
 use crate::dynamic_schema::DynamicSchemaEngine;
 use crate::health::{graphiql, health_check, prometheus_metrics, readiness_check};
-use crate::schema::{build_schema, LogrixSchema};
+use crate::schema::{build_schema_with_limits, LogrixSchema};
 use crate::schema_parser::SchemaDefinition;
 use crate::subscriptions::SubscriptionBroadcaster;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
+    http::{header, Method},
     routing::{get, post},
     Router,
 };
@@ -21,6 +23,22 @@ use tracing::info;
 fn timeout_err() -> GraphQLResponse {
     let err = async_graphql::ServerError::new("Query execution timed out", None);
     async_graphql::Response::from_errors(vec![err]).into()
+}
+
+fn build_cors_layer(config: &ApiConfig) -> CorsLayer {
+    if config.allowed_origins.is_empty() {
+        CorsLayer::permissive()
+    } else {
+        let origins: Vec<_> = config
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
+    }
 }
 
 async fn graphql_handler(
@@ -49,13 +67,12 @@ async fn dynamic_graphql_handler(
     }
 }
 
-/// Create router for static LogrixSchema.
 pub fn create_router(schema: LogrixSchema) -> Router {
     create_router_with_config(schema, ApiConfig::default())
 }
 
-/// Create router for static LogrixSchema with ApiConfig.
 pub fn create_router_with_config(schema: LogrixSchema, config: ApiConfig) -> Router {
+    let cors = build_cors_layer(&config);
     Router::new()
         .route("/", get(graphiql))
         .route("/graphiql", get(graphiql))
@@ -63,13 +80,12 @@ pub fn create_router_with_config(schema: LogrixSchema, config: ApiConfig) -> Rou
         .route("/healthz", get(health_check))
         .route("/readyz", get(readiness_check))
         .route("/metrics", get(prometheus_metrics))
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(CompressionLayer::new())
         .layer(Extension(schema))
         .layer(Extension(config))
 }
 
-/// Create router for dynamic schema with optional WebSocket subscription endpoint.
 pub fn create_dynamic_router(
     schema: async_graphql::dynamic::Schema,
     broadcaster: Option<Arc<SubscriptionBroadcaster>>,
@@ -77,12 +93,12 @@ pub fn create_dynamic_router(
     create_dynamic_router_with_config(schema, broadcaster, ApiConfig::default())
 }
 
-/// Create router for dynamic schema with optional WebSocket subscription endpoint and ApiConfig.
 pub fn create_dynamic_router_with_config(
     schema: async_graphql::dynamic::Schema,
     broadcaster: Option<Arc<SubscriptionBroadcaster>>,
     config: ApiConfig,
 ) -> Router {
+    let cors = build_cors_layer(&config);
     let mut router = Router::new()
         .route("/", get(graphiql))
         .route("/graphiql", get(graphiql))
@@ -95,37 +111,12 @@ pub fn create_dynamic_router_with_config(
         router = router.route_service("/ws", GraphQLSubscription::new(schema.clone()));
     }
     router
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(CompressionLayer::new())
         .layer(Extension(schema))
         .layer(Extension(config))
 }
 
-/// Configuration for the Logrix GraphQL API server and query guardrails.
-#[derive(Debug, Clone)]
-pub struct ApiConfig {
-    pub max_depth: usize,
-    pub max_complexity: usize,
-    pub default_limit: usize,
-    pub max_limit: usize,
-    pub query_timeout_secs: u64,
-    pub chain_id: Option<u64>,
-}
-
-impl Default for ApiConfig {
-    fn default() -> Self {
-        Self {
-            max_depth: 7,
-            max_complexity: 200,
-            default_limit: 100,
-            max_limit: 1000,
-            query_timeout_secs: 5,
-            chain_id: None,
-        }
-    }
-}
-
-/// Start GraphQL API server with optional user-defined schema path (.graphql / .yaml).
 pub async fn start_api_server(
     store: Arc<PostgresStore>,
     addr: SocketAddr,
@@ -133,7 +124,6 @@ pub async fn start_api_server(
     start_api_server_with_schema(store, None, None, None, addr).await
 }
 
-/// Start GraphQL API server with optional dynamic schema and subscription broadcaster.
 pub async fn start_api_server_with_schema(
     store: Arc<PostgresStore>,
     schema_path: Option<&str>,
@@ -170,11 +160,17 @@ pub async fn start_api_server_with_schema(
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             create_dynamic_router_with_config(dynamic_schema, broadcaster, conf)
         } else {
-            info!("Schema path does not exist; using core schema");
-            create_router_with_config(build_schema(store.clone()), conf)
+            info!("Schema path does not exist; using core schema with limits");
+            create_router_with_config(
+                build_schema_with_limits(store.clone(), conf.max_depth, conf.max_complexity),
+                conf,
+            )
         }
     } else {
-        create_router_with_config(build_schema(store.clone()), conf)
+        create_router_with_config(
+            build_schema_with_limits(store.clone(), conf.max_depth, conf.max_complexity),
+            conf,
+        )
     };
 
     let webhook_state = crate::routes::WebhookApiState::new(

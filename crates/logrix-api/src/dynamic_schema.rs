@@ -37,7 +37,7 @@ impl DynamicSchemaEngine {
         max_depth: usize,
         max_complexity: usize,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
-        let cfg = crate::server::ApiConfig {
+        let cfg = crate::config::ApiConfig {
             max_depth,
             max_complexity,
             ..Default::default()
@@ -50,7 +50,7 @@ impl DynamicSchemaEngine {
         schema_def: &SchemaDefinition,
         store: Arc<PostgresStore>,
         broadcaster: Option<Arc<SubscriptionBroadcaster>>,
-        cfg: &crate::server::ApiConfig,
+        cfg: &crate::config::ApiConfig,
     ) -> Result<Schema, async_graphql::dynamic::SchemaError> {
         let has_subscriptions = broadcaster.is_some();
         let mut builder = if has_subscriptions {

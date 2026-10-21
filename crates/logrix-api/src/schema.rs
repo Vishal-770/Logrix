@@ -119,7 +119,21 @@ impl QueryRoot {
 pub type LogrixSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
 pub fn build_schema(store: Arc<PostgresStore>) -> LogrixSchema {
+    build_schema_with_limits(
+        store,
+        crate::config::DEFAULT_MAX_DEPTH,
+        crate::config::DEFAULT_MAX_COMPLEXITY,
+    )
+}
+
+pub fn build_schema_with_limits(
+    store: Arc<PostgresStore>,
+    max_depth: usize,
+    max_complexity: usize,
+) -> LogrixSchema {
     Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
         .data(store)
+        .limit_depth(max_depth)
+        .limit_complexity(max_complexity)
         .finish()
 }
