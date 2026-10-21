@@ -78,3 +78,31 @@ fn test_queue_topology_prefixed_names() {
     assert_eq!(topology.webhook_queue, "tenant1.logrix.blocks.webhook");
     assert_eq!(topology.dlq_queue, "tenant1.logrix.blocks.dlq");
 }
+
+#[test]
+fn test_rabbitmq_config_defaults_and_constants() {
+    use logrix_queue_rabbitmq::{DEFAULT_EXCHANGE, DEFAULT_PREFETCH, DEFAULT_TIMEOUT};
+
+    assert_eq!(DEFAULT_EXCHANGE, "logrix.events");
+    assert_eq!(DEFAULT_PREFETCH, 100);
+    assert_eq!(DEFAULT_TIMEOUT, Duration::from_secs(10));
+
+    let config = RabbitMQConfig::new("amqp://localhost:5672");
+    assert_eq!(config.prefetch_count, DEFAULT_PREFETCH);
+    assert_eq!(config.exchange_name, DEFAULT_EXCHANGE);
+    assert_eq!(config.connection_timeout, DEFAULT_TIMEOUT);
+    assert!(config.queue_prefix.is_none());
+}
+
+#[tokio::test]
+async fn test_connect_with_invalid_url_returns_typed_error() {
+    use logrix_core::error::ErrorClass;
+    use logrix_queue_rabbitmq::RabbitMQQueue;
+
+    let config = RabbitMQConfig::new("amqp://invalid-host-definitely-does-not-exist:5672")
+        .connection_timeout(Duration::from_millis(100));
+    let err = RabbitMQQueue::connect_with_config(&config)
+        .await
+        .expect_err("should fail to connect to invalid host");
+    assert_eq!(err.class, ErrorClass::Transient);
+}

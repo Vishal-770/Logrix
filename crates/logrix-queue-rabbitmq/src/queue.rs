@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::info;
 
 /// RabbitMQ AMQP implementation of `QueuePort` with bounded prefetch and manual ACKs.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RabbitMQQueue {
     _conn: Arc<Connection>,
     channel: Arc<Channel>,
