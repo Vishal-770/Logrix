@@ -132,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_limit: cli.graphql_max_limit,
                 query_timeout_secs: cli.tuning.graphql_query_timeout_secs,
                 chain_id: Some(cli.chain_id),
+                allowed_origins: Vec::new(),
             };
             start_api_server_with_schema(
                 store,

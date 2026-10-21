@@ -62,14 +62,14 @@ indexing:
 use logrix_api::{server::start_api_server_with_schema, ApiConfig};
 use std::net::SocketAddr;
 
-let config = ApiConfig {
-    max_depth: 10,
-    max_complexity: 300,
-    default_limit: 50,
-    max_limit: 500,
-    query_timeout_secs: 10,
-    chain_id: Some(42161),
-};
+let config = ApiConfig::new()
+    .with_max_depth(10)
+    .with_max_complexity(300)
+    .with_default_limit(50)
+    .with_max_limit(500)
+    .with_query_timeout_secs(10)
+    .with_chain_id(42161)
+    .with_allowed_origins(vec!["https://app.logrix.io".to_string()]);
 
 start_api_server_with_schema(
     store,

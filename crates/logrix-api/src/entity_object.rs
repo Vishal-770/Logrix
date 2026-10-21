@@ -34,8 +34,6 @@ pub(crate) fn build_entity_object(entity: &EntityDef) -> Object {
                             Ok(Some(FieldValue::value(i)))
                         } else if let Some(u) = n.as_u64() {
                             Ok(Some(FieldValue::value(u)))
-                        } else if let Some(f) = n.as_f64() {
-                            Ok(Some(FieldValue::value(f)))
                         } else {
                             Ok(Some(FieldValue::value(n.to_string())))
                         }
