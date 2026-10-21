@@ -33,6 +33,16 @@ impl SqsQueue {
         &self.config.client
     }
 
+    pub(crate) async fn pop_buffered_message(
+        &self,
+        queue_type: QueueType,
+    ) -> Option<MessageHandle> {
+        let mut buf_guard = self.buffer.lock().await;
+        buf_guard
+            .get_mut(&queue_type)
+            .and_then(|queue_buf| queue_buf.pop_front())
+    }
+
     /// Extend visibility for messages waiting in the local receive buffer.
     pub(crate) async fn extend_visibility_for_handles(
         &self,
