@@ -24,7 +24,7 @@ impl WasmHandlerInstance {
                 format!("Failed to set WASM fuel limit: {e}"),
             )
         })?;
-        store.set_epoch_deadline(100);
+        store.set_epoch_deadline(super::instance::DEFAULT_EPOCH_DEADLINE_TICKS);
 
         let instance = linker.instantiate(&mut store, &self.module).map_err(|e| {
             LogrixError::new(

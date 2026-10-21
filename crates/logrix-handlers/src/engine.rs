@@ -14,14 +14,14 @@ use tracing::info;
 /// Combined orchestration engine executing declarative rules and WASM handlers.
 #[derive(Clone)]
 pub struct UserLogicEngine {
-    manifest: Manifest,
-    declarative: DeclarativeMapper,
-    wasm_runtime: WasmRuntime,
-    wasm_handlers: HashMap<Address, WasmHandlerInstance>,
+    pub(crate) manifest: Manifest,
+    pub(crate) declarative: DeclarativeMapper,
+    pub(crate) wasm_runtime: WasmRuntime,
+    pub(crate) wasm_handlers: HashMap<Address, WasmHandlerInstance>,
     /// Global key-value state store backing host db_get/set across blocks
-    state_store: Arc<RwLock<HashMap<String, String>>>,
-    global_fuel_limit: Option<u64>,
-    global_max_memory_mb: Option<u32>,
+    pub(crate) state_store: Arc<RwLock<HashMap<String, String>>>,
+    pub(crate) global_fuel_limit: Option<u64>,
+    pub(crate) global_max_memory_mb: Option<u32>,
 }
 
 impl UserLogicEngine {
@@ -48,41 +48,6 @@ impl UserLogicEngine {
     /// Access parsed manifest.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
-    }
-
-    fn configure_instance(
-        &self,
-        contract: Address,
-        mut instance: WasmHandlerInstance,
-    ) -> WasmHandlerInstance {
-        if let Some(fuel) = self.global_fuel_limit {
-            instance = instance.with_fuel_limit(fuel);
-        }
-        if let Some(mb) = self.global_max_memory_mb {
-            instance = instance.with_max_memory((mb as usize) * 1024 * 1024);
-        }
-        if let Some(ref idx) = self.manifest.indexing {
-            if let Some(fuel) = idx.wasm_fuel_limit {
-                instance = instance.with_fuel_limit(fuel);
-            }
-            if let Some(mb) = idx.wasm_max_memory_mb {
-                instance = instance.with_max_memory(mb * 1024 * 1024);
-            }
-        }
-        if let Some(c) = self
-            .manifest
-            .contracts
-            .iter()
-            .find(|c| c.address == contract)
-        {
-            if let Some(fuel) = c.fuel_limit {
-                instance = instance.with_fuel_limit(fuel);
-            }
-            if let Some(mb) = c.max_memory_mb {
-                instance = instance.with_max_memory(mb * 1024 * 1024);
-            }
-        }
-        instance
     }
 
     /// Load and register a compiled WASM handler for a specific contract.
@@ -141,8 +106,26 @@ impl UserLogicEngine {
             if let Some(handler) = self.wasm_handlers.get(&log.address) {
                 let base_state = self.state_store.read().await.clone();
 
-                let log_json = serde_json::to_string(log).unwrap_or_default();
-                let guest_staging = handler.execute_event(&log_json, base_state)?;
+                let log_json = serde_json::to_string(log).map_err(|e| {
+                    logrix_core::error::LogrixError::new(
+                        logrix_core::error::ErrorClass::Integrity,
+                        logrix_core::error::ErrorSource::Plugin,
+                        format!("Failed to serialize event log for WASM handler: {e}"),
+                    )
+                })?;
+
+                let handler_clone = handler.clone();
+                let guest_staging = tokio::task::spawn_blocking(move || {
+                    handler_clone.execute_event(&log_json, base_state)
+                })
+                .await
+                .map_err(|e| {
+                    logrix_core::error::LogrixError::new(
+                        logrix_core::error::ErrorClass::Fatal,
+                        logrix_core::error::ErrorSource::Plugin,
+                        format!("Blocking WASM task panicked or failed: {e}"),
+                    )
+                })??;
 
                 // Merge guest mutations into staging buffer
                 for (k, v) in guest_staging.state_entries() {

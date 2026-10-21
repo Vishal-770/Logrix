@@ -70,7 +70,10 @@ contracts:
 ### 3. Programmatic Configuration (`WasmHandlerInstance`)
 
 ```rust
-use logrix_handlers::wasm::{WasmHandlerInstance, WasmRuntime};
+use logrix_handlers::wasm::{
+    WasmHandlerInstance, WasmRuntime,
+    DEFAULT_FUEL_LIMIT, DEFAULT_MAX_MEMORY_MB, DEFAULT_EPOCH_DEADLINE_TICKS,
+};
 use wasmtime::Module;
 
 // Initialize WASM runtime and compile handler module
@@ -81,7 +84,8 @@ let module = Module::from_file(runtime.engine(), "handlers.wasm")?;
 let instance = WasmHandlerInstance::with_limits(
     runtime,
     module,
-    10_000_000,          // fuel limit
-    256 * 1024 * 1024,   // max memory (256 MB)
+    DEFAULT_FUEL_LIMIT,          // default: 25,000,000 instructions
+    DEFAULT_MAX_MEMORY_MB * 1024 * 1024, // default: 64 MB
 );
 ```
+

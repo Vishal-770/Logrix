@@ -98,3 +98,10 @@ contracts:
     assert_eq!(h3.fuel_limit(), 750_000);
     assert_eq!(h3.max_memory_bytes(), 96 * 1024 * 1024);
 }
+
+#[test]
+fn test_default_constants() {
+    assert_eq!(logrix_handlers::DEFAULT_FUEL_LIMIT, 25_000_000);
+    assert_eq!(logrix_handlers::DEFAULT_MAX_MEMORY_MB, 64);
+    assert_eq!(logrix_handlers::DEFAULT_EPOCH_DEADLINE_TICKS, 100);
+}
