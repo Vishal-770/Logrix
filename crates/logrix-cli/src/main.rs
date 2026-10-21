@@ -12,6 +12,7 @@ pub mod ingester_ops;
 pub mod ingester_types;
 pub mod leader;
 pub mod processor;
+pub mod processor_loop;
 pub mod processor_types;
 pub mod shutdown;
 pub mod status_tui;
@@ -89,7 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let queue = create_queue_adapter(&cli).await?;
             let gateway = create_rpc_gateway(&cli, chain_id).await?;
             let config = ProcessorConfig::from_cli(&cli, chain_id, target_contract)?;
-            run_processor(config, gateway, queue).await?;
+            run_processor(config, gateway, queue)
+                .await
+                .map_err(|e| -> Box<dyn std::error::Error> { e })?;
         }
         Commands::WebhookDispatcher => {
             let queue = create_queue_adapter(&cli).await?;

@@ -4,6 +4,7 @@ use logrix_core::{domain::ChainId, ports::LeaderElectionPort, LocalLeaderElector
 use logrix_store_postgres::{PostgresConfig, PostgresStore};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::args::Cli;
@@ -15,9 +16,7 @@ fn postgres_config(cli: &Cli) -> PostgresConfig {
     PostgresConfig::new(&cli.database_url, "default")
         .max_connections(cli.database_max_connections)
         .min_connections(cli.database_min_connections)
-        .statement_timeout(std::time::Duration::from_secs(
-            cli.database_statement_timeout_secs,
-        ))
+        .statement_timeout(Duration::from_secs(cli.database_statement_timeout_secs))
 }
 
 pub async fn run_all_in_one(
@@ -39,7 +38,7 @@ pub async fn run_all_in_one(
     let ingester_leader: Arc<dyn LeaderElectionPort> = Arc::new(LocalLeaderElector::new());
     let ingester_config = IngesterConfig::from_cli(&cli, chain_id);
 
-    let ingester_handle = tokio::spawn(async move {
+    let mut ingester_handle = tokio::spawn(async move {
         if let Err(e) = run_ingester(
             ingester_config,
             ingester_gw,
@@ -55,7 +54,7 @@ pub async fn run_all_in_one(
     let processor_queue = queue.clone();
     let processor_gw = gateway.clone();
     let proc_config = ProcessorConfig::from_cli(&cli, chain_id, target_contract)?;
-    let processor_handle = tokio::spawn(async move {
+    let mut processor_handle = tokio::spawn(async move {
         if let Err(e) = run_processor(proc_config, processor_gw, processor_queue).await {
             error!(error = %e, "Processor task failed");
         }
@@ -77,7 +76,7 @@ pub async fn run_all_in_one(
     broadcaster
         .clone()
         .start_postgres_listener(store_api.pool().clone());
-    let api_handle = tokio::spawn(async move {
+    let mut api_handle = tokio::spawn(async move {
         if let Err(e) = start_api_server_with_schema(
             store_api,
             schema_path_clone.as_deref(),
@@ -93,11 +92,17 @@ pub async fn run_all_in_one(
 
     tokio::select! {
         _ = crate::shutdown::wait_for_shutdown_signal() => {
-            info!("Received shutdown signal. Draining tasks gracefully...");
+            info!("Received shutdown signal. Draining all-in-one tasks with 5s timeout...");
+            let drain_timeout = Duration::from_secs(5);
+            let _ = tokio::time::timeout(drain_timeout, async {
+                let _ = tokio::join!(&mut ingester_handle, &mut processor_handle);
+            }).await;
+            api_handle.abort();
+            info!("All-in-one shutdown drain completed");
         }
-        res = ingester_handle => { warn!(?res, "Ingester terminated"); }
-        res = processor_handle => { warn!(?res, "Processor terminated"); }
-        res = api_handle => { warn!(?res, "API terminated"); }
+        res = &mut ingester_handle => { warn!(?res, "Ingester terminated"); }
+        res = &mut processor_handle => { warn!(?res, "Processor terminated"); }
+        res = &mut api_handle => { warn!(?res, "API terminated"); }
     }
     Ok(())
 }
