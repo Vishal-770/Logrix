@@ -40,18 +40,23 @@ indexing:
 | `S3_ENDPOINT` | `--s3-endpoint` | None (AWS standard) | Optional | Custom S3 endpoint override (e.g. `http://localhost:4566` for LocalStack, `http://minio:9000`) |
 | `S3_PREFIX` | `--s3-prefix` | None (`""`) | Optional | Key prefix prepended to all stored object keys |
 | `AWS_REGION` | N/A | `us-east-1` (or AWS default) | Optional | AWS region for S3 client |
+| N/A | `--s3-request-timeout-secs` | `30` | Optional | S3 request operation timeout in seconds (`DEFAULT_REQUEST_TIMEOUT = 30s`) |
 
 > Note: When `S3_ENDPOINT` is provided (e.g. LocalStack or MinIO), `force_path_style(true)` is automatically activated to ensure compatibility with non-AWS object stores.
+> Zstandard compression defaults to level `3` (`DEFAULT_ZSTD_LEVEL = 3`) and sets `Content-Encoding: zstd` on uploaded objects.
 
 ### 3. Programmatic Configuration (`S3Config`)
 
 ```rust
-use logrix_blob_s3::S3Config;
+use logrix_blob_s3::{S3Config, DEFAULT_REQUEST_TIMEOUT, DEFAULT_ZSTD_LEVEL};
+use std::time::Duration;
 
-// Initialize from environment with custom endpoint
-let config = S3Config::from_env(
-    "my-archive-bucket",
-    Some("arbitrum-one/blocks".to_string()),
-    Some("http://localhost:9000"), // MinIO endpoint
-).await?;
+// Initialize with custom request timeout and fluent builder
+let config = S3Config::builder("my-archive-bucket")
+    .key_prefix("arbitrum-one/blocks")
+    .endpoint_url("http://localhost:9000") // MinIO endpoint
+    .request_timeout(Duration::from_secs(45))
+    .build()
+    .await?;
 ```
+

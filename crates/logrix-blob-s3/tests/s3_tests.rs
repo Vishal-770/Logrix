@@ -72,6 +72,7 @@ async fn test_s3_client_options_builder() {
         .endpoint_url("http://127.0.0.1:9000")
         .region("us-east-1")
         .force_path_style(true)
+        .request_timeout(std::time::Duration::from_secs(15))
         .build()
         .await;
 
@@ -79,6 +80,23 @@ async fn test_s3_client_options_builder() {
     let cfg = builder_res.unwrap();
     assert_eq!(cfg.bucket, "production-archive");
     assert_eq!(cfg.resolve_key("100.json.zst"), "eth/mainnet/100.json.zst");
+    assert_eq!(cfg.request_timeout, std::time::Duration::from_secs(15));
+}
+
+#[tokio::test]
+async fn test_s3_config_timeout_configuration() {
+    let sdk_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .load()
+        .await;
+    let client = S3Client::new(&sdk_config);
+    let config = S3Config::new(client, "test-bucket", None)
+        .with_request_timeout(std::time::Duration::from_secs(45));
+
+    assert_eq!(config.request_timeout, std::time::Duration::from_secs(45));
+    assert_eq!(
+        logrix_blob_s3::DEFAULT_REQUEST_TIMEOUT,
+        std::time::Duration::from_secs(30)
+    );
 }
 
 #[test]
