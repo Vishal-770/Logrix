@@ -151,4 +151,5 @@ fn test_postgres_config_bounded_defaults() {
     let cfg = logrix_store_postgres::PostgresConfig::new("postgres://localhost/test", "default");
     assert_eq!(cfg.max_connections, 10);
     assert_eq!(cfg.min_connections, 2);
+    assert_eq!(cfg.statement_timeout, std::time::Duration::from_secs(30));
 }

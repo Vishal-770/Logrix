@@ -66,6 +66,32 @@ fn test_token_transfer_amount_u256() {
 }
 
 #[test]
+fn test_postgres_config_defaults_and_constants() {
+    use logrix_store_postgres::{
+        PostgresConfig, DEFAULT_ACQUIRE_TIMEOUT, DEFAULT_IDLE_TIMEOUT, DEFAULT_MAX_CONNECTIONS,
+        DEFAULT_MIN_CONNECTIONS, DEFAULT_STATEMENT_TIMEOUT,
+    };
+
+    assert_eq!(DEFAULT_MAX_CONNECTIONS, 10);
+    assert_eq!(DEFAULT_MIN_CONNECTIONS, 2);
+    assert_eq!(DEFAULT_ACQUIRE_TIMEOUT, std::time::Duration::from_secs(10));
+    assert_eq!(DEFAULT_IDLE_TIMEOUT, std::time::Duration::from_secs(600));
+    assert_eq!(
+        DEFAULT_STATEMENT_TIMEOUT,
+        std::time::Duration::from_secs(30)
+    );
+
+    let config = PostgresConfig::new("postgres://localhost/testdb", "pipe-1");
+    assert_eq!(config.database_url, "postgres://localhost/testdb");
+    assert_eq!(config.pipeline_id, "pipe-1");
+    assert_eq!(config.max_connections, DEFAULT_MAX_CONNECTIONS);
+    assert_eq!(config.min_connections, DEFAULT_MIN_CONNECTIONS);
+    assert_eq!(config.acquire_timeout, DEFAULT_ACQUIRE_TIMEOUT);
+    assert_eq!(config.idle_timeout, DEFAULT_IDLE_TIMEOUT);
+    assert_eq!(config.statement_timeout, DEFAULT_STATEMENT_TIMEOUT);
+}
+
+#[test]
 fn test_postgres_config_builder() {
     use logrix_store_postgres::PostgresConfig;
     use std::time::Duration;
@@ -74,7 +100,8 @@ fn test_postgres_config_builder() {
         .max_connections(50)
         .min_connections(10)
         .acquire_timeout(Duration::from_secs(25))
-        .idle_timeout(Duration::from_secs(120));
+        .idle_timeout(Duration::from_secs(120))
+        .statement_timeout(Duration::from_secs(45));
 
     assert_eq!(
         config.database_url,
@@ -85,6 +112,19 @@ fn test_postgres_config_builder() {
     assert_eq!(config.min_connections, 10);
     assert_eq!(config.acquire_timeout, Duration::from_secs(25));
     assert_eq!(config.idle_timeout, Duration::from_secs(120));
+    assert_eq!(config.statement_timeout, Duration::from_secs(45));
+}
+
+#[tokio::test]
+async fn test_connect_with_invalid_url_returns_typed_error() {
+    use logrix_core::error::ErrorClass;
+    use logrix_store_postgres::{PostgresConfig, PostgresStore};
+
+    let config = PostgresConfig::new("not_a_valid_postgres_url://", "test");
+    let err = PostgresStore::connect_with_config(&config)
+        .await
+        .expect_err("must return error for invalid URL");
+    assert_eq!(err.class, ErrorClass::Permanent);
 }
 
 #[test]

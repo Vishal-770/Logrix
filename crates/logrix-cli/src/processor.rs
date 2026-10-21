@@ -23,7 +23,10 @@ pub async fn run_processor(
     info!("Starting Logrix Processor with Reorg Engine & Self-Healing Reconciler");
     let pg_cfg = logrix_store_postgres::PostgresConfig::new(&config.database_url, "default")
         .max_connections(config.database_max_connections)
-        .min_connections(config.database_min_connections);
+        .min_connections(config.database_min_connections)
+        .statement_timeout(std::time::Duration::from_secs(
+            config.database_statement_timeout_secs,
+        ));
     let store = Arc::new(PostgresStore::connect_with_config(&pg_cfg).await?);
     let blob_store = if let Some(ref bucket) = config.s3_bucket {
         let s3_conf = S3Config::from_env(

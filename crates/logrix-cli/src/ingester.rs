@@ -27,7 +27,10 @@ pub async fn run_ingester(
 
     let pg_cfg = logrix_store_postgres::PostgresConfig::new(&config.database_url, "default")
         .max_connections(config.database_max_connections)
-        .min_connections(config.database_min_connections);
+        .min_connections(config.database_min_connections)
+        .statement_timeout(std::time::Duration::from_secs(
+            config.database_statement_timeout_secs,
+        ));
     let store = PostgresStore::connect_with_config(&pg_cfg).await?;
 
     let mut current_block = match store.get_checkpoint(chain_id).await? {

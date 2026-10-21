@@ -12,4 +12,7 @@ pub mod store;
 pub mod transfers;
 
 pub use model::{DynamicEntityRecord, EntityInsert, TokenTransfer, TransferFilter};
-pub use store::{PostgresConfig, PostgresStore};
+pub use store::{
+    PostgresConfig, PostgresStore, DEFAULT_ACQUIRE_TIMEOUT, DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_MAX_CONNECTIONS, DEFAULT_MIN_CONNECTIONS, DEFAULT_STATEMENT_TIMEOUT,
+};

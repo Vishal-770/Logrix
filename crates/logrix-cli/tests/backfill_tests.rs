@@ -73,6 +73,7 @@ fn test_config(chain_id: ChainId) -> ProcessorConfig {
         database_url: "postgres://unused@localhost/logrix".to_string(),
         database_max_connections: 1,
         database_min_connections: 0,
+        database_statement_timeout_secs: 30,
         target_contract: Address::ZERO,
         ring_buffer_depth: 8,
         webhook_url: None,

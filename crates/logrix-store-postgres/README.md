@@ -38,7 +38,8 @@ indexing:
 |---|---|---|---|---|
 | `DATABASE_URL` | `--database-url` | `postgres://logrix:logrix@localhost:5432/logrix` | Required | PostgreSQL connection string |
 | `DATABASE_MAX_CONNECTIONS` | `--database-max-connections` | `10` connections | Optional | Maximum concurrent connections allocated in pool |
-| `DATABASE_MIN_CONNECTIONS` | `--db-min-connections` | `2` connections | Optional | Minimum idle connections preserved in pool |
+| `DATABASE_MIN_CONNECTIONS` | `--database-min-connections` | `2` connections | Optional | Minimum idle connections preserved in pool |
+| `DATABASE_STATEMENT_TIMEOUT_SECS` | `--database-statement-timeout-secs` | `30` seconds | Optional | Maximum duration for query execution before timing out |
 
 ### 3. Programmatic Configuration (`PostgresConfig`)
 
@@ -50,6 +51,7 @@ indexing:
 | `min_connections` | `.min_connections()` | `2` | Optional | Connection pool lower bound |
 | `acquire_timeout` | `.acquire_timeout()` | `10s` | Optional | Maximum wait duration to checkout a pool connection |
 | `idle_timeout` | `.idle_timeout()` | `600s` (10m) | Optional | Duration before idle connections are closed |
+| `statement_timeout` | `.statement_timeout()` | `30s` | Optional | PostgreSQL query statement execution timeout |
 
 ```rust
 use logrix_store_postgres::{PostgresConfig, PostgresStore};
@@ -59,7 +61,9 @@ let config = PostgresConfig::new("postgres://user:pass@localhost:5432/logrix", "
     .max_connections(25)
     .min_connections(5)
     .acquire_timeout(Duration::from_secs(15))
-    .idle_timeout(Duration::from_secs(300));
+    .idle_timeout(Duration::from_secs(300))
+    .statement_timeout(Duration::from_secs(30));
 
 let store = PostgresStore::connect_with_config(&config).await?;
 ```
+
