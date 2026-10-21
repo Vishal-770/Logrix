@@ -27,11 +27,7 @@ impl QueuePort for SqsQueue {
             .send()
             .await
             .map_err(|e| {
-                LogrixError::new(
-                    ErrorClass::Transient,
-                    ErrorSource::Queue,
-                    format!("Failed to send message to SQS {url}: {e}"),
-                )
+                LogrixError::new(ErrorClass::Transient, ErrorSource::Queue, format!("{e}"))
             })?;
 
         debug!(queue = ?queue_type, "Published message to AWS SQS");
@@ -43,18 +39,12 @@ impl QueuePort for SqsQueue {
         queue_type: QueueType,
         messages: &[QueueMessage],
     ) -> LogrixResult<()> {
-        // Delegate to high-throughput chunked batch implementation (10 items per SQS API call)
         self.publish_batch(queue_type, messages).await
     }
 
     async fn consume(&self, queue_type: QueueType) -> LogrixResult<Option<MessageHandle>> {
-        {
-            let mut buf_guard = self.buffer.lock().await;
-            if let Some(queue_buf) = buf_guard.get_mut(&queue_type) {
-                if let Some(cached) = queue_buf.pop_front() {
-                    return Ok(Some(cached));
-                }
-            }
+        if let Some(cached) = self.pop_buffered_message(queue_type).await {
+            return Ok(Some(cached));
         }
 
         let url = self.config().resolve_url(queue_type)?;
@@ -122,8 +112,7 @@ impl QueuePort for SqsQueue {
     }
 
     async fn ack(&self, handle: &MessageHandle) -> LogrixResult<()> {
-        let target = handle.source_queue;
-        let url = self.config().resolve_url(target)?;
+        let url = self.config().resolve_url(handle.source_queue)?;
         self.client()
             .delete_message()
             .queue_url(url)
@@ -141,8 +130,7 @@ impl QueuePort for SqsQueue {
     }
 
     async fn nack(&self, handle: &MessageHandle, requeue: bool) -> LogrixResult<()> {
-        let target = handle.source_queue;
-        let url = self.config().resolve_url(target)?;
+        let url = self.config().resolve_url(handle.source_queue)?;
         let visibility = if requeue { 0 } else { 300 };
 
         self.client()
@@ -186,11 +174,23 @@ impl QueuePort for SqsQueue {
                 )
             })?;
 
-        let count = resp
+        let count_str = resp
             .attributes()
             .and_then(|a| a.get(&QueueAttributeName::ApproximateNumberOfMessages))
-            .map(|s| s.as_str())
-            .unwrap_or("0");
-        Ok(count.parse().unwrap_or(0))
+            .ok_or_else(|| {
+                LogrixError::new(
+                    ErrorClass::Integrity,
+                    ErrorSource::Queue,
+                    format!("Missing ApproximateNumberOfMessages attribute for {queue_type:?}"),
+                )
+            })?;
+
+        count_str.parse::<u64>().map_err(|e| {
+            LogrixError::new(
+                ErrorClass::Integrity,
+                ErrorSource::Queue,
+                format!("Failed to parse ApproximateNumberOfMessages '{count_str}': {e}"),
+            )
+        })
     }
 }
