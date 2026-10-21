@@ -52,6 +52,50 @@ impl RetryBudget {
         }
     }
 
+    /// Asynchronously acquire a retry token, waiting until budget is available.
+    pub async fn acquire(&self) {
+        loop {
+            let wait_duration = {
+                let mut state = self.state.lock();
+                state.refill(self.capacity as f64, self.fill_rate_per_sec);
+
+                if state.tokens >= 1.0 {
+                    state.tokens -= 1.0;
+                    return;
+                }
+
+                let missing = 1.0 - state.tokens;
+                let needed_secs = if self.fill_rate_per_sec > 0.0 {
+                    missing / self.fill_rate_per_sec
+                } else {
+                    0.05
+                };
+
+                std::time::Duration::from_secs_f64(needed_secs.max(0.001))
+            };
+
+            tokio::time::sleep(wait_duration).await;
+        }
+    }
+
+    /// Returns estimated duration until the next retry token will be available.
+    pub fn time_until_available(&self) -> std::time::Duration {
+        let mut state = self.state.lock();
+        state.refill(self.capacity as f64, self.fill_rate_per_sec);
+
+        if state.tokens >= 1.0 {
+            std::time::Duration::ZERO
+        } else {
+            let missing = 1.0 - state.tokens;
+            let needed_secs = if self.fill_rate_per_sec > 0.0 {
+                missing / self.fill_rate_per_sec
+            } else {
+                0.05
+            };
+            std::time::Duration::from_secs_f64(needed_secs.max(0.001))
+        }
+    }
+
     /// Count of currently available retry tokens.
     pub fn available_budget(&self) -> f64 {
         let mut state = self.state.lock();

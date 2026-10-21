@@ -16,6 +16,7 @@ pub(crate) struct InnerState {
     pub(crate) state: CircuitState,
     pub(crate) success_count: u32,
     pub(crate) active_probes: u32,
+    pub(crate) epoch: u64,
     pub(crate) last_state_change: Instant,
     pub(crate) failure_timestamps: VecDeque<Instant>,
 }
@@ -26,6 +27,7 @@ impl InnerState {
             state: CircuitState::Closed,
             success_count: 0,
             active_probes: 0,
+            epoch: 0,
             last_state_change: Instant::now(),
             failure_timestamps: VecDeque::new(),
         }
@@ -35,6 +37,7 @@ impl InnerState {
         self.state = CircuitState::Closed;
         self.success_count = 0;
         self.active_probes = 0;
+        self.epoch = self.epoch.wrapping_add(1);
         self.last_state_change = Instant::now();
         self.failure_timestamps.clear();
     }
@@ -43,6 +46,7 @@ impl InnerState {
         self.state = CircuitState::Open;
         self.success_count = 0;
         self.active_probes = 0;
+        self.epoch = self.epoch.wrapping_add(1);
         self.last_state_change = Instant::now();
         self.failure_timestamps.clear();
     }

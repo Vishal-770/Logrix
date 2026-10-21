@@ -80,3 +80,33 @@ fn test_retry_budget_concurrent_contention() {
     assert_eq!(total_acquired, 50);
     assert_eq!(budget.available_budget(), 0.0);
 }
+
+#[tokio::test]
+async fn test_retry_policy_multiplier_and_jitter_floor() {
+    let policy = RetryPolicy::new(3, Duration::from_millis(100), Duration::from_secs(1))
+        .with_multiplier(0.0) // Invalid multiplier must fall back to 1.0
+        .with_jitter(true);
+
+    assert_eq!(policy.multiplier, 1.0);
+
+    // With equal jitter, delay for attempt 1 must have a guaranteed floor (>= 50ms)
+    for _ in 0..10 {
+        let delay = policy.delay_for_attempt(1);
+        assert!(delay >= Duration::from_millis(50));
+        assert!(delay <= Duration::from_millis(100));
+    }
+}
+
+#[tokio::test]
+async fn test_retry_budget_acquire_and_time_until_available() {
+    let budget = RetryBudget::new(1, 50.0);
+    assert_eq!(budget.time_until_available(), Duration::ZERO);
+    assert!(budget.try_acquire());
+
+    let wait = budget.time_until_available();
+    assert!(wait > Duration::ZERO);
+
+    // acquire should wait and succeed
+    budget.acquire().await;
+    assert_eq!(budget.capacity(), 1);
+}

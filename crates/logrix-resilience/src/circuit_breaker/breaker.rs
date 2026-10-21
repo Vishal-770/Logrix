@@ -55,23 +55,24 @@ impl CircuitBreaker {
     /// If in HalfOpen, reserves an active probe slot.
     pub fn try_acquire(&self) -> Option<CircuitGuard> {
         let mut inner = self.inner.lock();
-        let (permitted, was_probe) = self.try_permit(&mut inner);
+        let (permitted, was_probe, epoch) = self.try_permit(&mut inner);
         if permitted {
             Some(CircuitGuard::new(
                 Arc::clone(&self.inner),
                 self.config.clone(),
                 was_probe,
+                epoch,
             ))
         } else {
             None
         }
     }
 
-    fn try_permit(&self, inner: &mut InnerState) -> (bool, bool) {
+    fn try_permit(&self, inner: &mut InnerState) -> (bool, bool, u64) {
         match inner.state {
             CircuitState::Closed => {
                 inner.prune_stale_failures(&self.config);
-                (true, false)
+                (true, false, inner.epoch)
             }
             CircuitState::Open => {
                 if Instant::now().duration_since(inner.last_state_change)
@@ -80,19 +81,20 @@ impl CircuitBreaker {
                     inner.state = CircuitState::HalfOpen;
                     inner.success_count = 0;
                     inner.active_probes = 1;
+                    inner.epoch = inner.epoch.wrapping_add(1);
                     inner.last_state_change = Instant::now();
-                    (true, true)
+                    (true, true, inner.epoch)
                 } else {
-                    (false, false)
+                    (false, false, inner.epoch)
                 }
             }
             CircuitState::HalfOpen => {
                 let max_probes = self.config.effective_half_open_probes();
                 if inner.active_probes < max_probes {
                     inner.active_probes += 1;
-                    (true, true)
+                    (true, true, inner.epoch)
                 } else {
-                    (false, false)
+                    (false, false, inner.epoch)
                 }
             }
         }
@@ -101,7 +103,7 @@ impl CircuitBreaker {
     /// Record a successful call.
     pub fn on_success(&self) {
         let mut inner = self.inner.lock();
-        if inner.active_probes > 0 {
+        if inner.state == CircuitState::HalfOpen && inner.active_probes > 0 {
             inner.active_probes -= 1;
         }
         inner.record_success(&self.config);
@@ -110,7 +112,7 @@ impl CircuitBreaker {
     /// Record a failed call.
     pub fn on_failure(&self) {
         let mut inner = self.inner.lock();
-        if inner.active_probes > 0 {
+        if inner.state == CircuitState::HalfOpen && inner.active_probes > 0 {
             inner.active_probes -= 1;
         }
         inner.record_failure(&self.config);
@@ -125,6 +127,7 @@ impl CircuitBreaker {
             inner.state = CircuitState::HalfOpen;
             inner.success_count = 0;
             inner.active_probes = 0;
+            inner.epoch = inner.epoch.wrapping_add(1);
             inner.last_state_change = Instant::now();
         }
         inner.state
