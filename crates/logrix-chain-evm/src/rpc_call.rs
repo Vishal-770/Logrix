@@ -42,12 +42,20 @@ impl EvmChainClient {
 
                         if let Some(err) = json_res.get("error") {
                             let err_msg = err.to_string();
-                            if err_msg.contains("more than")
+                            let is_range_limit = err_msg.contains("more than")
                                 || err_msg.contains("exceeded")
                                 || err_msg.contains("range")
-                            {
+                                || err_msg.contains("limit")
+                                || err_msg.contains("too large");
+
+                            if is_range_limit {
                                 self.chunker.record_failure();
+                                return Err(LogrixError::shrinkable(
+                                    ErrorSource::ChainRpc,
+                                    format!("RPC block range limit exceeded: {err_msg}"),
+                                ));
                             }
+
                             if attempt < self.retry_policy.max_attempts {
                                 attempt += 1;
                                 let delay = self.retry_policy.delay_for_attempt(attempt);

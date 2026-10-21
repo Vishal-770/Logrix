@@ -77,10 +77,23 @@ impl EvmChainClient {
             match matched {
                 Some(item) => {
                     if let Some(err) = item.get("error") {
+                        let err_msg = err.to_string();
+                        let is_range_limit = err_msg.contains("more than")
+                            || err_msg.contains("exceeded")
+                            || err_msg.contains("range")
+                            || err_msg.contains("limit")
+                            || err_msg.contains("too large");
+                        if is_range_limit {
+                            self.chunker.record_failure();
+                            return Err(LogrixError::shrinkable(
+                                ErrorSource::ChainRpc,
+                                format!("Batch sub-call range limit: {err_msg}"),
+                            ));
+                        }
                         return Err(LogrixError::new(
                             ErrorClass::Transient,
                             ErrorSource::ChainRpc,
-                            format!("Batch sub-call error: {err}"),
+                            format!("Batch sub-call error: {err_msg}"),
                         ));
                     }
                     results.push(item.get("result").cloned().unwrap_or(Value::Null));

@@ -73,6 +73,14 @@ impl AbiEventDecoder {
     }
 
     pub fn decode_log(&self, log: &EventLog) -> Option<DecodedEvent> {
+        self.decode_log_with_time(log, Utc::now())
+    }
+
+    pub fn decode_log_with_time(
+        &self,
+        log: &EventLog,
+        timestamp: chrono::DateTime<Utc>,
+    ) -> Option<DecodedEvent> {
         let topic0 = log.topics.first()?;
         let event = self.events.get(topic0)?;
 
@@ -113,7 +121,7 @@ impl AbiEventDecoder {
             tx_hash: format!("{:#x}", log.tx_hash),
             log_index: log.log_index,
             params,
-            timestamp: Utc::now(),
+            timestamp,
         })
     }
 }
@@ -122,7 +130,15 @@ static STANDARD_ERC20_DECODER: std::sync::LazyLock<AbiEventDecoder> =
     std::sync::LazyLock::new(AbiEventDecoder::standard_erc20);
 
 pub fn decode_erc20_transfer(chain_id: u64, log: &EventLog) -> Option<DecodedTransfer> {
-    let decoded = STANDARD_ERC20_DECODER.decode_log(log)?;
+    decode_erc20_transfer_with_time(chain_id, log, Utc::now())
+}
+
+pub fn decode_erc20_transfer_with_time(
+    chain_id: u64,
+    log: &EventLog,
+    timestamp: chrono::DateTime<Utc>,
+) -> Option<DecodedTransfer> {
+    let decoded = STANDARD_ERC20_DECODER.decode_log_with_time(log, timestamp)?;
     if decoded.event_name != "Transfer" {
         return None;
     }
@@ -140,6 +156,6 @@ pub fn decode_erc20_transfer(chain_id: u64, log: &EventLog) -> Option<DecodedTra
         from_address: from,
         to_address: to,
         amount,
-        timestamp: decoded.timestamp,
+        timestamp,
     })
 }

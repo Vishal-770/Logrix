@@ -1,5 +1,5 @@
 use crate::client::EvmChainClient;
-use crate::parser::{parse_block_envelope, parse_required_hash, parse_rpc_log};
+use crate::parser::{parse_block_envelope, parse_required_hash, try_parse_rpc_log};
 use alloy_primitives::{Address, B256};
 use async_trait::async_trait;
 use logrix_core::{
@@ -76,7 +76,10 @@ impl ChainPort for EvmChainClient {
             )
         })?;
 
-        let event_logs: Vec<EventLog> = logs_array.iter().map(parse_rpc_log).collect();
+        let mut event_logs = Vec::with_capacity(logs_array.len());
+        for item in logs_array {
+            event_logs.push(try_parse_rpc_log(item)?);
+        }
         debug!(
             from_block,
             to_block,
@@ -148,7 +151,10 @@ impl ChainPort for EvmChainClient {
             )
         })?;
 
-        let event_logs: Vec<EventLog> = logs_array.iter().map(parse_rpc_log).collect();
+        let mut event_logs = Vec::with_capacity(logs_array.len());
+        for item in logs_array {
+            event_logs.push(try_parse_rpc_log(item)?);
+        }
         let envelope = parse_block_envelope(block_res, event_logs, self.chain_id(), number)?;
         Ok(Some(envelope))
     }

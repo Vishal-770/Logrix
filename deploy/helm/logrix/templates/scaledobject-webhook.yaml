@@ -16,11 +16,20 @@ spec:
   minReplicaCount: {{ .Values.webhook.autoscaling.minReplicas }}
   maxReplicaCount: {{ .Values.webhook.autoscaling.maxReplicas }}
   triggers:
+    {{- if or (eq .Values.config.queueDriver "sqs") .Values.config.sqsWebhookUrl }}
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: {{ .Values.config.sqsWebhookUrl | quote }}
+        queueLength: {{ .Values.webhook.autoscaling.targetQueueDepth | default 50 | quote }}
+        awsRegion: {{ .Values.webhook.autoscaling.awsRegion | default "us-east-1" | quote }}
+        identityOwner: operator
+    {{- else }}
     - type: rabbitmq
       metadata:
         protocol: amqp
         queueName: "logrix.blocks.webhook"
         mode: QueueLength
         value: {{ .Values.webhook.autoscaling.targetQueueDepth | quote }}
-        host: {{ .Values.config.rabbitmqUrl | quote }}
+        host: {{ default (printf "amqp://logrix:logrixpassword@%s-rabbitmq:5672/%%2f" (include "logrix.fullname" .)) .Values.config.rabbitmqUrl | quote }}
+    {{- end }}
 {{- end }}

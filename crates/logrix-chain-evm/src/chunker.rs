@@ -19,15 +19,14 @@ pub struct AdaptiveChunker {
 
 impl AdaptiveChunker {
     pub fn new(initial_size: u64, min_size: u64, max_size: u64) -> Self {
-        Self {
-            current_size: AtomicU64::new(initial_size.clamp(min_size, max_size)),
+        Self::with_growth_params(
+            initial_size,
             min_size,
             max_size,
-            additive_step: 50,
-            consecutive_successes: AtomicU64::new(0),
-            success_threshold_to_grow: 3,
-            target_latency: Duration::from_millis(800),
-        }
+            crate::config::DEFAULT_CHUNK_ADDITIVE_STEP,
+            crate::config::DEFAULT_CHUNK_SUCCESS_THRESHOLD,
+            crate::config::DEFAULT_CHUNK_TARGET_LATENCY,
+        )
     }
 
     pub fn with_growth_params(

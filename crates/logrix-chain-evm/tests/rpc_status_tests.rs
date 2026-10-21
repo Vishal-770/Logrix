@@ -117,3 +117,19 @@ async fn test_rpc_call_2xx_missing_result_and_error_is_protocol_failure() {
     assert_eq!(client.chunker().chunk_size(), 50);
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn test_rpc_call_range_limit_error_returns_shrinkable_and_halves_chunk() {
+    let response_body = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"query returned more than 10000 results"}}"#;
+    let (url, hits) = spawn_mock_server(200, response_body).await;
+    let config = EvmClientConfig::default().with_chunk_bounds(100, 10, 200);
+    let client = EvmChainClient::new_with_config(ChainId::new(1), url, config);
+
+    let err = client.get_latest_block_number().await.unwrap_err();
+    assert_eq!(err.class, ErrorClass::Shrinkable);
+    assert_eq!(err.source, ErrorSource::ChainRpc);
+    assert!(err.message.contains("range limit exceeded"));
+    assert_eq!(client.chunker().chunk_size(), 50);
+    // Must immediately return Shrinkable without executing futile retries
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
