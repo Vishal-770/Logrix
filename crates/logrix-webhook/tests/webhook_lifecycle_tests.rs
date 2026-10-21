@@ -61,3 +61,74 @@ fn test_endpoint_with_custom_retries() {
     assert_eq!(ep.max_retries, 3);
     assert!(ep.is_active);
 }
+
+#[test]
+fn test_webhook_config_defaults_and_builder() {
+    let cfg = logrix_webhook::WebhookConfig::default();
+    assert_eq!(cfg.timeout, logrix_webhook::DEFAULT_TIMEOUT);
+    assert_eq!(cfg.max_retries, logrix_webhook::DEFAULT_MAX_RETRIES);
+    assert_eq!(
+        cfg.worker_idle_sleep,
+        logrix_webhook::DEFAULT_WORKER_IDLE_SLEEP
+    );
+    assert_eq!(
+        cfg.worker_error_backoff,
+        logrix_webhook::DEFAULT_WORKER_ERROR_BACKOFF
+    );
+    assert_eq!(
+        cfg.pool_idle_timeout,
+        logrix_webhook::DEFAULT_POOL_IDLE_TIMEOUT
+    );
+    assert_eq!(
+        cfg.pool_max_idle_per_host,
+        logrix_webhook::DEFAULT_POOL_MAX_IDLE_PER_HOST
+    );
+    assert_eq!(
+        cfg.max_concurrent_dispatches,
+        logrix_webhook::DEFAULT_MAX_CONCURRENT_DISPATCHES
+    );
+
+    let customized = cfg
+        .with_timeout(std::time::Duration::from_secs(12))
+        .with_max_retries(4)
+        .with_max_concurrent_dispatches(100)
+        .with_worker_idle_sleep(std::time::Duration::from_millis(50))
+        .with_worker_error_backoff(std::time::Duration::from_millis(250));
+
+    assert_eq!(customized.timeout, std::time::Duration::from_secs(12));
+    assert_eq!(customized.max_retries, 4);
+    assert_eq!(customized.max_concurrent_dispatches, 100);
+    assert_eq!(
+        customized.worker_idle_sleep,
+        std::time::Duration::from_millis(50)
+    );
+    assert_eq!(
+        customized.worker_error_backoff,
+        std::time::Duration::from_millis(250)
+    );
+}
+
+#[tokio::test]
+async fn test_concurrent_fan_out_does_not_block() {
+    let client = logrix_webhook::WebhookHttpClient::new(std::time::Duration::from_millis(100), 1);
+    let payload = logrix_core::domain::WebhookPayload::new(
+        "Transfer",
+        1,
+        serde_json::json!({ "from": "0x1", "to": "0x2" }),
+    );
+
+    let ep_dead = logrix_core::domain::WebhookEndpoint::with_retries(
+        "http://127.0.0.1:59998/webhook",
+        "whsec_dead",
+        vec!["Transfer".into()],
+        0,
+    );
+
+    // Endpoint dispatch fails cleanly without hanging
+    let start = std::time::Instant::now();
+    let res = client
+        .dispatch_with_retries(&ep_dead.url, &ep_dead.secret, &payload, 1)
+        .await;
+    assert!(!res.success);
+    assert!(start.elapsed() < std::time::Duration::from_secs(2));
+}
