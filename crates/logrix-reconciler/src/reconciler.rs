@@ -6,6 +6,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
 
+/// Default block lag threshold before gap reconciler triggers backfill (50 blocks).
+pub const DEFAULT_LAG_THRESHOLD: u64 = 50;
+
+/// Default reconciliation head offset behind chain head (1 block).
+pub const DEFAULT_HEAD_OFFSET: u64 = 1;
+
 /// Self-healing continuous gap reconciler.
 ///
 /// Runs periodically in the background to detect missing block gaps between the
@@ -38,7 +44,7 @@ impl GapReconciler {
             queue,
             chain_client,
             interval,
-            lag_threshold: 10,
+            lag_threshold: DEFAULT_LAG_THRESHOLD,
             chunk_size: None,
             last_dispatched_to: Arc::new(AtomicU64::new(0)),
             last_checkpoint_seen: Arc::new(AtomicU64::new(0)),
@@ -91,7 +97,7 @@ impl GapReconciler {
 
         // If checkpoint is far behind live chain head (> lag_threshold blocks)
         if latest_block > last_indexed + self.lag_threshold {
-            let to_block = latest_block.saturating_sub(1);
+            let to_block = latest_block.saturating_sub(DEFAULT_HEAD_OFFSET);
             let last_dispatched = self.last_dispatched_to.load(Ordering::Relaxed);
 
             let from_block = if last_dispatched > last_indexed {
@@ -138,6 +144,7 @@ impl GapReconciler {
                     self.queue
                         .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                         .await?;
+                    self.last_dispatched_to.store(chunk_end, Ordering::Relaxed);
                     cur = chunk_end + 1;
                 }
             } else {
@@ -150,9 +157,8 @@ impl GapReconciler {
                 self.queue
                     .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                     .await?;
+                self.last_dispatched_to.store(to_block, Ordering::Relaxed);
             }
-
-            self.last_dispatched_to.store(to_block, Ordering::Relaxed);
 
             return Ok(missing_count);
         }

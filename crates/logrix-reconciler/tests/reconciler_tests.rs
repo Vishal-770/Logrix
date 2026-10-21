@@ -74,7 +74,8 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
         mock_queue.clone(),
         mock_chain,
         Duration::from_secs(10),
-    );
+    )
+    .with_lag_threshold(10);
 
     let scheduled = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled, 24);
@@ -114,7 +115,8 @@ async fn test_gap_reconciler_deduplicates_in_flight_ranges() {
         mock_queue.clone(),
         mock_chain.clone(),
         Duration::from_secs(10),
-    );
+    )
+    .with_lag_threshold(10);
 
     let scheduled = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled, 24);
@@ -163,4 +165,12 @@ async fn test_gap_reconciler_graceful_shutdown() {
         .await
         .expect("Shutdown cleanly")
         .unwrap();
+}
+
+#[test]
+fn test_reconciler_default_constants() {
+    assert_eq!(logrix_reconciler::DEFAULT_LAG_THRESHOLD, 50);
+    assert_eq!(logrix_reconciler::DEFAULT_HEAD_OFFSET, 1);
+    assert_eq!(logrix_reconciler::DEFAULT_RING_BUFFER_CAPACITY, 128);
+    assert_eq!(logrix_reconciler::DEFAULT_MAX_REORG_DEPTH, 128);
 }

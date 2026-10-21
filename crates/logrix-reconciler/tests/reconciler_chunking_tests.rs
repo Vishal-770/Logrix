@@ -28,6 +28,7 @@ async fn test_gap_reconciler_respects_configured_chunk_size() {
         mock_chain,
         Duration::from_secs(10),
     )
+    .with_lag_threshold(10)
     .with_chunk_size(10);
 
     let scheduled = reconciler.check_and_reconcile().await.unwrap();
