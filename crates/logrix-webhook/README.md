@@ -193,10 +193,15 @@ webhooks:
 
 | Field | Default Value | Required? | Description |
 |---|---|---|---|
-| `timeout` | `5s` | Optional | Outgoing delivery HTTP client request timeout |
-| `max_retries` | `1` | Optional | Max consecutive delivery retries |
-| `worker_idle_sleep` | `100ms` | Optional | Sleep duration when webhook queue is empty |
-| `worker_error_backoff`| `500ms` | Optional | Backoff delay before retrying polling after network error |
+| `timeout` | `5s` (`DEFAULT_TIMEOUT`) | Optional | Outgoing delivery HTTP client request timeout |
+| `max_retries` | `1` (`DEFAULT_MAX_RETRIES`) | Optional | Max consecutive delivery retries |
+| `worker_idle_sleep` | `100ms` (`DEFAULT_WORKER_IDLE_SLEEP`) | Optional | Sleep duration when webhook queue is empty |
+| `worker_error_backoff`| `500ms` (`DEFAULT_WORKER_ERROR_BACKOFF`) | Optional | Backoff delay before retrying polling after network error |
+| `pool_idle_timeout` | `90s` (`DEFAULT_POOL_IDLE_TIMEOUT`) | Optional | HTTP connection pool idle connection timeout |
+| `pool_max_idle_per_host` | `10` (`DEFAULT_POOL_MAX_IDLE_PER_HOST`) | Optional | Maximum idle TCP connections preserved per destination host |
+| `max_concurrent_dispatches` | `50` (`DEFAULT_MAX_CONCURRENT_DISPATCHES`) | Optional | Maximum simultaneous outbound HTTP dispatches governed by semaphore |
+| `retry_initial_delay` | `200ms` (`DEFAULT_RETRY_INITIAL_DELAY`) | Optional | Initial delay for exponential retry backoff |
+| `retry_max_delay` | `4s` (`DEFAULT_RETRY_MAX_DELAY`) | Optional | Maximum delay ceiling for retry backoff |
 
 ---
 

@@ -4075,6 +4075,7 @@ version = "0.7.3"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "hex",
  "hmac 0.12.1",
  "logrix-core",

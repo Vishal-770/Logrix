@@ -42,7 +42,7 @@ impl WebhookDispatcherService {
         default_secret: impl Into<String>,
         config: crate::config::WebhookConfig,
     ) -> Self {
-        let client = WebhookHttpClient::new(config.timeout, config.max_retries);
+        let client = WebhookHttpClient::with_config(&config);
         Self {
             queue,
             store,
@@ -131,37 +131,39 @@ impl WebhookDispatcherService {
         tokio::pin!(shutdown);
 
         loop {
+            // Check if shutdown signal already received before picking up new work
             tokio::select! {
                 biased;
                 _ = &mut shutdown => {
-                    info!("WebhookDispatcherService received shutdown signal, draining in-flight work");
+                    info!("WebhookDispatcherService received shutdown signal, exiting cleanly");
                     break;
                 }
-                res = self.process_one() => {
-                    match res {
-                        Ok(processed) => {
-                            if !processed {
-                                tokio::select! {
-                                    biased;
-                                    _ = &mut shutdown => {
-                                         info!("WebhookDispatcherService received shutdown signal during sleep");
-                                         break;
-                                     }
-                                     _ = tokio::time::sleep(self.config.worker_idle_sleep) => {}
-                                 }
+                else => {}
+            }
+
+            // Execute process_one to completion without mid-execution cancellation
+            match self.process_one().await {
+                Ok(processed) => {
+                    if !processed {
+                        tokio::select! {
+                           biased;
+                           _ = &mut shutdown => {
+                                info!("WebhookDispatcherService received shutdown signal during sleep");
+                                break;
                             }
+                            _ = tokio::time::sleep(self.config.worker_idle_sleep) => {}
                         }
-                        Err(e) => {
-                            warn!(error = %e, "Error processing webhook queue item");
-                            tokio::select! {
-                                biased;
-                                _ = &mut shutdown => {
-                                    info!("WebhookDispatcherService received shutdown signal during error backoff");
-                                    break;
-                                }
-                                _ = tokio::time::sleep(self.config.worker_error_backoff) => {}
-                            }
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Error processing webhook queue item");
+                    tokio::select! {
+                        biased;
+                        _ = &mut shutdown => {
+                            info!("WebhookDispatcherService received shutdown signal during error backoff");
+                            break;
                         }
+                        _ = tokio::time::sleep(self.config.worker_error_backoff) => {}
                     }
                 }
             }

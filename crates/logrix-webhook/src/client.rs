@@ -17,11 +17,15 @@ pub struct DeliveryResult {
     pub latency_ms: u64,
 }
 
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
 /// Outgoing HTTP client for secure webhook dispatch.
 #[derive(Clone)]
 pub struct WebhookHttpClient {
     client: Client,
     retry_policy: RetryPolicy,
+    semaphore: Arc<Semaphore>,
 }
 
 impl Default for WebhookHttpClient {
@@ -32,22 +36,32 @@ impl Default for WebhookHttpClient {
 
 impl WebhookHttpClient {
     pub fn new(timeout: Duration, max_retries: u32) -> Self {
+        Self::with_config(&crate::config::WebhookConfig {
+            timeout,
+            max_retries,
+            ..Default::default()
+        })
+    }
+
+    pub fn with_config(config: &crate::config::WebhookConfig) -> Self {
         let client = Client::builder()
-            .timeout(timeout)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .pool_max_idle_per_host(10)
+            .timeout(config.timeout)
+            .pool_idle_timeout(config.pool_idle_timeout)
+            .pool_max_idle_per_host(config.pool_max_idle_per_host)
             .build()
             .expect("build reqwest client");
 
         let retry_policy = RetryPolicy::new(
-            max_retries.max(1),
-            Duration::from_millis(200),
-            Duration::from_secs(4),
+            config.max_retries.max(1),
+            config.retry_initial_delay,
+            config.retry_max_delay,
         );
 
+        let concurrency = config.max_concurrent_dispatches.max(1);
         Self {
             client,
             retry_policy,
+            semaphore: Arc::new(Semaphore::new(concurrency)),
         }
     }
 
@@ -60,7 +74,19 @@ impl WebhookHttpClient {
         max_attempts: u32,
     ) -> DeliveryResult {
         let delivery_id = Uuid::new_v4();
-        let serialized = serde_json::to_vec(payload).unwrap_or_default();
+        let serialized = match serde_json::to_vec(payload) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return DeliveryResult {
+                    delivery_id,
+                    status_code: None,
+                    success: false,
+                    attempts_taken: 0,
+                    error_message: Some(format!("Failed to serialize webhook payload: {e}")),
+                    latency_ms: 0,
+                };
+            }
+        };
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -87,7 +113,15 @@ impl WebhookHttpClient {
                 .header("X-Logrix-Signature", &signature)
                 .body(serialized.clone());
 
-            match req.send().await {
+            let send_result = match self.semaphore.acquire().await {
+                Ok(_permit) => req.send().await,
+                Err(e) => {
+                    last_error = Some(format!("Concurrency semaphore closed: {e}"));
+                    break;
+                }
+            };
+
+            match send_result {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     last_status = Some(status);
