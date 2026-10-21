@@ -23,6 +23,9 @@ pub enum ContinuityStatus {
     GapDetected { from_block: u64, to_block: u64 },
 }
 
+/// Default floor for maximum reorg ancestor walk depth (128 blocks).
+pub const DEFAULT_MAX_REORG_DEPTH: u64 = 128;
+
 /// Blockchain reorganization detector coordinating in-memory buffer and RPC ancestor walking.
 #[derive(Clone)]
 pub struct ReorgDetector {
@@ -42,7 +45,7 @@ impl ReorgDetector {
             chain_id,
             buffer: Arc::new(RwLock::new(RollingBlockBuffer::new(buffer_capacity))),
             chain_client,
-            max_reorg_depth: (buffer_capacity * 2).max(128) as u64,
+            max_reorg_depth: (buffer_capacity * 2).max(DEFAULT_MAX_REORG_DEPTH as usize) as u64,
         }
     }
 

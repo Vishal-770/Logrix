@@ -2,6 +2,9 @@ use alloy_primitives::B256;
 use logrix_core::domain::BlockRef;
 use std::collections::VecDeque;
 
+/// Default rolling block buffer capacity for EVM finality depth (128 blocks).
+pub const DEFAULT_RING_BUFFER_CAPACITY: usize = 128;
+
 /// Ring buffer holding the last `capacity` blocks (default 128) for $O(1)$ reorg detection.
 #[derive(Debug, Clone)]
 pub struct RollingBlockBuffer {
@@ -19,7 +22,7 @@ impl RollingBlockBuffer {
 
     /// Default buffer sized for standard EVM finality depth (128 blocks).
     pub fn default_depth() -> Self {
-        Self::new(128)
+        Self::new(DEFAULT_RING_BUFFER_CAPACITY)
     }
 
     /// Push a new block header reference into the buffer.
