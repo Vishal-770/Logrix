@@ -46,12 +46,12 @@ spec:
             {{- end }}
           livenessProbe:
             exec:
-              command: ["/bin/sh", "-c", "pgrep -f logrix || exit 1"]
+              command: ["/bin/sh", "-c", "pidof logrix || exit 1"]
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             exec:
-              command: ["/bin/sh", "-c", "pgrep -f logrix || exit 1"]
+              command: ["/bin/sh", "-c", "pidof logrix || exit 1"]
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

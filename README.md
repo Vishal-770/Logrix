@@ -118,22 +118,34 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
 
 3. **Configure Kubernetes Secret Vault:**
    ```bash
-   DB_URL=$(aws secretsmanager get-secret-value \
+   RAW_DB_URL=$(aws secretsmanager get-secret-value \
      --region <aws-region> \
      --secret-id "<rds-secret-arn>" \
      --query SecretString --output text | jq -r .url)
 
+   # Strip ?sslmode=require for internal VPC connectivity
+   CLEAN_DB_URL="${RAW_DB_URL%\?*}"
+
    kubectl create namespace logrix
    kubectl create secret generic logrix-secrets -n logrix \
-     --from-literal=DATABASE_URL="$DB_URL" \
+     --from-literal=DATABASE_URL="$CLEAN_DB_URL" \
      --from-literal=RPC_URL="<primary-rpc-url>" \
      --from-literal=RPC_FALLBACK_URLS="<fallback-rpc-urls>"
    ```
 
-4. **Deploy from Remote OCI Helm Chart:**
+4. **Run Initial Database Migrations:**
+   ```bash
+   kubectl run logrix-migrator --rm -i --restart=Never \
+     --image=ghcr.io/vishal-770/logrix:0.8.0 \
+     -n logrix \
+     --env="DATABASE_URL=$CLEAN_DB_URL" \
+     -- command logrix migrate
+   ```
+
+5. **Deploy from Remote OCI Helm Chart:**
    ```bash
    helm upgrade --install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     --version 0.8.1 \
+     --version 0.8.2 \
      -n logrix \
      --disable-openapi-validation \
      --set config.existingSecret="logrix-secrets" \
@@ -148,6 +160,20 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
      --set ingester.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<ingester_irsa_arn>" \
      --set processor.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
      --set api.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<api_irsa_arn>"
+   ```
+
+6. **Verify Indexing & GraphQL Endpoints:**
+   ```bash
+   # Verify all pods are 1/1 Running
+   kubectl get pods -n logrix
+
+   # Port-forward and query the GraphQL API
+   kubectl port-forward svc/my-indexer-logrix-api 4000:4000 -n logrix
+
+   # In another terminal:
+   curl -s -X POST http://localhost:4000/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ health { status version } checkpoint(chainId: 1) { chainId lastIndexedBlock lastBlockHash } }"}'
    ```
 
 ---
