@@ -39,21 +39,68 @@ kubectl port-forward svc/logrix-api 4000:4000 -n logrix
 
 ## 3. Production Deployment: AWS EKS with Aurora, SQS, and S3
 
-For production cloud environments, use `values-aws.yaml` to connect to managed AWS infrastructure (Amazon Aurora PostgreSQL, Amazon SQS, Amazon S3, and AWS IAM IRSA):
+In production cloud environments, Logrix runs exclusively on managed AWS infrastructure (Amazon Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3) with zero local container dependencies. Live deployments strictly consume the remote published OCI Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
 
+### Step 1: Connect `kubectl` to EKS Cluster
 ```bash
-helm install logrix deploy/helm/logrix \
-  -n logrix \
-  -f deploy/helm/values-aws.yaml \
-  --set config.existingSecret="logrix-secrets"
+aws eks update-kubeconfig --region <aws-region> --name <cluster-name>
+kubectl get nodes -o wide
 ```
 
-The referenced Kubernetes Secret must already exist (or be synchronized by an
-External Secrets controller). At minimum, provide `DATABASE_URL`,
-`RABBITMQ_URL` when RabbitMQ is used, and `WEBHOOK_SECRET` when webhook
-delivery is enabled. Keep RPC provider tokens in a Secret-backed environment
-variable and reference them from `config.rpcUrl`, for example:
-`https://provider.example/${RPC_API_TOKEN}`.
+### Step 2: Install KEDA Autoscaler (Required for SQS queue-driven scaling)
+If queue-driven dynamic worker scaling (`processor.keda.enabled: true`) is enabled, ensure KEDA CRDs are present on the cluster:
+```bash
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+helm install keda kedacore/keda --namespace keda --create-namespace
+```
+
+### Step 3: Create Kubernetes Secrets
+Kubernetes injects credentials as environment variables (`DATABASE_URL`, `RPC_URL`) into pods. Keys must use uppercase and underscores so standard POSIX shells and Rust `clap` parse them accurately:
+
+```bash
+# 1. Fetch Aurora connection string from AWS Secrets Manager
+DB_URL=$(aws secretsmanager get-secret-value \
+  --region <aws-region> \
+  --secret-id "<rds-secret-arn>" \
+  --query SecretString --output text | jq -r .url)
+
+# 2. Create namespace and secret vault
+kubectl create namespace logrix
+
+kubectl create secret generic logrix-secrets -n logrix \
+  --from-literal=DATABASE_URL="$DB_URL" \
+  --from-literal=RPC_URL="https://eth-mainnet.g.alchemy.com/v2/<API_KEY>" \
+  --from-literal=RPC_FALLBACK_URLS="https://rpc.payload.de,https://eth.llamarpc.com"
+```
+
+### Step 4: Deploy Using Published Remote OCI Helm Chart
+Deploy from the published OCI registry, passing dynamic cloud resource endpoints without baking infrastructure identifiers into git:
+
+```bash
+helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
+  --version 0.8.1 \
+  -n logrix \
+  --disable-openapi-validation \
+  --set config.existingSecret="logrix-secrets" \
+  --set config.chainId=1 \
+  --set config.queueDriver=sqs \
+  --set config.sqsLiveUrl="<sqs_live_queue_url>" \
+  --set config.sqsBackfillUrl="<sqs_backfill_queue_url>" \
+  --set config.s3Bucket="<s3_bucket_name>" \
+  --set processor.keda.enabled=true \
+  --set processor.keda.sqs.queueUrl="<sqs_live_queue_url>" \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
+  --set ingester.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<ingester_irsa_arn>" \
+  --set processor.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
+  --set api.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<api_irsa_arn>"
+```
+
+### Troubleshooting & Common Gotchas
+- **`invalid value '1e+06' for '--wasm-fuel-limit'`**: Ensure `WASM_FUEL_LIMIT` is formatted as an integer string (`"1000000"`). Chart 0.8.1 enforces integer float formatting in `configmap.yaml`.
+- **EKS Control Plane Client Timeout**: If Helm hangs or emits `context deadline exceeded` while reading discovery bodies, pass `--disable-openapi-validation`.
+- **Pod CrashLoopBackOff on `localhost:5432`**: Verify `logrix-secrets` contains `DATABASE_URL` (uppercase) pointing to Aurora, not lowercase `database-url`.
+
 
 ---
 

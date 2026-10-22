@@ -97,7 +97,7 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 
 ### Option B: AWS Production Deployment (EKS + Terraform)
 
-Production architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3.
+Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3. Live deployments strictly consume the remote published OCI Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
 
 1. **Provision Infrastructure (Terraform):**
    ```bash
@@ -106,14 +106,48 @@ Production architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, 
    terraform apply
    ```
 
-2. **Deploy to EKS:**
+2. **Connect EKS & Install KEDA Autoscaler:**
    ```bash
    aws eks update-kubeconfig --name <cluster-name> --region <aws-region>
 
-   helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     -f deploy/helm/values-aws.yaml \
-     -f indexer-values.yaml \
-     --set config.existingSecret=logrix-secrets
+   # Install KEDA for SQS queue-driven processor autoscaling
+   helm repo add kedacore https://kedacore.github.io/charts
+   helm repo update
+   helm install keda kedacore/keda --namespace keda --create-namespace
+   ```
+
+3. **Configure Kubernetes Secret Vault:**
+   ```bash
+   DB_URL=$(aws secretsmanager get-secret-value \
+     --region <aws-region> \
+     --secret-id "<rds-secret-arn>" \
+     --query SecretString --output text | jq -r .url)
+
+   kubectl create namespace logrix
+   kubectl create secret generic logrix-secrets -n logrix \
+     --from-literal=DATABASE_URL="$DB_URL" \
+     --from-literal=RPC_URL="<primary-rpc-url>" \
+     --from-literal=RPC_FALLBACK_URLS="<fallback-rpc-urls>"
+   ```
+
+4. **Deploy from Remote OCI Helm Chart:**
+   ```bash
+   helm upgrade --install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
+     --version 0.8.1 \
+     -n logrix \
+     --disable-openapi-validation \
+     --set config.existingSecret="logrix-secrets" \
+     --set config.chainId=1 \
+     --set config.queueDriver=sqs \
+     --set config.sqsLiveUrl="<sqs_live_queue_url>" \
+     --set config.sqsBackfillUrl="<sqs_backfill_queue_url>" \
+     --set config.s3Bucket="<s3_bucket_name>" \
+     --set processor.keda.enabled=true \
+     --set processor.keda.sqs.queueUrl="<sqs_live_queue_url>" \
+     --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
+     --set ingester.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<ingester_irsa_arn>" \
+     --set processor.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
+     --set api.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<api_irsa_arn>"
    ```
 
 ---
