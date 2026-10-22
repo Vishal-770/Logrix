@@ -1,3 +1,5 @@
+import * as path from "path";
+
 const ENV_REFERENCE_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const PURE_ENV_REFERENCE_PATTERN = /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/;
 
@@ -179,4 +181,24 @@ export function mapIndexingToHelmValues(values: any, idx: any = {}): void {
       values.config[helmKey] = idx[sdkKey];
     }
   }
+}
+
+/**
+ * Resolves the primary AssemblyScript handler source entry point for an indexer project.
+ * Checks mapping.source, fallback to mapping.file (if ending in .ts), or default "src/mapping.ts".
+ */
+export function resolveMappingSource(projectDir: string, config?: any): string {
+  const dataSources = config?.dataSources;
+  if (Array.isArray(dataSources) && dataSources.length > 0) {
+    const ds = dataSources[0];
+    const source = ds?.mapping?.source;
+    if (typeof source === "string" && source.trim().length > 0) {
+      return path.resolve(projectDir, source.trim());
+    }
+    const file = ds?.mapping?.file;
+    if (typeof file === "string" && file.trim().endsWith(".ts")) {
+      return path.resolve(projectDir, file.trim());
+    }
+  }
+  return path.resolve(projectDir, "src/mapping.ts");
 }

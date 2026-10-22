@@ -2,17 +2,20 @@
   "name": "@logrix/sdk",
   "version": "0.8.0",
   "description": "Official CLI and AssemblyScript runtime library for Logrix blockchain indexers",
-  "main": "index.ts",
+  "main": "./dist/api.js",
+  "types": "./dist/api.d.ts",
   "bin": {
     "logrix": "dist/index.js"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js",
       "default": "./index.ts"
     },
     "./as": "./index.ts",
+    "./runtime": "./src/runtime/index.ts",
+    "./testing": "./src/testing/index.ts",
     "./package.json": "./package.json"
   },
   "engines": {

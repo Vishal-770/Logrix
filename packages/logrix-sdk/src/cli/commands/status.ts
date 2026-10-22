@@ -125,18 +125,31 @@ export function statusCommand(): Command {
       );
       ui.label("Latest Block:", pc.bold(pc.green(`#${latestBlock.toLocaleString()}`)));
 
-      if (chainRes.result) {
-        const reportedChainId = parseInt(chainRes.result, 16);
-        const match = configuredChainId === reportedChainId;
-        if (!match) {
-          throw new CliError(
-            `Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`,
-            "The configured network in logrix.yaml does not match the connected node.",
-            "Update network.chainId or network.rpcUrl in logrix.yaml"
-          );
-        }
-        ui.label("Chain ID Match:", pc.green(`[OK] Matched (#${reportedChainId})`));
+      if (chainRes.error || !chainRes.result) {
+        throw new CliError(
+          "Failed to query chain ID from RPC endpoint",
+          typeof chainRes.error === "object" ? JSON.stringify(chainRes.error) : String(chainRes.error || "No result from eth_chainId"),
+          "Verify the RPC endpoint is functioning and supports standard eth_chainId method"
+        );
       }
+
+      const reportedChainId = parseInt(chainRes.result, 16);
+      if (isNaN(reportedChainId)) {
+        throw new CliError(
+          "Invalid chain ID returned from RPC endpoint",
+          `eth_chainId returned non-hex value '${chainRes.result}'`,
+          "Verify RPC endpoint response format"
+        );
+      }
+
+      if (configuredChainId !== reportedChainId) {
+        throw new CliError(
+          `Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`,
+          "The configured network in logrix.yaml does not match the connected node.",
+          "Update network.chainId or network.rpcUrl in logrix.yaml"
+        );
+      }
+      ui.label("Chain ID Match:", pc.green(`[OK] Matched (#${reportedChainId})`));
 
       // Check Fallback RPCs
       const fallbackUrls = config.network?.fallbackRpcUrls || [];
@@ -225,7 +238,7 @@ export function statusCommand(): Command {
         const whTable = ui.table(["Endpoint URL", "Subscribed Events", "Max Retries"]);
         for (const wh of webhooks) {
           whTable.push([
-            pc.cyan(wh.url),
+            pc.cyan(maskUrl(wh.url)),
             (wh.events || ["reorg"]).join(", "),
             String(wh.maxRetries || 3),
           ]);

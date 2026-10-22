@@ -130,14 +130,17 @@ function statusCommand() {
         spinner.succeed("Blockchain endpoints reachable");
         ui_1.ui.label("Primary Status:", `${ui_1.ui.statusBadge("ONLINE")} (${ui_1.ui.latency(blockRes.latencyMs)})`);
         ui_1.ui.label("Latest Block:", picocolors_1.default.bold(picocolors_1.default.green(`#${latestBlock.toLocaleString()}`)));
-        if (chainRes.result) {
-            const reportedChainId = parseInt(chainRes.result, 16);
-            const match = configuredChainId === reportedChainId;
-            if (!match) {
-                throw new errors_1.CliError(`Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`, "The configured network in logrix.yaml does not match the connected node.", "Update network.chainId or network.rpcUrl in logrix.yaml");
-            }
-            ui_1.ui.label("Chain ID Match:", picocolors_1.default.green(`[OK] Matched (#${reportedChainId})`));
+        if (chainRes.error || !chainRes.result) {
+            throw new errors_1.CliError("Failed to query chain ID from RPC endpoint", typeof chainRes.error === "object" ? JSON.stringify(chainRes.error) : String(chainRes.error || "No result from eth_chainId"), "Verify the RPC endpoint is functioning and supports standard eth_chainId method");
         }
+        const reportedChainId = parseInt(chainRes.result, 16);
+        if (isNaN(reportedChainId)) {
+            throw new errors_1.CliError("Invalid chain ID returned from RPC endpoint", `eth_chainId returned non-hex value '${chainRes.result}'`, "Verify RPC endpoint response format");
+        }
+        if (configuredChainId !== reportedChainId) {
+            throw new errors_1.CliError(`Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`, "The configured network in logrix.yaml does not match the connected node.", "Update network.chainId or network.rpcUrl in logrix.yaml");
+        }
+        ui_1.ui.label("Chain ID Match:", picocolors_1.default.green(`[OK] Matched (#${reportedChainId})`));
         // Check Fallback RPCs
         const fallbackUrls = config.network?.fallbackRpcUrls || [];
         if (fallbackUrls.length > 0) {
@@ -216,7 +219,7 @@ function statusCommand() {
             const whTable = ui_1.ui.table(["Endpoint URL", "Subscribed Events", "Max Retries"]);
             for (const wh of webhooks) {
                 whTable.push([
-                    picocolors_1.default.cyan(wh.url),
+                    picocolors_1.default.cyan(maskUrl(wh.url)),
                     (wh.events || ["reorg"]).join(", "),
                     String(wh.maxRetries || 3),
                 ]);

@@ -6,6 +6,7 @@ import pc from "picocolors";
 import { parse as parseYaml } from "yaml";
 import { ui } from "../ui";
 import { CliError } from "../errors";
+import { resolveMappingSource } from "../manifest_converter";
 
 interface MappingSource {
   file: string;
@@ -57,27 +58,13 @@ export function buildCommand(): Command {
       // Ensure output directory exists
       fs.mkdirSync(path.dirname(outFile), { recursive: true });
 
-      // Prefer logrix.yaml mapping.source if present, falling back to entryFile
+      // Resolve handler source entry point
       const configPath = path.join(projectDir, "logrix.yaml");
       let resolvedEntry = entryFile;
       if (fs.existsSync(configPath)) {
         try {
-          const config = parseYaml(
-            fs.readFileSync(configPath, "utf-8")
-          ) as any;
-          const mappingSource = config?.dataSources?.[0]?.mapping?.source;
-          const mappingFile = config?.dataSources?.[0]?.mapping?.file;
-          if (mappingSource) {
-            const fromSource = path.resolve(projectDir, mappingSource);
-            if (fs.existsSync(fromSource)) {
-              resolvedEntry = fromSource;
-            }
-          } else if (mappingFile && mappingFile.endsWith(".ts")) {
-            const fromConfig = path.resolve(projectDir, mappingFile);
-            if (fs.existsSync(fromConfig)) {
-              resolvedEntry = fromConfig;
-            }
-          }
+          const config = parseYaml(fs.readFileSync(configPath, "utf-8")) as any;
+          resolvedEntry = resolveMappingSource(projectDir, config);
         } catch {
           // fallback to opts.entry
         }

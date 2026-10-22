@@ -16,10 +16,20 @@ pub async fn index_envelope(
     envelope: &BlockEnvelope,
     engine_opt: Option<&UserLogicEngine>,
 ) -> LogrixResult<()> {
-    save_token_transfers(store, chain_id_u64, &envelope.logs).await?;
+    let active_logs: Vec<EventLog> = match engine_opt {
+        Some(engine) => envelope
+            .logs
+            .iter()
+            .filter(|l| engine.is_log_active(l))
+            .cloned()
+            .collect(),
+        None => envelope.logs.clone(),
+    };
+
+    save_token_transfers(store, chain_id_u64, &active_logs).await?;
 
     if let Some(engine) = engine_opt {
-        process_entities(store, engine, chain_id_u64, &envelope.logs).await?;
+        process_entities(store, engine, chain_id_u64, &active_logs).await?;
     }
 
     let checkpoint = Checkpoint::try_new(
@@ -29,7 +39,7 @@ pub async fn index_envelope(
         true,
     )?;
     store
-        .write_events_and_checkpoint(&envelope.logs, &checkpoint)
+        .write_events_and_checkpoint(&active_logs, &checkpoint)
         .await?;
 
     if let Some(blob) = blob_store {
@@ -55,14 +65,25 @@ pub async fn index_logs_batch(
     logs: &[EventLog],
     engine_opt: Option<&UserLogicEngine>,
 ) -> LogrixResult<()> {
-    save_token_transfers(store, chain_id.as_u64(), logs).await?;
+    let active_logs: Vec<EventLog> = match engine_opt {
+        Some(engine) => logs
+            .iter()
+            .filter(|l| engine.is_log_active(l))
+            .cloned()
+            .collect(),
+        None => logs.to_vec(),
+    };
+
+    save_token_transfers(store, chain_id.as_u64(), &active_logs).await?;
 
     if let Some(engine) = engine_opt {
-        process_entities(store, engine, chain_id.as_u64(), logs).await?;
+        process_entities(store, engine, chain_id.as_u64(), &active_logs).await?;
     }
 
     let checkpoint = Checkpoint::try_new(chain_id, to_block, to_block_hash, true)?;
-    store.write_events_and_checkpoint(logs, &checkpoint).await?;
+    store
+        .write_events_and_checkpoint(&active_logs, &checkpoint)
+        .await?;
 
     Ok(())
 }

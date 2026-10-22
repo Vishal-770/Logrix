@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { ui } from "../ui";
 import { LogrixConfigSchema } from "../schema";
 import { CliError } from "../errors";
+import { resolveMappingSource } from "../manifest_converter";
 
 export function validateCommand(): Command {
   const cmd = new Command("validate");
@@ -125,12 +126,15 @@ export function validateCommand(): Command {
 
           // Check handler mapping file
           totalChecks++;
-          const mappingSrc = path.resolve(projectDir, "src/mapping.ts");
+          const mappingSrc = ds.mapping?.source
+            ? path.resolve(projectDir, ds.mapping.source)
+            : resolveMappingSource(projectDir, config);
+          const relSource = path.relative(projectDir, mappingSrc);
           if (!fs.existsSync(mappingSrc)) {
-            ui.error(`${dsName}: Handler missing`, "Entry point not found at src/mapping.ts");
+            ui.error(`${dsName}: Handler missing`, `Entry point not found at ${relSource}`);
             hasErrors = true;
           } else {
-            ui.success(`${dsName}: Handler entry`, "src/mapping.ts exists");
+            ui.success(`${dsName}: Handler entry`, `${relSource} exists`);
             passedChecks++;
           }
 

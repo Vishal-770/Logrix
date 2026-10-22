@@ -672,10 +672,36 @@ export function formatUnits(value: BigInt, decimals: i32 = 18): string {
 }
 
 // ---------------------------------------------------------------------------
-// Internal Arbitrary-Precision Decimal Helpers
+// Internal Arbitrary-Precision Decimal Helpers (Sign-Aware)
 // ---------------------------------------------------------------------------
 
-function addDecimal(a: string, b: string): string {
+export function escapeJson(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c == '"') {
+      out += '\\"';
+    } else if (c == '\\') {
+      out += "\\\\";
+    } else if (c == "\n") {
+      out += "\\n";
+    } else if (c == "\r") {
+      out += "\\r";
+    } else if (c == "\t") {
+      out += "\\t";
+    } else {
+      const code = s.charCodeAt(i);
+      if (code < 32) {
+        out += "\\u00" + (code < 16 ? "0" : "") + code.toString(16);
+      } else {
+        out += c;
+      }
+    }
+  }
+  return out;
+}
+
+function addUnsigned(a: string, b: string): string {
   let i = a.length - 1;
   let j = b.length - 1;
   let carry = 0;
@@ -693,7 +719,7 @@ function addDecimal(a: string, b: string): string {
   return res.length > 0 ? res : "0";
 }
 
-function cmpDecimal(a: string, b: string): i32 {
+function cmpUnsigned(a: string, b: string): i32 {
   if (a.length > b.length) return 1;
   if (a.length < b.length) return -1;
   for (let i = 0; i < a.length; i++) {
@@ -705,10 +731,10 @@ function cmpDecimal(a: string, b: string): i32 {
   return 0;
 }
 
-function subDecimal(a: string, b: string): string {
-  const cmp = cmpDecimal(a, b);
+function subUnsigned(a: string, b: string): string {
+  const cmp = cmpUnsigned(a, b);
   if (cmp == 0) return "0";
-  if (cmp < 0) return "-" + subDecimal(b, a);
+  if (cmp < 0) return "-" + subUnsigned(b, a);
 
   let i = a.length - 1;
   let j = b.length - 1;
@@ -736,7 +762,7 @@ function subDecimal(a: string, b: string): string {
   return res.slice(start);
 }
 
-function mulDecimal(a: string, b: string): string {
+function mulUnsigned(a: string, b: string): string {
   if (a == "0" || b == "0") return "0";
   const lenA = a.length;
   const lenB = b.length;
@@ -762,12 +788,9 @@ function mulDecimal(a: string, b: string): string {
   return res.length > 0 ? res : "0";
 }
 
-function divDecimal(a: string, b: string): string {
-  if (b == "0" || b.length == 0) {
-    unreachable(); // EVM division by zero must trap
-  }
-  if (cmpDecimal(a, b) < 0) return "0";
-  if (cmpDecimal(a, b) == 0) return "1";
+function divUnsigned(a: string, b: string): string {
+  if (cmpUnsigned(a, b) < 0) return "0";
+  if (cmpUnsigned(a, b) == 0) return "1";
 
   let quotient = "";
   let remainder = "";
@@ -781,8 +804,8 @@ function divDecimal(a: string, b: string): string {
     remainder = remainder.slice(start);
 
     let count = 0;
-    while (cmpDecimal(remainder, b) >= 0) {
-      remainder = subDecimal(remainder, b);
+    while (cmpUnsigned(remainder, b) >= 0) {
+      remainder = subUnsigned(remainder, b);
       count++;
     }
     quotient += count.toString();
@@ -795,7 +818,74 @@ function divDecimal(a: string, b: string): string {
   return quotient.slice(start);
 }
 
-function decimalToHex(dec: string): string {
+function cmpDecimal(a: string, b: string): i32 {
+  if (a == b) return 0;
+  const aNeg = a.startsWith("-");
+  const bNeg = b.startsWith("-");
+  if (aNeg && !bNeg) return -1;
+  if (!aNeg && bNeg) return 1;
+  if (aNeg && bNeg) {
+    return -cmpUnsigned(a.slice(1), b.slice(1));
+  }
+  return cmpUnsigned(a, b);
+}
+
+function addDecimal(a: string, b: string): string {
+  const aNeg = a.startsWith("-");
+  const bNeg = b.startsWith("-");
+
+  if (aNeg && bNeg) {
+    const sum = addUnsigned(a.slice(1), b.slice(1));
+    return sum == "0" ? "0" : "-" + sum;
+  }
+  if (aNeg && !bNeg) {
+    const aAbs = a.slice(1);
+    const cmp = cmpUnsigned(b, aAbs);
+    if (cmp == 0) return "0";
+    if (cmp > 0) return subUnsigned(b, aAbs);
+    return "-" + subUnsigned(aAbs, b);
+  }
+  if (!aNeg && bNeg) {
+    const bAbs = b.slice(1);
+    const cmp = cmpUnsigned(a, bAbs);
+    if (cmp == 0) return "0";
+    if (cmp > 0) return subUnsigned(a, bAbs);
+    return "-" + subUnsigned(bAbs, a);
+  }
+  return addUnsigned(a, b);
+}
+
+function subDecimal(a: string, b: string): string {
+  const bNegated = b.startsWith("-") ? b.slice(1) : (b == "0" ? "0" : "-" + b);
+  return addDecimal(a, bNegated);
+}
+
+function mulDecimal(a: string, b: string): string {
+  if (a == "0" || b == "0") return "0";
+  const aNeg = a.startsWith("-");
+  const bNeg = b.startsWith("-");
+  const aAbs = aNeg ? a.slice(1) : a;
+  const bAbs = bNeg ? b.slice(1) : b;
+  const prod = mulUnsigned(aAbs, bAbs);
+  if (prod == "0") return "0";
+  return (aNeg != bNeg) ? "-" + prod : prod;
+}
+
+function divDecimal(a: string, b: string): string {
+  const aNeg = a.startsWith("-");
+  const bNeg = b.startsWith("-");
+  const aAbs = aNeg ? a.slice(1) : a;
+  const bAbs = bNeg ? b.slice(1) : b;
+
+  if (bAbs == "0" || bAbs.length == 0) {
+    unreachable(); // EVM division by zero must trap
+  }
+  const quot = divUnsigned(aAbs, bAbs);
+  if (quot == "0") return "0";
+  return (aNeg != bNeg) ? "-" + quot : quot;
+}
+
+function decimalToHexUnsigned(dec: string): string {
   if (dec == "0" || dec.length == 0) return "0";
   let hex = "";
   let current = dec;
@@ -816,6 +906,14 @@ function decimalToHex(dec: string): string {
     current = next.length > 0 ? next : "0";
   }
   return hex.length > 0 ? hex : "0";
+}
+
+function decimalToHex(dec: string): string {
+  if (dec.startsWith("-")) {
+    const hex = decimalToHexUnsigned(dec.slice(1));
+    return hex == "0" ? "0" : "-" + hex;
+  }
+  return decimalToHexUnsigned(dec);
 }
 
 function hexToDecimal(hexStr: string): string {

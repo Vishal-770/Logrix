@@ -10,6 +10,7 @@ pub mod client;
 pub mod config;
 pub mod decoder;
 pub mod events;
+pub mod hex_util;
 pub mod parser;
 pub mod rpc_call;
 

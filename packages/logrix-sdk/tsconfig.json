@@ -8,7 +8,7 @@
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "declaration": false,
+    "declaration": true,
     "skipLibCheck": true
   },
   "include": ["src/cli/**/*.ts"],
