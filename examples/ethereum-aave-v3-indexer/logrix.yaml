@@ -1,0 +1,44 @@
+specVersion: "0.8.1"
+name: "ethereum-aave-v3-indexer"
+description: "Production Aave V3 Core Lending Indexer on Ethereum Mainnet"
+
+network:
+  name: "mainnet"
+  chainId: 1
+  rpcUrl: "https://eth.llamarpc.com"
+  fallbackRpcUrls:
+    - "https://rpc.payload.de"
+    - "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+
+dataSources:
+  - name: "Pool"
+    network: "mainnet"
+    source:
+      address: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+      abi: "Pool"
+      startBlock: 16291127
+    mapping:
+      file: "build/mapping.wasm"
+      source: "src/mapping.ts"
+      language: "assemblyscript"
+      abis:
+        - name: "Pool"
+          file: "abis/Pool.json"
+      eventHandlers:
+        - event: "Supply"
+          handler: "handleSupply"
+        - event: "Withdraw"
+          handler: "handleWithdraw"
+        - event: "Borrow"
+          handler: "handleBorrow"
+        - event: "Repay"
+          handler: "handleRepay"
+        - event: "LiquidationCall"
+          handler: "handleLiquidationCall"
+        - event: "FlashLoan"
+          handler: "handleFlashLoan"
+
+indexing:
+  chunkSize: 50
+  chainHeadPollMs: 1000
+  maxQueueDepth: 5000

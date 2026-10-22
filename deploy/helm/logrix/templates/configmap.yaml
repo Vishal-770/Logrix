@@ -47,7 +47,7 @@ data:
   RABBITMQ_TIMEOUT_SECS: {{ .Values.config.rabbitmqTimeoutSecs | default 10 | quote }}
   SQS_WAIT_TIME_SECONDS: {{ .Values.config.sqsWaitTimeSeconds | default 2 | quote }}
   SQS_MAX_MESSAGES: {{ .Values.config.sqsMaxMessages | default 1 | quote }}
-  WASM_FUEL_LIMIT: {{ .Values.config.wasmFuelLimit | default 1000000 | quote }}
+  WASM_FUEL_LIMIT: {{ printf "%.0f" (float64 (.Values.config.wasmFuelLimit | default 1000000)) | quote }}
   WASM_MAX_MEMORY_MB: {{ .Values.config.wasmMaxMemoryMb | default 128 | quote }}
   RPC_TIMEOUT_SECS: {{ .Values.config.rpcTimeoutSecs | default 10 | quote }}
   RPC_CB_THRESHOLD: {{ .Values.config.rpcCbThreshold | default 5 | quote }}

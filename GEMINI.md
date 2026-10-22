@@ -70,6 +70,10 @@ These rules apply strictly across this repository on every prompt and action.
 - **Pure Containerized Deployment Only (Never Pull Code on Servers)**:
   - Deployments must strictly run pre-built, versioned Docker container images (e.g. from container registries like GHCR or ECR).
   - Never pull source code from GitHub, run `git clone`, or build binaries directly on remote servers or AWS nodes.
+- **Remote Published OCI Helm Charts Only (Never Deploy From Local Chart Paths)**:
+  - Deployments must strictly install from remote, published, versioned OCI Helm charts (e.g. `oci://ghcr.io/vishal-770/charts/logrix:<version>`).
+  - Never run `helm install` or `helm upgrade` targeting local filesystem chart paths (`./deploy/helm/...`) for live deployments. All chart fixes and updates must be packaged, published to the remote OCI registry, and consumed remotely.
+  - Never deploy local backing containers (Postgres, RabbitMQ, MinIO) in production environments; all cloud deployments strictly use managed cloud infrastructure (AWS Aurora Serverless v2, SQS, S3).
 - **TypeScript SDK Scope (Templates & Config Only, Never Deployment)**:
   - `@logrix/sdk` (and any TypeScript tooling) is strictly reserved for developer templating, schema definition, type generation, and client-side indexer configuration.
   - The SDK must never handle or trigger deployments. Production deployment is strictly infrastructure-as-code: pure Kubernetes (`deploy/k8s`, Helm) or AWS Terraform (`deploy/terraform`). Keep this separation crystal clear in code, CLI commands, and documentation.
@@ -77,4 +81,5 @@ These rules apply strictly across this repository on every prompt and action.
   - Always design interfaces, APIs, and tools from the end-user's perspective: intuitive, straightforward, and zero-friction.
   - Provide extensive, granular customization: make it effortless for users to plug in custom logic, toggle optional components on or off, and tune behaviors to their specific requirements.
   - Core/essential capabilities (e.g. data consistency, reorg safety, idempotency, typed errors) must remain solidly enabled by default, while peripheral or specialized features (custom plugins, extra sinks, verbose tracing) can be enabled or disabled cleanly without breaking core functionality.
+
 
