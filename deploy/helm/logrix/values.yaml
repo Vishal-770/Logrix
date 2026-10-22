@@ -21,7 +21,7 @@ global:
 image:
   repository: ghcr.io/vishal-770/logrix
   pullPolicy: IfNotPresent
-  tag: "0.8.0"
+  tag: "0.8.1"
 
 config:
   chainId: 421614
@@ -88,16 +88,16 @@ config:
   # DATABASE_URL, RABBITMQ_URL, and WEBHOOK_SECRET when those features are enabled.
   existingSecret: ""
 
-# Mode 1: Built-in self-hosted backing infrastructure (PostgreSQL, RabbitMQ, and MinIO S3)
-# Enabled by default for zero-configuration out-of-the-box self-hosted deployment.
-# Any service is automatically disabled if you specify an external endpoint (e.g. databaseUrl or queueDriver: sqs).
+# Built-in self-hosted backing infrastructure (PostgreSQL, RabbitMQ, and MinIO S3)
+# Disabled by default for cloud-native production deployments (AWS Aurora, SQS, S3).
+# Enable only if running on local clusters (Minikube / Kind) without external databases.
 builtIn:
-  enabled: true
-  postgres: true
-  rabbitmq: true
+  enabled: false
+  postgres: false
+  rabbitmq: false
   minio: false
   persistence:
-    enabled: true
+    enabled: false
   storageClass: ""
   postgresStorage: 1Gi
   rabbitmqStorage: 1Gi
@@ -147,7 +147,7 @@ processor:
     name: ""
     annotations: {}
   keda:
-    enabled: true
+    enabled: false
     minReplicaCount: 1
     maxReplicaCount: 50
     cooldownPeriod: 300

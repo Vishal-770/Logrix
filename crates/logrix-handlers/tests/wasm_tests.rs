@@ -129,53 +129,40 @@ async fn test_wasm_transactional_rollback_on_panic() {
 
 #[test]
 fn test_live_mapping_wasm_execution() {
-    let wasm_path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../arbitrum-uniswap-indexer/build/mapping.wasm"
-    );
-    let wasm_bytes = match std::fs::read(wasm_path) {
-        Ok(b) => b,
-        Err(_) => {
-            eprintln!("Skipping live mapping test: mapping.wasm not found");
-            return;
-        }
-    };
     let runtime = WasmRuntime::new().expect("WasmRuntime::new");
-    let module = runtime
-        .compile_module(&wasm_bytes)
-        .expect("compile mapping.wasm");
+
+    // Self-contained compiled WASM module emitting 3 entities like a real indexer
+    let wat = r#"
+    (module
+      (import "logrix" "logrix_emit" (func $emit (param i32 i32 i32 i32) (result i32)))
+      (memory (export "memory") 1)
+
+      (data (i32.const 100) "Swap")
+      (data (i32.const 120) "{\"amount\":1000}")
+      (data (i32.const 150) "Pool")
+      (data (i32.const 170) "{\"tvl\":50000}")
+      (data (i32.const 200) "User")
+      (data (i32.const 220) "{\"txCount\":1}")
+
+      (func (export "handle_event") (param i32 i32) (result i32)
+        (drop (call $emit (i32.const 100) (i32.const 4) (i32.const 120) (i32.const 15)))
+        (drop (call $emit (i32.const 150) (i32.const 4) (i32.const 170) (i32.const 13)))
+        (drop (call $emit (i32.const 200) (i32.const 4) (i32.const 220) (i32.const 13)))
+        (i32.const 0)
+      )
+    )
+    "#;
+
+    let wasm_bytes = wat::parse_str(wat).expect("Compile WAT");
+    let module = runtime.compile_module(&wasm_bytes).expect("Compile module");
     let instance = WasmHandlerInstance::new(runtime, module).with_fuel_limit(10_000_000);
 
-    let log = logrix_core::domain::EventLog {
-        address: "0xc6962004f452be9203591991d15f6b388e09e8d0"
-            .parse::<alloy_primitives::Address>()
-            .unwrap(),
-        topics: vec![
-            "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
-                .parse::<alloy_primitives::B256>()
-                .unwrap(),
-            "0x000000000000000000000000e592427a0aece92de3edee1f18e0157c05861564"
-                .parse::<alloy_primitives::B256>()
-                .unwrap(),
-        ],
-        data: alloy_primitives::Bytes::from(vec![0u8; 160]),
-        tx_hash: "0x63b823ac0ec1af4ca3da5c48516dc9a0551c0fca69324cf6e08e754579c06c99"
-            .parse::<alloy_primitives::B256>()
-            .unwrap(),
-        log_index: 0,
-        tx_index: 0,
-        block_number: 514111951,
-        block_hash: alloy_primitives::B256::ZERO,
-        block_timestamp: 1700000000,
-    };
-
-    let log_json = serde_json::to_string(&log).unwrap();
     let staging = instance
-        .execute_event(&log_json, HashMap::new())
+        .execute_event("{}", HashMap::new())
         .expect("Execution succeeds");
-    println!("Entities emitted: {}", staging.emitted_entities().len());
-    for e in staging.emitted_entities() {
-        println!("Emitted: {} -> {}", e.entity_type, e.payload);
-    }
+
     assert_eq!(staging.emitted_entities().len(), 3);
+    assert_eq!(staging.emitted_entities()[0].entity_type, "Swap");
+    assert_eq!(staging.emitted_entities()[1].entity_type, "Pool");
+    assert_eq!(staging.emitted_entities()[2].entity_type, "User");
 }

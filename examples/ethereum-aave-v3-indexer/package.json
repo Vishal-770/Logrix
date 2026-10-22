@@ -1,0 +1,18 @@
+{
+  "name": "ethereum-aave-v3-indexer",
+  "version": "0.8.1",
+  "private": true,
+  "description": "Production Aave V3 lending protocol indexer on Ethereum Mainnet using @logrix/sdk",
+  "scripts": {
+    "codegen": "logrix codegen",
+    "build": "logrix build",
+    "validate": "logrix validate",
+    "test": "logrix test"
+  },
+  "dependencies": {
+    "@logrix/sdk": "^0.8.1"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.34"
+  }
+}

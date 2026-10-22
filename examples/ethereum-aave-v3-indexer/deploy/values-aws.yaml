@@ -1,0 +1,57 @@
+image:
+  repository: ghcr.io/vishal-770/logrix
+  tag: 0.8.0
+  pullPolicy: IfNotPresent
+builtIn:
+  enabled: false
+  postgres: false
+  rabbitmq: false
+  minio: false
+localDev:
+  enabled: false
+config:
+  chainId: 1
+  queueDriver: sqs
+  reconcilerIntervalSecs: 30
+  ringBufferDepth: 128
+  existingSecret: logrix-secrets
+  s3Bucket: ""
+serviceAccount:
+  create: true
+  name: logrix-sa
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/logrix-production-role
+ingester:
+  replicas: 2
+  leaderElection:
+    enabled: true
+    leaseName: logrix-ingester-lease
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+processor:
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 50
+    queueType: sqs
+    sqs:
+      queueUrl: https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/logrix-live-jobs
+      awsRegion: us-east-1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+api:
+  replicas: 2
+  port: 4000
+webhook:
+  enabled: false
+  replicaCount: 1

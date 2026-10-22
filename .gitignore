@@ -49,9 +49,13 @@ snap3.png
 snap4.png
 snap5.png
 snap5-1.png
+examples/**/node_modules/
+examples/**/build/
 arbitrum-uniswap-indexer/node_modules/
 arbitrum-uniswap-indexer/build/
 packages/logrix-sdk/dist/*.test.js
 .omnirush/
 reports/
 .agent/
+packaged-chart/
+*.tgz

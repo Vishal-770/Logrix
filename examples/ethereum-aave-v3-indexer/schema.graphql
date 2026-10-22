@@ -1,0 +1,74 @@
+type Protocol @entity {
+  id: ID!
+  totalSuppliedCount: BigInt!
+  totalBorrowedCount: BigInt!
+  totalLiquidatedCount: BigInt!
+  totalFlashLoansCount: BigInt!
+}
+
+type User @entity {
+  id: ID!
+  address: String!
+  supplyCount: BigInt!
+  borrowCount: BigInt!
+  liquidationCount: BigInt!
+}
+
+type Reserve @entity {
+  id: ID!
+  assetAddress: String!
+  totalSupplied: BigInt!
+  totalBorrowed: BigInt!
+  totalLiquidated: BigInt!
+}
+
+type SupplyAction @entity {
+  id: ID!
+  reserve: String!
+  user: String!
+  onBehalfOf: String!
+  amount: BigInt!
+  referralCode: Int!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: String!
+}
+
+type BorrowAction @entity {
+  id: ID!
+  reserve: String!
+  user: String!
+  onBehalfOf: String!
+  amount: BigInt!
+  interestRateMode: Int!
+  borrowRate: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: String!
+}
+
+type LiquidationAction @entity {
+  id: ID!
+  collateralAsset: String!
+  debtAsset: String!
+  user: String!
+  debtToCover: BigInt!
+  liquidatedCollateralAmount: BigInt!
+  liquidator: String!
+  receiveAToken: Boolean!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: String!
+}
+
+type FlashLoanAction @entity {
+  id: ID!
+  target: String!
+  initiator: String!
+  asset: String!
+  amount: BigInt!
+  premium: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: String!
+}
