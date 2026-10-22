@@ -56,30 +56,47 @@ helm install keda kedacore/keda --namespace keda --create-namespace
 ```
 
 ### Step 3: Create Kubernetes Secrets
-Kubernetes injects credentials as environment variables (`DATABASE_URL`, `RPC_URL`) into pods. Keys must use uppercase and underscores so standard POSIX shells and Rust `clap` parse them accurately:
+Kubernetes injects credentials as environment variables (`DATABASE_URL`, `RPC_URL`, `RPC_FALLBACK_URLS`) into pods. Keys must use uppercase and underscores so standard POSIX shells and Rust `clap` parse them accurately.
+
+When using Aurora Serverless v2 PostgreSQL inside a private VPC subnet, strip any trailing `?sslmode=require` query parameters:
 
 ```bash
 # 1. Fetch Aurora connection string from AWS Secrets Manager
-DB_URL=$(aws secretsmanager get-secret-value \
+RAW_DB_URL=$(aws secretsmanager get-secret-value \
   --region <aws-region> \
   --secret-id "<rds-secret-arn>" \
   --query SecretString --output text | jq -r .url)
 
-# 2. Create namespace and secret vault
+# 2. Strip ?sslmode=require query parameter for internal VPC connectivity
+CLEAN_DB_URL="${RAW_DB_URL%\?*}"
+
+# 3. Create namespace and secret vault
 kubectl create namespace logrix
 
 kubectl create secret generic logrix-secrets -n logrix \
-  --from-literal=DATABASE_URL="$DB_URL" \
+  --from-literal=DATABASE_URL="$CLEAN_DB_URL" \
   --from-literal=RPC_URL="https://eth-mainnet.g.alchemy.com/v2/<API_KEY>" \
   --from-literal=RPC_FALLBACK_URLS="https://rpc.payload.de,https://eth.llamarpc.com"
 ```
 
-### Step 4: Deploy Using Published Remote OCI Helm Chart
+### Step 4: Run Initial Database Migrations
+Before deploying the long-running ingester and processor workloads, run the Logrix database schema migration using a one-off ephemeral pod:
+
+```bash
+kubectl run logrix-migrator --rm -i --restart=Never \
+  --image=ghcr.io/vishal-770/logrix:0.8.0 \
+  -n logrix \
+  --env="DATABASE_URL=$CLEAN_DB_URL" \
+  -- command logrix migrate
+```
+This idempotently provisions `logrix_checkpoints`, `raw_events`, `token_transfers`, and required database indices.
+
+### Step 5: Deploy Using Published Remote OCI Helm Chart
 Deploy from the published OCI registry, passing dynamic cloud resource endpoints without baking infrastructure identifiers into git:
 
 ```bash
 helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
-  --version 0.8.1 \
+  --version 0.8.2 \
   -n logrix \
   --disable-openapi-validation \
   --set config.existingSecret="logrix-secrets" \
@@ -96,10 +113,39 @@ helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
   --set api.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<api_irsa_arn>"
 ```
 
+### Step 6: Verify Deployment and Indexing
+
+1. Check all pods are `1/1 Ready` and `Running`:
+   ```bash
+   kubectl get pods -n logrix -o wide
+   ```
+
+2. Tail live block ingestion logs:
+   ```bash
+   kubectl logs -n logrix -l app.kubernetes.io/component=ingester --tail=30 -f
+   ```
+
+3. Tail processor database commits and S3 uploads:
+   ```bash
+   kubectl logs -n logrix -l app.kubernetes.io/component=processor --tail=30 -f
+   ```
+
+4. Port-forward the GraphQL API:
+   ```bash
+   kubectl port-forward svc/logrix-api 4000:4000 -n logrix
+   ```
+   Query health and checkpoint in another terminal:
+   ```bash
+   curl -s -X POST http://localhost:4000/graphql \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ health { status version } checkpoint(chainId: 1) { chainId lastIndexedBlock lastBlockHash } }"}'
+   ```
+
 ### Troubleshooting & Common Gotchas
-- **`invalid value '1e+06' for '--wasm-fuel-limit'`**: Ensure `WASM_FUEL_LIMIT` is formatted as an integer string (`"1000000"`). Chart 0.8.1 enforces integer float formatting in `configmap.yaml`.
+- **Liveness & Readiness Probes in Minimal Images**: Ingester, Processor, and Webhook deployments use `pidof logrix || exit 1` probes which operate reliably inside Debian-slim without needing `procps` (`pgrep`).
+- **`invalid value '1e+06' for '--wasm-fuel-limit'`**: Ensure `WASM_FUEL_LIMIT` is formatted as an integer string (`"1000000"`). Chart 0.8.1+ enforces integer float formatting in `configmap.yaml`.
 - **EKS Control Plane Client Timeout**: If Helm hangs or emits `context deadline exceeded` while reading discovery bodies, pass `--disable-openapi-validation`.
-- **Pod CrashLoopBackOff on `localhost:5432`**: Verify `logrix-secrets` contains `DATABASE_URL` (uppercase) pointing to Aurora, not lowercase `database-url`.
+- **Pod CrashLoopBackOff on Database URL**: Verify `logrix-secrets` contains `DATABASE_URL` (uppercase) pointing to Aurora, without `?sslmode=require`.
 
 
 ---
