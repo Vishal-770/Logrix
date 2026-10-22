@@ -64,7 +64,7 @@ variable and reference them from `config.rpcUrl`, for example:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `image.repository` | string | `ghcr.io/vishal-770/logrix` | Docker image repository |
-| `image.tag` | string | `0.7.3` | Immutable image version tag |
+| `image.tag` | string | `0.8.0` | Immutable image version tag |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 
 ### Core Runtime Parameters (`config`)
@@ -110,3 +110,16 @@ variable and reference them from `config.rpcUrl`, for example:
 - **Configuration Hash Tracking**: Pod templates include `checksum/config` and `checksum/wasm` metadata annotations. Upgrading values via `helm upgrade` triggers an automated rolling restart across all affected workloads.
 - **Node Drain Safety**: PodDisruptionBudgets (`pdb.yaml`) ensure that at least one API and one Ingester pod remain online during Kubernetes node upgrades and drains.
 - **Graceful Termination**: `terminationGracePeriodSeconds` (default 60s on processor, 30s on others) ensures all in-flight blocks and database transactions flush to disk before pods terminate.
+
+---
+
+## 6. Container & Helm Chart Releases
+
+Container images (`ghcr.io/vishal-770/logrix`) and OCI Helm charts (`oci://ghcr.io/vishal-770/charts/logrix`) are published via the dedicated `Release Container & Helm Chart` CI/CD workflow, completely independent of the npm SDK release cycle.
+
+To trigger an automated release:
+```bash
+git tag v0.7.4
+git push origin v0.7.4
+```
+This builds and pushes multi-architecture images to GitHub Container Registry, packages the Helm chart with the matching version, and publishes the OCI artifact.

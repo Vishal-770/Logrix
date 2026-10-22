@@ -1,4 +1,4 @@
-name: Release & Publish Images
+name: Release Container & Helm Chart
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version override (e.g. v0.1.0)"
+        description: "Release version override (e.g. v0.7.4)"
         required: false
         default: ""
 
@@ -78,41 +78,16 @@ jobs:
 
       - name: Package & Push Helm Chart
         run: |
-          # Extract clean version tag (remove leading v)
-          RAW_VERSION="${{ github.ref_name }}"
+          RAW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
           CHART_VERSION="${RAW_VERSION#v}"
           if [ -z "$CHART_VERSION" ] || [ "$CHART_VERSION" = "main" ]; then
             CHART_VERSION="0.1.0"
           fi
 
-          # Update chart version dynamically
           sed -i "s/^version:.*/version: ${CHART_VERSION}/" deploy/helm/logrix/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: "${CHART_VERSION}"/" deploy/helm/logrix/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${CHART_VERSION}\"/" deploy/helm/logrix/Chart.yaml
 
           helm package deploy/helm/logrix --destination ./packaged-chart
           PKG_NAME=$(ls ./packaged-chart/logrix-*.tgz | head -n 1)
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm push "${PKG_NAME}" oci://${{ env.REGISTRY }}/${OWNER_LOWER}/charts
-
-  publish-npm:
-    name: Build & Publish @logrix/sdk to npm
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Build & Publish to npm
-        run: |
-          cd packages/logrix-sdk
-          npm install
-          npm run build
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        if: ${{ env.NODE_AUTH_TOKEN != '' }}

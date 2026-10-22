@@ -21,7 +21,7 @@ global:
 image:
   repository: ghcr.io/vishal-770/logrix
   pullPolicy: IfNotPresent
-  tag: "0.7.3"
+  tag: "0.8.0"
 
 config:
   chainId: 421614
