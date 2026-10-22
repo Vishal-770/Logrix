@@ -9,6 +9,7 @@ import {
 } from "../templates";
 import { ui } from "../ui";
 import { CliError } from "../errors";
+import { LogrixConfigSchema } from "../schema";
 import {
   extractEnvVarNames,
   preserveEnvReference,
@@ -55,6 +56,18 @@ export function exportValuesCommand(): Command {
         config = parseYaml(fs.readFileSync(configPath, "utf-8"));
       } catch (e: any) {
         throw new CliError("Failed to parse logrix.yaml", e.message);
+      }
+
+      const parseResult = LogrixConfigSchema.safeParse(config);
+      if (!parseResult.success) {
+        const issues = parseResult.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ");
+        throw new CliError(
+          "Invalid logrix.yaml manifest",
+          issues,
+          "Run `logrix validate` to inspect and fix schema issues before exporting"
+        );
       }
 
       // Resolve network settings

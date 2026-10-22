@@ -34,6 +34,7 @@ fn test_abi_decoder_erc20_transfer() {
         tx_index: 3,
         block_number: 19_000_000,
         block_hash: b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        block_timestamp: 0,
     };
 
     let decoded = decoder.decode_log(&log).expect("should decode transfer");
@@ -107,6 +108,7 @@ fn test_abi_decoder_uniswap_v3_swap_signed_integers() {
         tx_index: 0,
         block_number: 18_000_000,
         block_hash: B256::ZERO,
+        block_timestamp: 0,
     };
 
     let decoded = decoder

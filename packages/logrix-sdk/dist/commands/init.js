@@ -114,8 +114,12 @@ function initCommand() {
             throw new errors_1.CliError(`Directory already exists: '${projectName}'`, `Destination path ${targetDir} already contains files`, "Choose a different project name or remove the existing directory");
         }
         // Network selection
+        if (opts.network && !exports.NETWORKS[opts.network]) {
+            const supported = Object.keys(exports.NETWORKS).join(", ");
+            throw new errors_1.CliError(`Unknown network: '${opts.network}'`, `Supported networks are: ${supported}`, "Specify one of the supported network names with --network");
+        }
         let networkKey = opts.network;
-        if (!networkKey || !exports.NETWORKS[networkKey]) {
+        if (!networkKey) {
             if (isNonInteractive) {
                 networkKey = "arbitrum-one";
             }
@@ -130,7 +134,7 @@ function initCommand() {
                 });
             }
         }
-        const network = exports.NETWORKS[networkKey] || exports.NETWORKS["arbitrum-one"];
+        const network = exports.NETWORKS[networkKey];
         // RPC URL
         let rpcUrl = opts.rpc;
         if (!rpcUrl) {

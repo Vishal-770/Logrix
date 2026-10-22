@@ -64,6 +64,7 @@ fn test_decode_valid_erc20_transfer() {
         tx_index: 1,
         block_number: 1234567,
         block_hash: b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        block_timestamp: 0,
     };
 
     let decoded = decode_erc20_transfer(421614, &log).expect("should decode transfer");
@@ -94,6 +95,7 @@ fn test_decode_non_transfer_event() {
         tx_index: 0,
         block_number: 100,
         block_hash: B256::ZERO,
+        block_timestamp: 0,
     };
 
     assert!(decode_erc20_transfer(421614, &log).is_none());

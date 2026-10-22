@@ -67,7 +67,7 @@ export class EventLog {
     
     const blockNumStr = extractJsonField(json, "block_number");
     if (blockNumStr.length > 0) {
-      log.block_number = u64(parseInt(blockNumStr) as i32);
+      log.block_number = parseU64(blockNumStr);
     }
     
     log.block_hash = extractJsonField(json, "block_hash");
@@ -81,18 +81,46 @@ export class EventLog {
     
     const logIdxStr = extractJsonField(json, "log_index");
     if (logIdxStr.length > 0) {
-      log.log_index = u32(parseInt(logIdxStr) as i32);
+      log.log_index = u32(parseU64(logIdxStr));
     }
     
     const tsStr = extractJsonField(json, "block_timestamp");
     if (tsStr.length > 0) {
-      log.block_timestamp = u64(parseInt(tsStr) as i32);
+      log.block_timestamp = parseU64(tsStr);
     }
     
     log.data = extractJsonField(json, "data");
     log.topics = parseJsonStringArray(json, "topics");
     return log;
   }
+}
+
+function parseU64(str: string): u64 {
+  let s = str.trim();
+  if (s.startsWith("0x") || s.startsWith("0X")) {
+    s = s.slice(2);
+    let val: u64 = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      let d: u64 = 0;
+      if (c >= 48 && c <= 57) d = (c - 48) as u64;
+      else if (c >= 97 && c <= 102) d = (c - 97 + 10) as u64;
+      else if (c >= 65 && c <= 70) d = (c - 65 + 10) as u64;
+      else unreachable();
+      val = (val << 4) | d;
+    }
+    return val;
+  }
+  let val: u64 = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 48 && c <= 57) {
+      val = val * 10 + ((c - 48) as u64);
+    } else {
+      unreachable();
+    }
+  }
+  return val;
 }
 
 function parseJsonStringArray(json: string, key: string): Array<string> {
@@ -127,41 +155,67 @@ function parseJsonStringArray(json: string, key: string): Array<string> {
 export function logrix_emit(entityType: string, jsonPayload: string): void {
   const eBuf = String.UTF8.encode(entityType);
   const pBuf = String.UTF8.encode(jsonPayload);
-  host_emit(
+  const code = host_emit(
     changetype<i32>(eBuf),
     eBuf.byteLength,
     changetype<i32>(pBuf),
     pBuf.byteLength
   );
+  if (code < 0) {
+    unreachable();
+  }
 }
 
 export function logrix_db_get(key: string): string {
   const kBuf = String.UTF8.encode(key);
-  const outBuf = new ArrayBuffer(8192);
-  const written = host_db_get(
+  let bufSize: i32 = 8192;
+  let outBuf = new ArrayBuffer(bufSize);
+  let written = host_db_get(
     changetype<i32>(kBuf),
     kBuf.byteLength,
     changetype<i32>(outBuf),
-    outBuf.byteLength
+    bufSize
   );
-  if (written <= 0) return "";
+
+  // If buffer is too small (-2), expand dynamically
+  while (written == -2 && bufSize <= 1048576) {
+    bufSize *= 4;
+    outBuf = new ArrayBuffer(bufSize);
+    written = host_db_get(
+      changetype<i32>(kBuf),
+      kBuf.byteLength,
+      changetype<i32>(outBuf),
+      bufSize
+    );
+  }
+
+  if (written == -1) return "";
+  if (written < 0) {
+    unreachable();
+  }
   return String.UTF8.decode(outBuf.slice(0, written));
 }
 
 export function logrix_db_set(key: string, value: string): void {
   const kBuf = String.UTF8.encode(key);
   const vBuf = String.UTF8.encode(value);
-  host_db_set(
+  const code = host_db_set(
     changetype<i32>(kBuf),
     kBuf.byteLength,
     changetype<i32>(vBuf),
     vBuf.byteLength
   );
+  if (code < 0) {
+    unreachable();
+  }
 }
 
 export function logrix_db_remove(key: string): void {
   const kBuf = String.UTF8.encode(key);
-  host_db_remove(changetype<i32>(kBuf), kBuf.byteLength);
+  const code = host_db_remove(changetype<i32>(kBuf), kBuf.byteLength);
+  if (code < 0) {
+    unreachable();
+  }
 }
 
 export function logrix_log(level: i32, message: string): void {
@@ -515,6 +569,17 @@ export class BigInt {
     return new BigInt(val);
   }
 
+  static fromSignedString(val: string, bitWidth: i32 = 256): BigInt {
+    let clean = val.trim();
+    if (clean.startsWith("0x") || clean.startsWith("0X")) {
+      const dec = hexToSignedDecimal(clean, bitWidth);
+      const b = new BigInt("0");
+      b._raw = dec;
+      return b;
+    }
+    return new BigInt(clean);
+  }
+
   static fromI32(val: i32): BigInt {
     return new BigInt(val.toString());
   }
@@ -698,7 +763,9 @@ function mulDecimal(a: string, b: string): string {
 }
 
 function divDecimal(a: string, b: string): string {
-  if (b == "0") return "0";
+  if (b == "0" || b.length == 0) {
+    unreachable(); // EVM division by zero must trap
+  }
   if (cmpDecimal(a, b) < 0) return "0";
   if (cmpDecimal(a, b) == 0) return "1";
 
@@ -767,7 +834,7 @@ function hexToDecimal(hexStr: string): string {
     } else if (c >= 65 && c <= 70) {
       digit = c - 65 + 10;
     } else {
-      continue;
+      unreachable(); // Strictly reject invalid hex character
     }
 
     let carry = digit;
@@ -789,6 +856,59 @@ function hexToDecimal(hexStr: string): string {
     start++;
   }
   return dec.slice(start);
+}
+
+/**
+ * Converts a 2's complement hexadecimal word into a signed decimal string.
+ * @param hexStr Hexadecimal representation (e.g. "0xffffff...").
+ * @param bitWidth The bit width of the integer (e.g. 24, 256). Defaults to 256.
+ */
+function hexToSignedDecimal(hexStr: string, bitWidth: i32 = 256): string {
+  let clean = hexStr.trim().toLowerCase();
+  if (clean.startsWith("0x")) clean = clean.slice(2);
+  if (clean.length == 0) return "0";
+
+  // Expected hex characters for given bitWidth
+  const hexChars = (bitWidth + 3) / 4;
+  while (clean.length < hexChars) {
+    clean = "0" + clean;
+  }
+  if (clean.length > hexChars) {
+    clean = clean.slice(clean.length - hexChars);
+  }
+
+  // Check top bit
+  const firstNibble = clean.charCodeAt(0);
+  let isNegative = false;
+  if (
+    (firstNibble >= 56 && firstNibble <= 57) || // '8', '9'
+    (firstNibble >= 97 && firstNibble <= 102)   // 'a'-'f'
+  ) {
+    isNegative = true;
+  }
+
+  if (!isNegative) {
+    return hexToDecimal(clean);
+  }
+
+  // Two's complement: val = -(2^bitWidth - rawUnsigned)
+  // Compute invert nibbles: 15 - d, then add 1
+  let invHex = "";
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean.charCodeAt(i);
+    let d = 0;
+    if (c >= 48 && c <= 57) d = c - 48;
+    else if (c >= 97 && c <= 102) d = c - 97 + 10;
+    else unreachable();
+    const inv = 15 - d;
+    const hexCharsTable = "0123456789abcdef";
+    invHex += hexCharsTable.charAt(inv);
+  }
+
+  // Add 1 in decimal
+  const invDec = hexToDecimal(invHex);
+  const magnitude = addDecimal(invDec, "1");
+  return "-" + magnitude;
 }
 
 // ---------------------------------------------------------------------------

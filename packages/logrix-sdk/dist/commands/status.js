@@ -44,14 +44,39 @@ const picocolors_1 = __importDefault(require("picocolors"));
 const yaml_1 = require("yaml");
 const ui_1 = require("../ui");
 const errors_1 = require("../errors");
-async function jsonRpcCall(url, method, params = []) {
+function maskUrl(rawUrl) {
+    try {
+        const parsed = new URL(rawUrl);
+        if (parsed.password)
+            parsed.password = "******";
+        for (const key of Array.from(parsed.searchParams.keys())) {
+            if (/key|token|secret|auth/i.test(key)) {
+                parsed.searchParams.set(key, "******");
+            }
+        }
+        const parts = parsed.pathname.split("/");
+        if (parts.length > 2 && (parts[1] === "v2" || parts[1] === "v3")) {
+            parts[2] = "******";
+            parsed.pathname = parts.join("/");
+        }
+        return parsed.toString();
+    }
+    catch {
+        return rawUrl;
+    }
+}
+async function jsonRpcCall(url, method, params = [], timeoutMs = 10000) {
     const start = Date.now();
     try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
         const res = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+            signal: controller.signal,
         });
+        clearTimeout(timer);
         const latencyMs = Date.now() - start;
         if (!res.ok) {
             return { error: `HTTP ${res.status}: ${res.statusText}`, latencyMs };
@@ -60,7 +85,8 @@ async function jsonRpcCall(url, method, params = []) {
         return { result: json.result, error: json.error, latencyMs };
     }
     catch (e) {
-        return { error: e.message, latencyMs: Date.now() - start };
+        const msg = e.name === "AbortError" ? "Request timed out after 10s" : e.message;
+        return { error: msg, latencyMs: Date.now() - start };
     }
 }
 function statusCommand() {
@@ -87,7 +113,7 @@ function statusCommand() {
         ui_1.ui.section("Network & RPC Configuration");
         ui_1.ui.label("Network:", picocolors_1.default.bold(picocolors_1.default.white(networkName)));
         ui_1.ui.label("Configured Chain:", picocolors_1.default.cyan(String(configuredChainId ?? "Not set")));
-        ui_1.ui.label("Primary RPC:", rpcUrl ? picocolors_1.default.dim(rpcUrl) : picocolors_1.default.red("None configured"));
+        ui_1.ui.label("Primary RPC:", rpcUrl ? picocolors_1.default.dim(maskUrl(rpcUrl)) : picocolors_1.default.red("None configured"));
         if (!rpcUrl) {
             throw new errors_1.CliError("Missing RPC URL", "network.rpcUrl is not defined in logrix.yaml", "Define network.rpcUrl in logrix.yaml to run status checks");
         }
@@ -107,10 +133,10 @@ function statusCommand() {
         if (chainRes.result) {
             const reportedChainId = parseInt(chainRes.result, 16);
             const match = configuredChainId === reportedChainId;
-            const chainBadge = match
-                ? picocolors_1.default.green(`[OK] Matched (#${reportedChainId})`)
-                : picocolors_1.default.yellow(`! Mismatch (Configured: ${configuredChainId}, Node: ${reportedChainId})`);
-            ui_1.ui.label("Chain ID Match:", chainBadge);
+            if (!match) {
+                throw new errors_1.CliError(`Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`, "The configured network in logrix.yaml does not match the connected node.", "Update network.chainId or network.rpcUrl in logrix.yaml");
+            }
+            ui_1.ui.label("Chain ID Match:", picocolors_1.default.green(`[OK] Matched (#${reportedChainId})`));
         }
         // Check Fallback RPCs
         const fallbackUrls = config.network?.fallbackRpcUrls || [];
@@ -118,10 +144,11 @@ function statusCommand() {
             ui_1.ui.section(`Fallback RPC Gateway (${fallbackUrls.length} configured)`);
             const fbTable = ui_1.ui.table(["Endpoint", "Status", "Latency", "Block Height"]);
             for (const fbUrl of fallbackUrls) {
+                const masked = maskUrl(fbUrl);
                 const fbRes = await jsonRpcCall(fbUrl, "eth_blockNumber");
                 if (fbRes.error || !fbRes.result) {
                     fbTable.push([
-                        picocolors_1.default.dim(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+                        picocolors_1.default.dim(masked.length > 35 ? masked.slice(0, 32) + "..." : masked),
                         ui_1.ui.statusBadge("OFFLINE"),
                         picocolors_1.default.dim("-"),
                         picocolors_1.default.dim(String(fbRes.error || "unreachable")),
@@ -130,7 +157,7 @@ function statusCommand() {
                 else {
                     const fbBlock = parseInt(fbRes.result, 16);
                     fbTable.push([
-                        picocolors_1.default.cyan(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+                        picocolors_1.default.cyan(masked.length > 35 ? masked.slice(0, 32) + "..." : masked),
                         ui_1.ui.statusBadge("ONLINE"),
                         ui_1.ui.latency(fbRes.latencyMs),
                         picocolors_1.default.bold(picocolors_1.default.green(`#${fbBlock.toLocaleString()}`)),

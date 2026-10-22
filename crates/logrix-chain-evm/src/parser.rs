@@ -63,6 +63,13 @@ pub fn parse_block_envelope(
     let parent_hash = parse_required_hash(parent_hash_str, "parentHash")?;
     let timestamp = parse_required_hex_u64(timestamp_hex, "timestamp")?;
 
+    let mut logs = logs;
+    for log in &mut logs {
+        if log.block_timestamp == 0 {
+            log.block_timestamp = timestamp;
+        }
+    }
+
     Ok(BlockEnvelope::new(
         chain_id,
         number,
@@ -134,6 +141,13 @@ pub fn try_parse_rpc_log(item: &Value) -> LogrixResult<EventLog> {
         "transactionIndex",
     )?;
 
+    let block_timestamp = item
+        .get("blockTimestamp")
+        .or_else(|| item.get("block_timestamp"))
+        .and_then(|v| v.as_str())
+        .map(|s| parse_hex_u64(Some(s)))
+        .unwrap_or(0);
+
     Ok(EventLog {
         address,
         topics,
@@ -143,6 +157,7 @@ pub fn try_parse_rpc_log(item: &Value) -> LogrixResult<EventLog> {
         tx_index,
         block_number,
         block_hash,
+        block_timestamp,
     })
 }
 
@@ -157,6 +172,7 @@ pub fn parse_rpc_log(item: &Value) -> EventLog {
         tx_index: 0,
         block_number: 0,
         block_hash: B256::ZERO,
+        block_timestamp: 0,
     })
 }
 

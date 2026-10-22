@@ -99,6 +99,7 @@ fn test_event_log_idempotency_key() {
         tx_index: 3,
         block_number: 18000000,
         block_hash: b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        block_timestamp: 0,
     };
 
     let key = log.idempotency_key(ChainId::ETHEREUM);

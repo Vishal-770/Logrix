@@ -12,6 +12,7 @@ exports.AbiRefSchema = zod_1.z.object({
 });
 exports.DataSourceMappingSchema = zod_1.z.object({
     kind: zod_1.z.string().default("wasm/assemblyscript"),
+    source: zod_1.z.string().optional(),
     file: zod_1.z.string().default("./build/mapping.wasm"),
     fuelLimit: zod_1.z.number().int().positive().optional(),
     maxMemoryMb: zod_1.z.number().int().positive().optional(),

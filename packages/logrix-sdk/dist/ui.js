@@ -11,7 +11,7 @@ exports.ui = {
     banner(title, subtitle) {
         console.log();
         const brand = picocolors_1.default.bold(picocolors_1.default.cyan("Logrix"));
-        const version = picocolors_1.default.dim("v0.6.0");
+        const version = picocolors_1.default.dim("v0.8.0");
         const titleText = picocolors_1.default.bold(title);
         console.log(`  ${brand} ${version} ${picocolors_1.default.dim("|")} ${titleText}`);
         if (subtitle) {

@@ -104,8 +104,17 @@ export function initCommand(): Command {
       }
 
       // Network selection
+      if (opts.network && !NETWORKS[opts.network]) {
+        const supported = Object.keys(NETWORKS).join(", ");
+        throw new CliError(
+          `Unknown network: '${opts.network}'`,
+          `Supported networks are: ${supported}`,
+          "Specify one of the supported network names with --network"
+        );
+      }
+
       let networkKey = opts.network;
-      if (!networkKey || !NETWORKS[networkKey]) {
+      if (!networkKey) {
         if (isNonInteractive) {
           networkKey = "arbitrum-one";
         } else {
@@ -120,7 +129,7 @@ export function initCommand(): Command {
         }
       }
 
-      const network = NETWORKS[networkKey] || NETWORKS["arbitrum-one"];
+      const network = NETWORKS[networkKey];
 
       // RPC URL
       let rpcUrl = opts.rpc;

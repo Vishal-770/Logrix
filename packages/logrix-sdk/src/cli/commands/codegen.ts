@@ -67,10 +67,14 @@ interface AbiEvent {
 function solTypeToAs(solType: string): string {
   if (solType === "address") return "Address";
   if (solType === "bool") return "bool";
-  if (solType.startsWith("uint") || solType.startsWith("int")) return "BigInt";
-  if (solType === "bytes32" || solType === "bytes") return "Bytes";
+  if (/^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/.test(solType)) return "BigInt";
+  if (/^bytes([1-9]|[12][0-9]|3[0-2])?$/.test(solType)) return "Bytes";
   if (solType === "string") return "string";
-  return "string";
+  throw new CliError(
+    `Unsupported ABI type: '${solType}'`,
+    `Logrix AssemblyScript codegen does not support complex or nested type '${solType}'.`,
+    "Use standard EVM primitive types or decode raw event log data manually."
+  );
 }
 
 function generateEventsTs(dataSources: DataSource[], projectDir: string): string {
@@ -148,10 +152,16 @@ function generateEventsTs(dataSources: DataSource[], projectDir: string): string
         let nonIndexedIdx = 0;
         for (const inp of ev.inputs) {
           const asType = solTypeToAs(inp.type);
+          const isSignedInt = inp.type.startsWith("int");
+          const bitWidth = isSignedInt ? (parseInt(inp.type.slice(3)) || 256) : 256;
           if (inp.indexed) {
             const readTopic = `raw.topics.length > ${topicIdx} ? raw.topics[${topicIdx}] : ""`;
-            if (asType === "BigInt") {
+            if (isSignedInt) {
+              lines.push(`    this.${inp.name} = BigInt.fromSignedString(${readTopic}, ${bitWidth});`);
+            } else if (asType === "BigInt") {
               lines.push(`    this.${inp.name} = BigInt.fromString(${readTopic});`);
+            } else if (asType === "bool") {
+              lines.push(`    this.${inp.name} = (${readTopic}).endsWith("1");`);
             } else if (asType === "Address") {
               lines.push(`    this.${inp.name} = Address.fromString(${readTopic});`);
             } else if (asType === "Bytes") {
@@ -172,8 +182,12 @@ function generateEventsTs(dataSources: DataSource[], projectDir: string): string
               lines.push(
                 `      const rawWord = dataHex.length >= offset + 64 ? "0x" + dataHex.slice(offset, offset + 64) : (offset == 0 ? raw.data : "");`
               );
-              if (asType === "BigInt") {
+              if (isSignedInt) {
+                lines.push(`      this.${inp.name} = BigInt.fromSignedString(rawWord, ${bitWidth});`);
+              } else if (asType === "BigInt") {
                 lines.push(`      this.${inp.name} = BigInt.fromString(rawWord);`);
+              } else if (asType === "bool") {
+                lines.push(`      this.${inp.name} = rawWord.endsWith("1");`);
               } else if (asType === "Address") {
                 lines.push(`      this.${inp.name} = Address.fromString(rawWord);`);
               } else if (asType === "Bytes") {

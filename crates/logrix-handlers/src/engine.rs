@@ -85,7 +85,7 @@ impl UserLogicEngine {
 
         // 1. Fast Path: Declarative YAML mapping evaluation
         for contract in &self.manifest.contracts {
-            if contract.address == log.address && contract.is_enabled() {
+            if contract.address == log.address && contract.is_active_for_block(log.block_number) {
                 let entities = self.declarative.apply_rules(&contract.declarative, log);
                 for entity in entities {
                     staging.emit_entity(entity.entity_type, entity.payload);
@@ -94,15 +94,15 @@ impl UserLogicEngine {
         }
 
         // 2. Programmable Path: Sandboxed WebAssembly handler execution
-        let contract_enabled = self
+        let contract_active = self
             .manifest
             .contracts
             .iter()
             .find(|c| c.address == log.address)
-            .map(|c| c.is_enabled())
+            .map(|c| c.is_active_for_block(log.block_number))
             .unwrap_or(true);
 
-        if contract_enabled {
+        if contract_active {
             if let Some(handler) = self.wasm_handlers.get(&log.address) {
                 let base_state = self.state_store.read().await.clone();
 

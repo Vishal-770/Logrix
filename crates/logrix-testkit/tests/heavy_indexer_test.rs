@@ -35,6 +35,7 @@ async fn test_heavy_indexer_pipeline_under_chaos_reorg() {
             tx_index: 0,
             block_number: b,
             block_hash,
+            block_timestamp: 1700000000 + b,
         };
         let envelope = BlockEnvelope::new(
             chain_id,
@@ -107,6 +108,7 @@ async fn test_heavy_indexer_pipeline_under_chaos_reorg() {
         tx_index: 0,
         block_number: 105,
         block_hash: fork_hash,
+        block_timestamp: 1700000105,
     };
     let parent_104_hash = alloy_primitives::B256::repeat_byte(104);
     let forked_envelope = BlockEnvelope::new(

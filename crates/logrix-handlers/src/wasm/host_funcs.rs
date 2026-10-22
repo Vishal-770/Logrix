@@ -99,7 +99,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), was
 
                 let payload = match serde_json::from_str(&val_str) {
                     Ok(p) => p,
-                    Err(_) => serde_json::Value::String(val_str),
+                    Err(_) => return -3, // Invalid JSON payload
                 };
 
                 caller.data_mut().staging.emit_entity(entity, payload);

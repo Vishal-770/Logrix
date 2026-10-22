@@ -166,6 +166,7 @@ fn test_live_mapping_wasm_execution() {
         tx_index: 0,
         block_number: 514111951,
         block_hash: alloy_primitives::B256::ZERO,
+        block_timestamp: 1700000000,
     };
 
     let log_json = serde_json::to_string(&log).unwrap();

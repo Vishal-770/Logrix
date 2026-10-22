@@ -63,6 +63,7 @@ async fn test_store_port_atomic_writes_and_reorg_rollback() {
         tx_index: 0,
         block_number: 100,
         block_hash: b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        block_timestamp: 0,
     };
 
     let log2 = EventLog {
@@ -76,6 +77,7 @@ async fn test_store_port_atomic_writes_and_reorg_rollback() {
         tx_index: 0,
         block_number: 101,
         block_hash: b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        block_timestamp: 0,
     };
 
     // Atomic write block 100
@@ -140,6 +142,7 @@ async fn test_mock_chain_port() {
         tx_index: 0,
         block_number: 100,
         block_hash: b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        block_timestamp: 0,
     };
 
     let envelope = BlockEnvelope::new(
