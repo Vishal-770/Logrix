@@ -43,7 +43,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          image: ghcr.io/vishal-770/logrix:0.7.3
+          image: ghcr.io/vishal-770/logrix:0.8.0
           imagePullPolicy: IfNotPresent
           command: ["logrix", "all-in-one"]
           envFrom:

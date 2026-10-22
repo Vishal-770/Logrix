@@ -1,0 +1,76 @@
+name: Release & Publish @logrix/sdk
+
+on:
+  push:
+    tags:
+      - "sdk-v*.*.*"
+      - "@logrix/sdk@*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version override (e.g. 0.7.1)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (run packaging without publishing to npm)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish-npm:
+    name: Build & Publish @logrix/sdk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Extract SDK version
+        id: version
+        run: |
+          RAW_TAG="${{ github.event.inputs.version || github.ref_name }}"
+          # Strip prefix @logrix/sdk@, sdk-v, or leading v
+          CLEAN_VERSION=$(echo "$RAW_TAG" | sed -E 's/^(@logrix\/sdk@|sdk-v|v)//')
+          echo "clean_version=${CLEAN_VERSION}" >> $GITHUB_OUTPUT
+          echo "Target SDK version: ${CLEAN_VERSION}"
+
+      - name: Install dependencies & run tests
+        run: |
+          cd packages/logrix-sdk
+          npm ci || npm install
+          npm test
+
+      - name: Synchronize package.json version
+        run: |
+          cd packages/logrix-sdk
+          TARGET_VER="${{ steps.version.outputs.clean_version }}"
+          if [ -n "$TARGET_VER" ] && [ "$TARGET_VER" != "main" ]; then
+            npm version "$TARGET_VER" --no-git-tag-version --allow-same-version
+          fi
+
+      - name: Build SDK distribution
+        run: |
+          cd packages/logrix-sdk
+          npm run build
+
+      - name: Publish to npm
+        run: |
+          cd packages/logrix-sdk
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "Dry run enabled: running npm pack --dry-run"
+            npm pack --dry-run
+          else
+            npm publish --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ env.NODE_AUTH_TOKEN != '' || github.event.inputs.dry_run == 'true' }}

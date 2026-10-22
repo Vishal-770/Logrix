@@ -397,3 +397,16 @@ function handleTransfer(raw: string): i32 {
    The `@logrix/sdk` generates the application indexer bundle (`indexer-values.yaml`) and Helm deployment profile (`deploy/values-aws.yaml`). If you need to provision the underlying AWS infrastructure (VPC, EKS cluster, Aurora PostgreSQL, SQS queues, S3 bucket, IAM roles) from scratch, complete production Terraform modules are provided in the [Logrix GitHub Repository](https://github.com/Vishal-770/Logrix) under `deploy/terraform/aws/`.
 
 Refer to the [Logrix Helm Chart](https://github.com/Vishal-770/Logrix) for full Helm deployment options.
+
+---
+
+## Release & Publishing
+
+The `@logrix/sdk` package has an independent CI/CD release pipeline decoupled from container image builds.
+
+To trigger an automated npm package release:
+```bash
+git tag sdk-v0.7.1
+git push origin sdk-v0.7.1
+```
+The workflow runs test validation, compiles the TypeScript distribution, synchronizes version numbers, and publishes to the npm registry with provenance.

@@ -2,8 +2,8 @@ apiVersion: v2
 name: logrix
 description: High-performance, modular blockchain indexer for EVM chains
 type: application
-version: 0.7.3
-appVersion: "0.7.3"
+version: 0.8.0
+appVersion: "0.8.0"
 keywords:
   - blockchain
   - ethereum
