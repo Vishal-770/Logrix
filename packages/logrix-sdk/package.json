@@ -1,6 +1,6 @@
 {
   "name": "@logrix/sdk",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Official CLI and AssemblyScript runtime library for Logrix blockchain indexers",
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
-    "test": "npm run build && node --test dist/manifest_converter.test.js",
+    "test": "npm run build && node --test dist/*.test.js",
     "prepublishOnly": "npm run build"
   },
   "files": [
