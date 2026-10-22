@@ -79,6 +79,16 @@ impl UserLogicEngine {
         Ok(())
     }
 
+    /// Returns true if this log is active for indexing based on contract start_block.
+    #[must_use]
+    pub fn is_log_active(&self, log: &EventLog) -> bool {
+        self.manifest
+            .contracts
+            .iter()
+            .find(|c| c.address == log.address)
+            .is_none_or(|c| c.is_active_for_block(log.block_number))
+    }
+
     /// Process an incoming event log through declarative mappings and custom WASM logic.
     pub async fn process_log(&self, log: &EventLog) -> LogrixResult<TransactionalStagingBuffer> {
         let mut staging = TransactionalStagingBuffer::new();
@@ -94,15 +104,7 @@ impl UserLogicEngine {
         }
 
         // 2. Programmable Path: Sandboxed WebAssembly handler execution
-        let contract_active = self
-            .manifest
-            .contracts
-            .iter()
-            .find(|c| c.address == log.address)
-            .map(|c| c.is_active_for_block(log.block_number))
-            .unwrap_or(true);
-
-        if contract_active {
+        if self.is_log_active(log) {
             if let Some(handler) = self.wasm_handlers.get(&log.address) {
                 let base_state = self.state_store.read().await.clone();
 

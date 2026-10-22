@@ -41,6 +41,7 @@ const yaml_1 = require("yaml");
 const ui_1 = require("../ui");
 const schema_1 = require("../schema");
 const errors_1 = require("../errors");
+const manifest_converter_1 = require("../manifest_converter");
 function validateCommand() {
     const cmd = new commander_1.Command("validate");
     cmd
@@ -154,13 +155,16 @@ function validateCommand() {
                 }
                 // Check handler mapping file
                 totalChecks++;
-                const mappingSrc = path.resolve(projectDir, "src/mapping.ts");
+                const mappingSrc = ds.mapping?.source
+                    ? path.resolve(projectDir, ds.mapping.source)
+                    : (0, manifest_converter_1.resolveMappingSource)(projectDir, config);
+                const relSource = path.relative(projectDir, mappingSrc);
                 if (!fs.existsSync(mappingSrc)) {
-                    ui_1.ui.error(`${dsName}: Handler missing`, "Entry point not found at src/mapping.ts");
+                    ui_1.ui.error(`${dsName}: Handler missing`, `Entry point not found at ${relSource}`);
                     hasErrors = true;
                 }
                 else {
-                    ui_1.ui.success(`${dsName}: Handler entry`, "src/mapping.ts exists");
+                    ui_1.ui.success(`${dsName}: Handler entry`, `${relSource} exists`);
                     passedChecks++;
                 }
                 // Check resource limits if specified

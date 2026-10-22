@@ -1,5 +1,7 @@
 use crate::client::EvmChainClient;
-use crate::parser::{parse_block_envelope, parse_required_hash, try_parse_rpc_log};
+use crate::parser::{
+    parse_block_envelope, parse_required_hash, parse_required_hex_u64, try_parse_rpc_log,
+};
 use alloy_primitives::{Address, B256};
 use async_trait::async_trait;
 use logrix_core::{
@@ -48,7 +50,9 @@ impl ChainPort for EvmChainClient {
 
         let hash_str = res.get("hash").and_then(|v| v.as_str());
         let hash: B256 = parse_required_hash(hash_str, "hash")?;
-        Ok(Some(BlockRef::new(number, hash)))
+        let timestamp_hex = res.get("timestamp").and_then(|v| v.as_str());
+        let timestamp = parse_required_hex_u64(timestamp_hex, "timestamp")?;
+        Ok(Some(BlockRef::with_timestamp(number, hash, timestamp)))
     }
 
     async fn fetch_logs(

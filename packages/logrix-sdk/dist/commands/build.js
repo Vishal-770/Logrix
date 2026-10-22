@@ -45,6 +45,7 @@ const picocolors_1 = __importDefault(require("picocolors"));
 const yaml_1 = require("yaml");
 const ui_1 = require("../ui");
 const errors_1 = require("../errors");
+const manifest_converter_1 = require("../manifest_converter");
 function buildCommand() {
     const cmd = new commander_1.Command("build");
     cmd
@@ -69,26 +70,13 @@ function buildCommand() {
         }
         // Ensure output directory exists
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
-        // Prefer logrix.yaml mapping.source if present, falling back to entryFile
+        // Resolve handler source entry point
         const configPath = path.join(projectDir, "logrix.yaml");
         let resolvedEntry = entryFile;
         if (fs.existsSync(configPath)) {
             try {
                 const config = (0, yaml_1.parse)(fs.readFileSync(configPath, "utf-8"));
-                const mappingSource = config?.dataSources?.[0]?.mapping?.source;
-                const mappingFile = config?.dataSources?.[0]?.mapping?.file;
-                if (mappingSource) {
-                    const fromSource = path.resolve(projectDir, mappingSource);
-                    if (fs.existsSync(fromSource)) {
-                        resolvedEntry = fromSource;
-                    }
-                }
-                else if (mappingFile && mappingFile.endsWith(".ts")) {
-                    const fromConfig = path.resolve(projectDir, mappingFile);
-                    if (fs.existsSync(fromConfig)) {
-                        resolvedEntry = fromConfig;
-                    }
-                }
+                resolvedEntry = (0, manifest_converter_1.resolveMappingSource)(projectDir, config);
             }
             catch {
                 // fallback to opts.entry

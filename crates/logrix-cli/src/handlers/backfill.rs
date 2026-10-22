@@ -15,7 +15,7 @@ pub async fn handle_backfill_range(
         .fetch_logs(job.from_block, job.to_block, &ctx.target_addresses())
         .await
     {
-        Ok(logs) => {
+        Ok(mut logs) => {
             let block = match ctx.gateway.get_block_by_number(job.to_block).await {
                 Ok(Some(block)) => block,
                 Ok(None) => {
@@ -38,6 +38,19 @@ pub async fn handle_backfill_range(
                     return Ok(());
                 }
             };
+
+            for log in &mut logs {
+                if log.block_timestamp == 0 {
+                    if log.block_number == block.number {
+                        log.block_timestamp = block.timestamp;
+                    } else if let Ok(Some(b)) =
+                        ctx.gateway.get_block_by_number(log.block_number).await
+                    {
+                        log.block_timestamp = b.timestamp;
+                    }
+                }
+            }
+
             match index_logs_batch(
                 ctx.store,
                 ctx.config.chain_id,

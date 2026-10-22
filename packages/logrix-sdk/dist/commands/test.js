@@ -41,6 +41,7 @@ const child_process_1 = require("child_process");
 const yaml_1 = require("yaml");
 const ui_1 = require("../ui");
 const errors_1 = require("../errors");
+const manifest_converter_1 = require("../manifest_converter");
 function testCommand() {
     const cmd = new commander_1.Command("test");
     cmd
@@ -79,7 +80,15 @@ function testCommand() {
         try {
             const ascBin = path.join(projectDir, "node_modules", ".bin", "asc");
             const ascCmd = fs.existsSync(ascBin) ? ascBin : "npx asc";
-            (0, child_process_1.execSync)(`${ascCmd} src/mapping.ts -o build/test_mapping.wasm -O3 --runtime stub --noAssert`, { cwd: projectDir, stdio: "pipe" });
+            let mappingSrc = "src/mapping.ts";
+            try {
+                const config = (0, yaml_1.parse)(fs.readFileSync(configPath, "utf-8"));
+                mappingSrc = (0, manifest_converter_1.resolveMappingSource)(projectDir, config);
+            }
+            catch {
+                // fallback
+            }
+            (0, child_process_1.execSync)(`${ascCmd} ${mappingSrc} -o build/test_mapping.wasm -O3 --runtime stub --noAssert`, { cwd: projectDir, stdio: "pipe" });
             spin2.succeed("Handler compilation passed (build/test_mapping.wasm)");
         }
         catch (e) {

@@ -3,17 +3,32 @@ use alloy_primitives::{Address, Bytes, B256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Lightweight pointer to a specific block (number and hash).
+/// Lightweight pointer to a specific block (number, hash, and timestamp).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlockRef {
     pub number: u64,
     pub hash: B256,
+    #[serde(default)]
+    pub timestamp: u64,
 }
 
 impl BlockRef {
     #[must_use]
     pub const fn new(number: u64, hash: B256) -> Self {
-        Self { number, hash }
+        Self {
+            number,
+            hash,
+            timestamp: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_timestamp(number: u64, hash: B256, timestamp: u64) -> Self {
+        Self {
+            number,
+            hash,
+            timestamp,
+        }
     }
 }
 
@@ -134,7 +149,7 @@ impl BlockEnvelope {
 
     #[must_use]
     pub fn block_ref(&self) -> BlockRef {
-        BlockRef::new(self.block_number, self.block_hash)
+        BlockRef::with_timestamp(self.block_number, self.block_hash, self.timestamp)
     }
 
     #[must_use]

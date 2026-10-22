@@ -16,6 +16,7 @@ dataSources:
       startBlock: 514022000
     mapping:
       kind: wasm/assemblyscript
+      source: ./src/mapping.ts
       file: ./build/mapping.wasm
       abis:
         - name: UniswapV3Pool

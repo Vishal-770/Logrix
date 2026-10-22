@@ -6,6 +6,7 @@ import pc from "picocolors";
 import { parse as parseYaml } from "yaml";
 import { ui } from "../ui";
 import { CliError } from "../errors";
+import { resolveMappingSource } from "../manifest_converter";
 
 export function testCommand(): Command {
   const cmd = new Command("test");
@@ -54,8 +55,15 @@ export function testCommand(): Command {
       try {
         const ascBin = path.join(projectDir, "node_modules", ".bin", "asc");
         const ascCmd = fs.existsSync(ascBin) ? ascBin : "npx asc";
+        let mappingSrc = "src/mapping.ts";
+        try {
+          const config = parseYaml(fs.readFileSync(configPath, "utf-8"));
+          mappingSrc = resolveMappingSource(projectDir, config);
+        } catch {
+          // fallback
+        }
         execSync(
-          `${ascCmd} src/mapping.ts -o build/test_mapping.wasm -O3 --runtime stub --noAssert`,
+          `${ascCmd} ${mappingSrc} -o build/test_mapping.wasm -O3 --runtime stub --noAssert`,
           { cwd: projectDir, stdio: "pipe" }
         );
         spin2.succeed("Handler compilation passed (build/test_mapping.wasm)");

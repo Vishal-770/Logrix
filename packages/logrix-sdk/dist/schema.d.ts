@@ -1,0 +1,130 @@
+import { z } from "zod";
+export declare const EventHandlerSchema: z.ZodObject<{
+    event: z.ZodString;
+    handler: z.ZodString;
+}, z.core.$strip>;
+export declare const AbiRefSchema: z.ZodObject<{
+    name: z.ZodString;
+    file: z.ZodString;
+}, z.core.$strip>;
+export declare const DataSourceMappingSchema: z.ZodObject<{
+    kind: z.ZodDefault<z.ZodString>;
+    source: z.ZodOptional<z.ZodString>;
+    file: z.ZodDefault<z.ZodString>;
+    fuelLimit: z.ZodOptional<z.ZodNumber>;
+    maxMemoryMb: z.ZodOptional<z.ZodNumber>;
+    enabled: z.ZodOptional<z.ZodBoolean>;
+    abis: z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        file: z.ZodString;
+    }, z.core.$strip>>;
+    eventHandlers: z.ZodArray<z.ZodObject<{
+        event: z.ZodString;
+        handler: z.ZodString;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+export declare const DataSourceSchema: z.ZodObject<{
+    kind: z.ZodDefault<z.ZodString>;
+    name: z.ZodString;
+    network: z.ZodString;
+    source: z.ZodObject<{
+        address: z.ZodString;
+        abi: z.ZodString;
+        startBlock: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strip>;
+    mapping: z.ZodObject<{
+        kind: z.ZodDefault<z.ZodString>;
+        source: z.ZodOptional<z.ZodString>;
+        file: z.ZodDefault<z.ZodString>;
+        fuelLimit: z.ZodOptional<z.ZodNumber>;
+        maxMemoryMb: z.ZodOptional<z.ZodNumber>;
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        abis: z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            file: z.ZodString;
+        }, z.core.$strip>>;
+        eventHandlers: z.ZodArray<z.ZodObject<{
+            event: z.ZodString;
+            handler: z.ZodString;
+        }, z.core.$strip>>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export declare const WebhookSchema: z.ZodObject<{
+    url: z.ZodString;
+    events: z.ZodDefault<z.ZodArray<z.ZodString>>;
+    maxRetries: z.ZodDefault<z.ZodNumber>;
+    secret: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const LogrixConfigSchema: z.ZodObject<{
+    specVersion: z.ZodDefault<z.ZodString>;
+    network: z.ZodObject<{
+        name: z.ZodString;
+        chainId: z.ZodNumber;
+        rpcUrl: z.ZodString;
+        fallbackRpcUrls: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strip>;
+    dataSources: z.ZodArray<z.ZodObject<{
+        kind: z.ZodDefault<z.ZodString>;
+        name: z.ZodString;
+        network: z.ZodString;
+        source: z.ZodObject<{
+            address: z.ZodString;
+            abi: z.ZodString;
+            startBlock: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>;
+        mapping: z.ZodObject<{
+            kind: z.ZodDefault<z.ZodString>;
+            source: z.ZodOptional<z.ZodString>;
+            file: z.ZodDefault<z.ZodString>;
+            fuelLimit: z.ZodOptional<z.ZodNumber>;
+            maxMemoryMb: z.ZodOptional<z.ZodNumber>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            abis: z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                file: z.ZodString;
+            }, z.core.$strip>>;
+            eventHandlers: z.ZodArray<z.ZodObject<{
+                event: z.ZodString;
+                handler: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>>;
+    webhooks: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        url: z.ZodString;
+        events: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        maxRetries: z.ZodDefault<z.ZodNumber>;
+        secret: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>>;
+    indexing: z.ZodOptional<z.ZodObject<{
+        ringBufferDepth: z.ZodDefault<z.ZodNumber>;
+        reconcilerIntervalSecs: z.ZodDefault<z.ZodNumber>;
+        chunkSize: z.ZodOptional<z.ZodNumber>;
+        reconcilerChunkSize: z.ZodOptional<z.ZodNumber>;
+        reconcilerLagThreshold: z.ZodOptional<z.ZodNumber>;
+        chainHeadPollMs: z.ZodOptional<z.ZodNumber>;
+        maxQueueDepth: z.ZodOptional<z.ZodNumber>;
+        rpcTimeoutSecs: z.ZodOptional<z.ZodNumber>;
+        rpcCbThreshold: z.ZodOptional<z.ZodNumber>;
+        rpcCooldownSecs: z.ZodOptional<z.ZodNumber>;
+        cuBudget: z.ZodOptional<z.ZodNumber>;
+        bulkStreamUrl: z.ZodOptional<z.ZodString>;
+        databaseMaxConnections: z.ZodOptional<z.ZodNumber>;
+        databaseMinConnections: z.ZodOptional<z.ZodNumber>;
+        rabbitmqPrefetch: z.ZodOptional<z.ZodNumber>;
+        rabbitmqTimeoutSecs: z.ZodOptional<z.ZodNumber>;
+        sqsWaitTimeSeconds: z.ZodOptional<z.ZodNumber>;
+        sqsMaxMessages: z.ZodOptional<z.ZodNumber>;
+        wasmFuelLimit: z.ZodOptional<z.ZodNumber>;
+        wasmMaxMemoryMb: z.ZodOptional<z.ZodNumber>;
+        graphqlMaxDepth: z.ZodOptional<z.ZodNumber>;
+        graphqlMaxComplexity: z.ZodOptional<z.ZodNumber>;
+        graphqlDefaultLimit: z.ZodOptional<z.ZodNumber>;
+        graphqlMaxLimit: z.ZodOptional<z.ZodNumber>;
+        graphqlQueryTimeoutSecs: z.ZodOptional<z.ZodNumber>;
+        webhookTimeoutSecs: z.ZodOptional<z.ZodNumber>;
+        webhookMaxRetries: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+export type LogrixConfig = z.infer<typeof LogrixConfigSchema>;
+export type DataSource = z.infer<typeof DataSourceSchema>;
+export type WebhookConfig = z.infer<typeof WebhookSchema>;
