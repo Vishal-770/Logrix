@@ -86,7 +86,7 @@ config:
   wasmBase64: ""
   # Existing Kubernetes Secret providing runtime credentials. Expected keys include
   # DATABASE_URL, RABBITMQ_URL, and WEBHOOK_SECRET when those features are enabled.
-  existingSecret: ""
+  existingSecret: "logrix-secrets"
 
 # Built-in self-hosted backing infrastructure (PostgreSQL, RabbitMQ, and MinIO S3)
 # Disabled by default for cloud-native production deployments (AWS Aurora, SQS, S3).
