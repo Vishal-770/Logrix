@@ -48,8 +48,9 @@ impl MockQueuePort {
     }
 
     async fn apply_latency_and_check_error(&self) -> LogrixResult<()> {
-        if let Some(delay) = *self.simulated_latency.lock().await {
-            tokio::time::sleep(delay).await;
+        let delay = *self.simulated_latency.lock().await;
+        if let Some(d) = delay {
+            tokio::time::sleep(d).await;
         }
         let mut curr = self.injected_errors.load(Ordering::SeqCst);
         while curr > 0 {
@@ -108,8 +109,14 @@ impl QueuePort for MockQueuePort {
     async fn consume(&self, queue_type: QueueType) -> LogrixResult<Option<MessageHandle>> {
         self.apply_latency_and_check_error().await?;
         self.reap_expired_in_flight().await;
-        let mut queues = self.queues.lock().await;
-        if let Some(msg) = queues.entry(queue_type).or_default().pop_front() {
+        let maybe_msg = self
+            .queues
+            .lock()
+            .await
+            .entry(queue_type)
+            .or_default()
+            .pop_front();
+        if let Some(msg) = maybe_msg {
             let receipt_id = Uuid::new_v4().to_string();
             let entry = InFlightEntry {
                 queue_type,

@@ -19,7 +19,7 @@ spec:
     app.kubernetes.io/name: rabbitmq
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: rabbitmq
   namespace: logrix-dev
@@ -27,6 +27,7 @@ metadata:
     app.kubernetes.io/name: rabbitmq
     app.kubernetes.io/part-of: logrix
 spec:
+  serviceName: rabbitmq
   replicas: 1
   selector:
     matchLabels:
@@ -59,3 +60,14 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

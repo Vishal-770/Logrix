@@ -14,3 +14,6 @@ secretGenerator:
     literals:
       - DATABASE_URL=postgres://logrix:logrix@postgres:5432/logrix
       - RABBITMQ_URL=amqp://logrix:logrix@rabbitmq:5672
+
+generatorOptions:
+  disableNameSuffixHash: true

@@ -10,9 +10,63 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
-{{- if and .Values.serviceAccount.create .Values.rbac.create }}
+{{- if and .Values.ingester.serviceAccount .Values.ingester.serviceAccount.create }}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.ingester.serviceAccount.name }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingester
+  {{- with .Values.ingester.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
+{{- if and .Values.processor.serviceAccount .Values.processor.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.processor.serviceAccount.name }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: processor
+  {{- with .Values.processor.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.api.serviceAccount .Values.api.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.api.serviceAccount.name }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.api.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.webhook.serviceAccount .Values.webhook.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.webhook.serviceAccount.name }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+  {{- with .Values.webhook.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
 {{- if .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -33,7 +87,7 @@ metadata:
     {{- include "logrix.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "logrix.serviceAccountName" . }}
+    name: {{ include "logrix.ingesterServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: Role

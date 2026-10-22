@@ -1,12 +1,13 @@
 {{- if and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio (empty .Values.config.s3Endpoint) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "logrix.fullname" . }}-minio
   labels:
     {{- include "logrix.labels" . | nindent 4 }}
     app.kubernetes.io/component: local-minio
 spec:
+  serviceName: {{ include "logrix.fullname" . }}-minio
   replicas: 1
   selector:
     matchLabels:
@@ -16,15 +17,25 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "logrix.name" . }}-minio
     spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: minio
           image: minio/minio:RELEASE.2024-03-30T09-41-56Z
           command: ["minio", "server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
-              value: "logrix"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: MINIO_ROOT_USER
             - name: MINIO_ROOT_PASSWORD
-              value: "logrixpassword"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: MINIO_ROOT_PASSWORD
           ports:
             - containerPort: 9000
               name: s3
@@ -37,6 +48,28 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+      {{- if not .Values.builtIn.persistence.enabled }}
+      volumes:
+        - name: minio-data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.builtIn.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.builtIn.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.builtIn.minioStorage }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

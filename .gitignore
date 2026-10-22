@@ -53,3 +53,5 @@ arbitrum-uniswap-indexer/node_modules/
 arbitrum-uniswap-indexer/build/
 packages/logrix-sdk/dist/*.test.js
 .omnirush/
+reports/
+.agent/

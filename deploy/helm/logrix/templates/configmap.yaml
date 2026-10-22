@@ -5,19 +5,19 @@ metadata:
   labels:
     {{- include "logrix.labels" . | nindent 4 }}
 data:
-  CHAIN_ID: {{ .Values.config.chainId | quote }}
-  CONTRACT_ADDRESS: {{ .Values.config.contractAddress | quote }}
-  RPC_URL: {{ .Values.config.rpcUrl | quote }}
-  RPC_FALLBACK_URLS: {{ .Values.config.rpcFallbackUrls | quote }}
+  CHAIN_ID: {{ .Values.config.chainId | default 421614 | quote }}
+  CONTRACT_ADDRESS: {{ required "config.contractAddress must not be empty" .Values.config.contractAddress | quote }}
+  RPC_URL: {{ required "config.rpcUrl must not be empty" .Values.config.rpcUrl | quote }}
+  RPC_FALLBACK_URLS: {{ .Values.config.rpcFallbackUrls | default "" | quote }}
   QUEUE_DRIVER: {{ .Values.config.queueDriver | default "rabbitmq" | quote }}
-  RABBITMQ_URL: {{ default (printf "amqp://logrix:logrixpassword@%s-rabbitmq:5672/%%2f" (include "logrix.fullname" .)) .Values.config.rabbitmqUrl | quote }}
-  DATABASE_URL: {{ default (printf "postgres://logrix:logrixpassword@%s-postgres:5432/logrix" (include "logrix.fullname" .)) .Values.config.databaseUrl | quote }}
+  AWS_REGION: {{ .Values.config.awsRegion | default "us-east-1" | quote }}
   DATABASE_MAX_CONNECTIONS: {{ .Values.config.databaseMaxConnections | default 10 | quote }}
   DATABASE_MIN_CONNECTIONS: {{ .Values.config.databaseMinConnections | default 2 | quote }}
   DATABASE_STATEMENT_TIMEOUT_SECS: {{ .Values.config.databaseStatementTimeoutSecs | default 30 | quote }}
   MAX_QUEUE_DEPTH: {{ .Values.config.maxQueueDepth | default 1000 | quote }}
   {{- if or (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio) .Values.config.s3Bucket }}
   S3_BUCKET: {{ default "logrix-blocks" .Values.config.s3Bucket | quote }}
+  S3_PREFIX: {{ .Values.config.s3Prefix | default "" | quote }}
   {{- if .Values.config.s3Endpoint }}
   S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
   {{- else if and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.minio }}
@@ -33,11 +33,11 @@ data:
   SQS_ENDPOINT: {{ .Values.config.sqsEndpoint | quote }}
   {{- end }}
   {{- end }}
-  {{- if and .Values.webhook .Values.webhook.enabled }}
+  {{- if and .Values.processor .Values.processor.webhookWorker .Values.processor.webhookWorker.enabled }}
   ENABLE_WEBHOOKS: "true"
   {{- end }}
-  RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | quote }}
-  RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | quote }}
+  RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | default 30 | quote }}
+  RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | default 128 | quote }}
   {{- if .Values.config.reconcilerChunkSize }}
   RECONCILER_CHUNK_SIZE: {{ .Values.config.reconcilerChunkSize | quote }}
   {{- end }}
@@ -54,6 +54,8 @@ data:
   RPC_COOLDOWN_SECS: {{ .Values.config.rpcCooldownSecs | default 30 | quote }}
   WEBHOOK_TIMEOUT_SECS: {{ .Values.config.webhookTimeoutSecs | default 5 | quote }}
   WEBHOOK_MAX_RETRIES: {{ .Values.config.webhookMaxRetries | default 1 | quote }}
+  WEBHOOK_WORKER_IDLE_MS: {{ .Values.config.webhookWorkerIdleMs | default 100 | quote }}
+  WEBHOOK_WORKER_BACKOFF_MS: {{ .Values.config.webhookWorkerBackoffMs | default 500 | quote }}
   GRAPHQL_MAX_DEPTH: {{ .Values.config.graphqlMaxDepth | default 7 | quote }}
   GRAPHQL_MAX_COMPLEXITY: {{ .Values.config.graphqlMaxComplexity | default 200 | quote }}
   GRAPHQL_DEFAULT_LIMIT: {{ .Values.config.graphqlDefaultLimit | default 100 | quote }}
@@ -86,4 +88,3 @@ data:
   schema.graphql: |
 {{ .Values.config.schemaContent | indent 4 }}
   {{- end }}
-

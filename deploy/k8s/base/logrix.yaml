@@ -31,9 +31,19 @@ spec:
       labels:
         app.kubernetes.io/name: logrix
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: logrix
-          image: ghcr.io/vishal-770/logrix:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          image: ghcr.io/vishal-770/logrix:0.7.3
           imagePullPolicy: IfNotPresent
           command: ["logrix", "all-in-one"]
           envFrom:
@@ -63,3 +73,9 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

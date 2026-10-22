@@ -37,8 +37,9 @@ impl MockStorePort {
     }
 
     async fn apply_latency_and_check_error(&self) -> LogrixResult<()> {
-        if let Some(delay) = *self.simulated_latency.lock().await {
-            tokio::time::sleep(delay).await;
+        let delay = *self.simulated_latency.lock().await;
+        if let Some(d) = delay {
+            tokio::time::sleep(d).await;
         }
         let mut curr = self.injected_errors.load(Ordering::SeqCst);
         while curr > 0 {

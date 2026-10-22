@@ -14,31 +14,58 @@ spec:
       app.kubernetes.io/component: webhook
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "logrix.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: webhook
     spec:
-      serviceAccountName: {{ include "logrix.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logrix.webhookServiceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.webhook.terminationGracePeriodSeconds | default 30 }}
+      securityContext:
+        {{- toYaml .Values.global.podSecurityContext | nindent 8 }}
       containers:
         - name: webhook
+          securityContext:
+            {{- toYaml .Values.global.containerSecurityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["logrix", "webhook-dispatcher"]
           envFrom:
             - configMapRef:
                 name: {{ include "logrix.fullname" . }}-config
-            {{- if .Values.config.existingSecret }}
             - secretRef:
-                name: {{ .Values.config.existingSecret }}
+                name: {{ include "logrix.credentialsSecretName" . }}
+            {{- if and .Values.config.existingSecret (or .Values.builtIn.enabled .Values.config.webhookSecret) }}
+            - secretRef:
+                name: {{ include "logrix.internalSecretName" . }}
             {{- end }}
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pgrep -f logrix || exit 1"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pgrep -f logrix || exit 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.webhook.resources | nindent 12 }}
           volumeMounts:
+            - name: logrix-tmp
+              mountPath: /tmp
             {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
             - name: logrix-config-volume
               mountPath: /etc/logrix
             {{- end }}
       volumes:
+        - name: logrix-tmp
+          emptyDir: {}
         {{- if or .Values.config.manifestContent .Values.config.schemaContent }}
         - name: logrix-config-volume
           configMap:

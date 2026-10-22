@@ -1,4 +1,5 @@
 {{- if and .Values.processor.enabled .Values.processor.keda.enabled }}
+{{- $sqsQueueURL := default .Values.config.sqsLiveUrl .Values.processor.keda.sqs.queueUrl }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -19,10 +20,13 @@ spec:
     {{- if or (eq .Values.processor.keda.queueType "sqs") (eq .Values.config.queueDriver "sqs") }}
     - type: aws-sqs-queue
       metadata:
-        queueURL: {{ .Values.processor.keda.sqs.queueUrl | quote }}
+        queueURL: {{ required "processor.keda.sqs.queueUrl or config.sqsLiveUrl is required for SQS scaling" $sqsQueueURL | quote }}
         queueLength: {{ .Values.processor.keda.targetQueueDepth | default 30 | quote }}
-        awsRegion: {{ .Values.processor.keda.sqs.awsRegion | default "us-east-1" | quote }}
-        identityOwner: operator
+        awsRegion: {{ default .Values.config.awsRegion .Values.processor.keda.sqs.awsRegion | default "us-east-1" | quote }}
+      {{- if .Values.processor.keda.triggerAuthentication.enabled }}
+      authenticationRef:
+        name: {{ include "logrix.processorSqsTriggerAuthenticationName" . }}
+      {{- end }}
     {{- else }}
     - type: rabbitmq
       metadata:
@@ -30,6 +34,11 @@ spec:
         queueName: {{ .Values.processor.keda.rabbitmq.queueName | default "logrix.live.jobs" | quote }}
         mode: QueueLength
         value: {{ .Values.processor.keda.targetQueueDepth | default 30 | quote }}
-        host: {{ default (printf "amqp://logrix:logrixpassword@%s-rabbitmq:5672/%%2f" (include "logrix.fullname" .)) .Values.processor.keda.rabbitmq.host | quote }}
-    {{- end }}
+        {{- if .Values.processor.keda.rabbitmqTriggerAuthentication.enabled }}
+      authenticationRef:
+        name: {{ include "logrix.processorRabbitmqTriggerAuthenticationName" . }}
+        {{- else }}
+        host: {{ required "processor.keda.rabbitmq.host or config.rabbitmqUrl is required when RabbitMQ TriggerAuthentication is disabled" (default .Values.config.rabbitmqUrl .Values.processor.keda.rabbitmq.host) | quote }}
+        {{- end }}
+{{- end }}
 {{- end }}

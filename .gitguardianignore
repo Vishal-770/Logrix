@@ -1,0 +1,4 @@
+deploy/helm/logrix/templates/secret-internal.yaml
+deploy/k8s/local/kustomization.yaml
+docs/audits/production_deployment_security_audit.md
+docs/audits/remediation_implementation_plan.md
