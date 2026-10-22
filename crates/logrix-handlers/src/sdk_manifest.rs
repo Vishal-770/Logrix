@@ -32,6 +32,8 @@ pub(crate) struct SdkDataSource {
 #[derive(Debug, Deserialize)]
 pub(crate) struct SdkSource {
     pub address: Address,
+    #[serde(rename = "startBlock", default)]
+    pub start_block: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,6 +80,7 @@ impl SdkProjectManifest {
                     enabled: ds.mapping.enabled,
                     fuel_limit: ds.mapping.fuel_limit,
                     max_memory_mb: ds.mapping.max_memory_mb,
+                    start_block: ds.source.start_block,
                 }
             })
             .collect();

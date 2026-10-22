@@ -21,6 +21,7 @@ fn create_sample_log() -> EventLog {
         tx_index: 2,
         block_number: 12345,
         block_hash: B256::repeat_byte(0x55),
+        block_timestamp: 0,
     }
 }
 

@@ -132,6 +132,9 @@ pub struct ContractManifest {
     /// Per-contract memory ceiling override in megabytes.
     #[serde(default)]
     pub max_memory_mb: Option<usize>,
+    /// Optional starting block number for this contract.
+    #[serde(default)]
+    pub start_block: Option<u64>,
 }
 
 impl ContractManifest {
@@ -139,6 +142,12 @@ impl ContractManifest {
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.enabled.unwrap_or(true)
+    }
+
+    /// Returns true if this contract is enabled and the given block is >= start_block.
+    #[must_use]
+    pub fn is_active_for_block(&self, block_number: u64) -> bool {
+        self.is_enabled() && self.start_block.is_none_or(|start| block_number >= start)
     }
 }
 

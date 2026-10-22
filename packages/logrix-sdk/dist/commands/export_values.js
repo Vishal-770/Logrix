@@ -45,6 +45,7 @@ const yaml_1 = require("yaml");
 const templates_1 = require("../templates");
 const ui_1 = require("../ui");
 const errors_1 = require("../errors");
+const schema_1 = require("../schema");
 const manifest_converter_1 = require("../manifest_converter");
 /**
  * logrix export-values
@@ -75,6 +76,13 @@ function exportValuesCommand() {
         }
         catch (e) {
             throw new errors_1.CliError("Failed to parse logrix.yaml", e.message);
+        }
+        const parseResult = schema_1.LogrixConfigSchema.safeParse(config);
+        if (!parseResult.success) {
+            const issues = parseResult.error.issues
+                .map((i) => `${i.path.join(".")}: ${i.message}`)
+                .join("; ");
+            throw new errors_1.CliError("Invalid logrix.yaml manifest", issues, "Run `logrix validate` to inspect and fix schema issues before exporting");
         }
         // Resolve network settings
         const chainId = opts.chainId

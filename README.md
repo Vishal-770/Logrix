@@ -37,21 +37,22 @@ npm install
 npm run codegen
 ```
 
-### 3. Write Event Handler (`handlers/mapping.ts`)
+### 3. Write Event Handler (`src/mapping.ts`)
 
 ```typescript
 import { TransferEvent } from "./generated/events";
-import { TransferEntity } from "./generated/schema";
+import { Transfer } from "./generated/schema";
 
-export function handleTransfer(event: TransferEvent): void {
-  let entity = new TransferEntity(event.transactionHash + "-" + event.logIndex.toString());
+export function handleTransfer(event: TransferEvent): i32 {
+  let entity = new Transfer(event.transactionHash + "-" + event.logIndex.toString());
   entity.blockNumber = event.blockNumber;
-  entity.fromAddress = event.params.from;
-  entity.toAddress = event.params.to;
+  entity.fromAddress = event.params.from.toHexString();
+  entity.toAddress = event.params.to.toHexString();
   entity.amount = event.params.value;
   entity.transactionHash = event.transactionHash;
   entity.timestamp = event.blockTimestamp;
   entity.save();
+  return 0;
 }
 ```
 

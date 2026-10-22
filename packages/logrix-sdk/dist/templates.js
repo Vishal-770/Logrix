@@ -32,6 +32,7 @@ function logrixYamlTemplate(a) {
                 },
                 mapping: {
                     kind: "wasm/assemblyscript",
+                    source: "./src/mapping.ts",
                     file: "./build/mapping.wasm",
                     abis: [
                         {
@@ -179,12 +180,13 @@ function packageJsonTemplate(projectName) {
         scripts: {
             codegen: "logrix codegen",
             build: "logrix build",
+            test: "logrix test",
             validate: "logrix validate",
             "export-values": "logrix export-values",
             "build:asc": "asc src/mapping.ts --config tsconfig.json -o build/mapping.wasm --optimize --exportRuntime",
         },
         dependencies: {
-            "@logrix/sdk": "^0.6.0",
+            "@logrix/sdk": "^0.8.0",
         },
         devDependencies: {
             assemblyscript: "^0.27.29",
@@ -209,7 +211,7 @@ function valuesAwsTemplate(a) {
     const doc = {
         image: {
             repository: "ghcr.io/vishal-770/logrix",
-            tag: "0.6.0",
+            tag: "0.8.0",
             pullPolicy: "IfNotPresent",
         },
         builtIn: {
@@ -225,7 +227,7 @@ function valuesAwsTemplate(a) {
             chainId: a.chainId,
             queueDriver: "sqs",
             reconcilerIntervalSecs: a.reconcilerIntervalSecs ?? 30,
-            ringBufferDepth: a.ringBufferDepth ?? 256,
+            ringBufferDepth: a.ringBufferDepth ?? 128,
             existingSecret: "logrix-secrets",
             s3Bucket: "",
         },

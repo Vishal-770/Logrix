@@ -6,18 +6,43 @@ import { parse as parseYaml } from "yaml";
 import { ui } from "../ui";
 import { CliError } from "../errors";
 
+function maskUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.password) parsed.password = "******";
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (/key|token|secret|auth/i.test(key)) {
+        parsed.searchParams.set(key, "******");
+      }
+    }
+    const parts = parsed.pathname.split("/");
+    if (parts.length > 2 && (parts[1] === "v2" || parts[1] === "v3")) {
+      parts[2] = "******";
+      parsed.pathname = parts.join("/");
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 async function jsonRpcCall(
   url: string,
   method: string,
-  params: any[] = []
+  params: any[] = [],
+  timeoutMs: number = 10000
 ): Promise<{ result?: any; error?: any; latencyMs: number }> {
   const start = Date.now();
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const latencyMs = Date.now() - start;
     if (!res.ok) {
       return { error: `HTTP ${res.status}: ${res.statusText}`, latencyMs };
@@ -25,7 +50,8 @@ async function jsonRpcCall(
     const json: any = await res.json();
     return { result: json.result, error: json.error, latencyMs };
   } catch (e: any) {
-    return { error: e.message, latencyMs: Date.now() - start };
+    const msg = e.name === "AbortError" ? "Request timed out after 10s" : e.message;
+    return { error: msg, latencyMs: Date.now() - start };
   }
 }
 
@@ -64,7 +90,7 @@ export function statusCommand(): Command {
       ui.section("Network & RPC Configuration");
       ui.label("Network:", pc.bold(pc.white(networkName)));
       ui.label("Configured Chain:", pc.cyan(String(configuredChainId ?? "Not set")));
-      ui.label("Primary RPC:", rpcUrl ? pc.dim(rpcUrl) : pc.red("None configured"));
+      ui.label("Primary RPC:", rpcUrl ? pc.dim(maskUrl(rpcUrl)) : pc.red("None configured"));
 
       if (!rpcUrl) {
         throw new CliError(
@@ -102,10 +128,14 @@ export function statusCommand(): Command {
       if (chainRes.result) {
         const reportedChainId = parseInt(chainRes.result, 16);
         const match = configuredChainId === reportedChainId;
-        const chainBadge = match
-          ? pc.green(`[OK] Matched (#${reportedChainId})`)
-          : pc.yellow(`! Mismatch (Configured: ${configuredChainId}, Node: ${reportedChainId})`);
-        ui.label("Chain ID Match:", chainBadge);
+        if (!match) {
+          throw new CliError(
+            `Chain ID Mismatch: Configured chain ID ${configuredChainId}, but node reported ${reportedChainId}`,
+            "The configured network in logrix.yaml does not match the connected node.",
+            "Update network.chainId or network.rpcUrl in logrix.yaml"
+          );
+        }
+        ui.label("Chain ID Match:", pc.green(`[OK] Matched (#${reportedChainId})`));
       }
 
       // Check Fallback RPCs
@@ -114,10 +144,11 @@ export function statusCommand(): Command {
         ui.section(`Fallback RPC Gateway (${fallbackUrls.length} configured)`);
         const fbTable = ui.table(["Endpoint", "Status", "Latency", "Block Height"]);
         for (const fbUrl of fallbackUrls) {
+          const masked = maskUrl(fbUrl);
           const fbRes = await jsonRpcCall(fbUrl, "eth_blockNumber");
           if (fbRes.error || !fbRes.result) {
             fbTable.push([
-              pc.dim(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+              pc.dim(masked.length > 35 ? masked.slice(0, 32) + "..." : masked),
               ui.statusBadge("OFFLINE"),
               pc.dim("-"),
               pc.dim(String(fbRes.error || "unreachable")),
@@ -125,7 +156,7 @@ export function statusCommand(): Command {
           } else {
             const fbBlock = parseInt(fbRes.result, 16);
             fbTable.push([
-              pc.cyan(fbUrl.length > 35 ? fbUrl.slice(0, 32) + "..." : fbUrl),
+              pc.cyan(masked.length > 35 ? masked.slice(0, 32) + "..." : masked),
               ui.statusBadge("ONLINE"),
               ui.latency(fbRes.latencyMs),
               pc.bold(pc.green(`#${fbBlock.toLocaleString()}`)),

@@ -42,6 +42,9 @@ pub struct EventLog {
     pub block_number: u64,
     /// Block hash containing this log.
     pub block_hash: B256,
+    /// Block timestamp in seconds since Unix epoch.
+    #[serde(default)]
+    pub block_timestamp: u64,
 }
 
 impl EventLog {

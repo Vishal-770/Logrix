@@ -12,6 +12,7 @@ export const AbiRefSchema = z.object({
 
 export const DataSourceMappingSchema = z.object({
   kind: z.string().default("wasm/assemblyscript"),
+  source: z.string().optional(),
   file: z.string().default("./build/mapping.wasm"),
   fuelLimit: z.number().int().positive().optional(),
   maxMemoryMb: z.number().int().positive().optional(),

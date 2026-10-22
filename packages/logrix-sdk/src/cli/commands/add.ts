@@ -43,22 +43,24 @@ const EXPLORER_APIS: Record<number, string> = {
 async function fetchAbi(address: string, chainId: number = 1, apiKey?: string): Promise<any[] | null> {
   const addr = address.toLowerCase();
 
-  // Try Etherscan-compatible explorer API
-  const baseExplorer = EXPLORER_APIS[chainId] || EXPLORER_APIS[1];
-  try {
-    const keyParam = apiKey ? `&apikey=${apiKey}` : "";
-    const url = `${baseExplorer}?module=contract&action=getabi&address=${addr}${keyParam}`;
-    const resp = await fetch(url);
-    const json: any = await resp.json();
-    if (json.status === "1" && json.result) {
-      const parsed = JSON.parse(json.result);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        ui.info("Fetched verified ABI from block explorer", address);
-        return parsed;
+  // Try Etherscan-compatible explorer API if registered for this chain
+  const baseExplorer = EXPLORER_APIS[chainId];
+  if (baseExplorer) {
+    try {
+      const keyParam = apiKey ? `&apikey=${apiKey}` : "";
+      const url = `${baseExplorer}?module=contract&action=getabi&address=${addr}${keyParam}`;
+      const resp = await fetch(url);
+      const json: any = await resp.json();
+      if (json.status === "1" && json.result) {
+        const parsed = JSON.parse(json.result);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          ui.info("Fetched verified ABI from block explorer", address);
+          return parsed;
+        }
       }
+    } catch {
+      // fall through to Sourcify
     }
-  } catch {
-    // fall through to Sourcify
   }
 
   // Try Sourcify (supports any chainId, no API key required)
@@ -271,11 +273,11 @@ export function addCommand(): Command {
             fs.writeFileSync(targetAbiFile, JSON.stringify(abi, null, 2));
             ui.success("Verified ABI downloaded", `abis/${contractName}.json`);
           } else {
-            ui.warn(
-              `Could not fetch ABI for ${contractAddress}`,
-              "Using standard ERC-20 placeholder."
+            throw new CliError(
+              `Could not fetch verified ABI for ${contractAddress} on chain ${chainId}`,
+              "Neither block explorer nor Sourcify returned a verified ABI for this contract.",
+              "Provide the ABI file manually with --abi <path> or verify the contract source code."
             );
-            fs.writeFileSync(targetAbiFile, JSON.stringify(ERC20_ABI, null, 2));
           }
         } else if (!fs.existsSync(targetAbiFile)) {
           fs.writeFileSync(targetAbiFile, JSON.stringify(ERC20_ABI, null, 2));

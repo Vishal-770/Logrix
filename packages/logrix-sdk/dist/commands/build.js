@@ -69,14 +69,21 @@ function buildCommand() {
         }
         // Ensure output directory exists
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
-        // Prefer logrix.yaml mapping.file if present
+        // Prefer logrix.yaml mapping.source if present, falling back to entryFile
         const configPath = path.join(projectDir, "logrix.yaml");
         let resolvedEntry = entryFile;
         if (fs.existsSync(configPath)) {
             try {
                 const config = (0, yaml_1.parse)(fs.readFileSync(configPath, "utf-8"));
+                const mappingSource = config?.dataSources?.[0]?.mapping?.source;
                 const mappingFile = config?.dataSources?.[0]?.mapping?.file;
-                if (mappingFile) {
+                if (mappingSource) {
+                    const fromSource = path.resolve(projectDir, mappingSource);
+                    if (fs.existsSync(fromSource)) {
+                        resolvedEntry = fromSource;
+                    }
+                }
+                else if (mappingFile && mappingFile.endsWith(".ts")) {
                     const fromConfig = path.resolve(projectDir, mappingFile);
                     if (fs.existsSync(fromConfig)) {
                         resolvedEntry = fromConfig;
@@ -87,10 +94,10 @@ function buildCommand() {
                 // fallback to opts.entry
             }
         }
-        // Locate asc: prefer local node_modules, fall back to global
-        let ascBin = path.join(projectDir, "node_modules", ".bin", "asc");
+        // Locate asc: require local node_modules compiler
+        const ascBin = path.join(projectDir, "node_modules", ".bin", "asc");
         if (!fs.existsSync(ascBin)) {
-            ascBin = "asc"; // global
+            throw new errors_1.CliError("AssemblyScript compiler (`asc`) not found", `Missing local asc binary at ${ascBin}`, "Run `npm install` in your project directory to install dependencies.");
         }
         const optimizeFlag = opts.debug ? "" : "--optimize";
         const ascCmd = [

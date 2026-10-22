@@ -25,6 +25,7 @@ async fn test_reorg_handler_executes_atomic_rollback_and_webhook_dispatch() {
         tx_index: 0,
         block_number: 104,
         block_hash: B256::ZERO,
+        block_timestamp: 0,
     };
     let cp = Checkpoint::try_new(chain_id, 105, B256::repeat_byte(1), true).expect("valid hash");
     mock_store
