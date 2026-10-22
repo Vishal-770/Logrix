@@ -6,11 +6,22 @@ global:
   imagePullSecrets: []
   nameOverride: ""
   fullnameOverride: ""
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
 
 image:
   repository: ghcr.io/vishal-770/logrix
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: "0.7.3"
 
 config:
   chainId: 421614
@@ -24,17 +35,21 @@ config:
   sqsWebhookUrl: ""
   sqsDlqUrl: ""
   sqsEndpoint: ""
+  awsRegion: "us-east-1"
   databaseUrl: ""
   databaseMaxConnections: 10
   databaseMinConnections: 2
   databaseStatementTimeoutSecs: 30
   maxQueueDepth: 1000
   s3Endpoint: ""
+  s3Bucket: ""
+  s3Prefix: ""
   startBlock: ""
   chunkSize: 10
   cuBudget: ""
   bulkStreamUrl: ""
   webhookUrl: ""
+  webhookSecret: ""
   reconcilerIntervalSecs: 30
   ringBufferDepth: 128
   # Extended runtime tuning & resilience parameters
@@ -52,6 +67,8 @@ config:
   rpcCooldownSecs: 30
   webhookTimeoutSecs: 5
   webhookMaxRetries: 1
+  webhookWorkerIdleMs: 100
+  webhookWorkerBackoffMs: 500
   graphqlMaxDepth: 7
   graphqlMaxComplexity: 200
   graphqlDefaultLimit: 100
@@ -67,7 +84,8 @@ config:
   wasmBinary: ""
   # Or pre-encoded base64 WebAssembly string
   wasmBase64: ""
-  # Optional existing Kubernetes secret name providing DATABASE_URL and RABBITMQ_URL
+  # Existing Kubernetes Secret providing runtime credentials. Expected keys include
+  # DATABASE_URL, RABBITMQ_URL, and WEBHOOK_SECRET when those features are enabled.
   existingSecret: ""
 
 # Mode 1: Built-in self-hosted backing infrastructure (PostgreSQL, RabbitMQ, and MinIO S3)
@@ -78,9 +96,16 @@ builtIn:
   postgres: true
   rabbitmq: true
   minio: false
+  persistence:
+    enabled: true
+  storageClass: ""
   postgresStorage: 1Gi
   rabbitmqStorage: 1Gi
   minioStorage: 5Gi
+  postgresPassword: ""
+  rabbitmqPassword: ""
+  minioRootUser: "logrix"
+  minioRootPassword: ""
 
 # Backward-compatibility alias
 localDev:
@@ -89,6 +114,11 @@ localDev:
 ingester:
   enabled: true
   replicas: 2
+  terminationGracePeriodSeconds: 30
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
   leaderElection:
     enabled: true
     leaseName: "logrix-ingester-lease"
@@ -112,6 +142,10 @@ ingester:
 processor:
   enabled: true
   replicas: 1
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
   keda:
     enabled: true
     minReplicaCount: 1
@@ -122,10 +156,20 @@ processor:
     queueType: rabbitmq
     rabbitmq:
       queueName: "logrix.live.jobs"
-      host: "amqp://logrix:logrix@rabbitmq:5672/%2f"
+      host: ""
     sqs:
       queueUrl: ""
       awsRegion: "us-east-1"
+    triggerAuthentication:
+      enabled: true
+      name: ""
+      podIdentityProvider: "aws"
+      identityOwner: "workload"
+    rabbitmqTriggerAuthentication:
+      enabled: true
+      name: ""
+  webhookWorker:
+    enabled: false
   resources:
     limits:
       cpu: 1000m
@@ -139,6 +183,11 @@ api:
   enabled: true
   replicas: 2
   port: 4000
+  terminationGracePeriodSeconds: 30
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
   hpa:
     enabled: true
     minReplicas: 2
@@ -163,6 +212,7 @@ api:
         paths:
           - path: /
             pathType: ImplementationSpecific
+    tls: []
 
 serviceAccount:
   create: true
@@ -179,6 +229,11 @@ podDisruptionBudget:
 webhook:
   enabled: false
   replicaCount: 1
+  terminationGracePeriodSeconds: 30
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
   resources:
     limits:
       cpu: 500m
@@ -191,6 +246,15 @@ webhook:
     minReplicas: 0
     maxReplicas: 10
     targetQueueDepth: 50
+    awsRegion: "us-east-1"
+    triggerAuthentication:
+      enabled: true
+      name: ""
+      podIdentityProvider: "aws"
+      identityOwner: "workload"
+    rabbitmqTriggerAuthentication:
+      enabled: true
+      name: ""
 
 serviceMonitor:
   enabled: false
@@ -198,3 +262,5 @@ serviceMonitor:
   scrapeTimeout: 10s
   labels: {}
 
+networkPolicy:
+  enabled: false

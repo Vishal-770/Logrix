@@ -12,3 +12,8 @@ output "api_role_arn" {
   description = "ARN of the IAM role for logrix-api service account"
   value       = aws_iam_role.api.arn
 }
+
+output "webhook_role_arn" {
+  description = "ARN of the IAM role for logrix-webhook service account"
+  value       = aws_iam_role.webhook.arn
+}

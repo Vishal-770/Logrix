@@ -1,12 +1,13 @@
-{{- if or (and .Values.localDev .Values.localDev.enabled) (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.rabbitmq (empty .Values.config.rabbitmqUrl) (ne .Values.config.queueDriver "sqs")) }}
+{{- if or (and .Values.localDev .Values.localDev.enabled (not .Values.config.existingSecret)) (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.rabbitmq (empty .Values.config.rabbitmqUrl) (not .Values.config.existingSecret) (ne .Values.config.queueDriver "sqs")) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "logrix.fullname" . }}-rabbitmq
   labels:
     {{- include "logrix.labels" . | nindent 4 }}
     app.kubernetes.io/component: local-rabbitmq
 spec:
+  serviceName: {{ include "logrix.fullname" . }}-rabbitmq
   replicas: 1
   selector:
     matchLabels:
@@ -16,14 +17,29 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "logrix.name" . }}-rabbitmq
     spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: rabbitmq
           image: rabbitmq:3.13-management-alpine
           env:
             - name: RABBITMQ_DEFAULT_USER
-              value: "logrix"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: RABBITMQ_DEFAULT_USER
             - name: RABBITMQ_DEFAULT_PASS
-              value: "logrixpassword"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQ_DEFAULT_VHOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: RABBITMQ_DEFAULT_VHOST
           ports:
             - containerPort: 5672
               name: amqp
@@ -36,6 +52,28 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+      {{- if not .Values.builtIn.persistence.enabled }}
+      volumes:
+        - name: rabbitmq-data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.builtIn.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.builtIn.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.builtIn.rabbitmqStorage }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

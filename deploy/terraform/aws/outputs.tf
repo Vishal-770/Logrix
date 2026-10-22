@@ -52,3 +52,8 @@ output "irsa_api_role_arn" {
   description = "ARN of the IAM role for logrix-api service account"
   value       = module.iam.api_role_arn
 }
+
+output "irsa_webhook_role_arn" {
+  description = "ARN of the IAM role for logrix-webhook service account"
+  value       = module.iam.webhook_role_arn
+}

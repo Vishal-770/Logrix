@@ -1,0 +1,61 @@
+{{- $processorSqs := and .Values.processor.enabled .Values.processor.keda.enabled (or (eq .Values.processor.keda.queueType "sqs") (eq .Values.config.queueDriver "sqs")) -}}
+{{- $webhookSqs := and .Values.webhook.enabled .Values.webhook.autoscaling.enabled (or (eq .Values.config.queueDriver "sqs") .Values.config.sqsWebhookUrl) -}}
+{{- $processorRabbitmq := and .Values.processor.enabled .Values.processor.keda.enabled (not (or (eq .Values.processor.keda.queueType "sqs") (eq .Values.config.queueDriver "sqs"))) -}}
+{{- $webhookRabbitmq := and .Values.webhook.enabled .Values.webhook.autoscaling.enabled (not (or (eq .Values.config.queueDriver "sqs") .Values.config.sqsWebhookUrl)) -}}
+{{- if and $processorSqs .Values.processor.keda.triggerAuthentication.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "logrix.processorSqsTriggerAuthenticationName" . }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+spec:
+  podIdentity:
+    provider: {{ .Values.processor.keda.triggerAuthentication.podIdentityProvider | default "aws" | quote }}
+    {{- if eq (.Values.processor.keda.triggerAuthentication.podIdentityProvider | default "aws") "aws" }}
+    identityOwner: {{ .Values.processor.keda.triggerAuthentication.identityOwner | default "workload" | quote }}
+    {{- end }}
+{{- end }}
+{{- if and $webhookSqs .Values.webhook.autoscaling.triggerAuthentication.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "logrix.webhookSqsTriggerAuthenticationName" . }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+spec:
+  podIdentity:
+    provider: {{ .Values.webhook.autoscaling.triggerAuthentication.podIdentityProvider | default "aws" | quote }}
+    {{- if eq (.Values.webhook.autoscaling.triggerAuthentication.podIdentityProvider | default "aws") "aws" }}
+    identityOwner: {{ .Values.webhook.autoscaling.triggerAuthentication.identityOwner | default "workload" | quote }}
+    {{- end }}
+{{- end }}
+{{- if and $processorRabbitmq .Values.processor.keda.rabbitmqTriggerAuthentication.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "logrix.processorRabbitmqTriggerAuthenticationName" . }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: {{ include "logrix.credentialsSecretName" . }}
+      key: RABBITMQ_URL
+{{- end }}
+{{- if and $webhookRabbitmq .Values.webhook.autoscaling.rabbitmqTriggerAuthentication.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "logrix.webhookRabbitmqTriggerAuthenticationName" . }}
+  labels:
+    {{- include "logrix.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: {{ include "logrix.credentialsSecretName" . }}
+      key: RABBITMQ_URL
+{{- end }}

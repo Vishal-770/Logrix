@@ -132,7 +132,7 @@ All Logrix components are fully configurable through environment variables, CLI 
 | **WASM Handlers** | `WASM_FUEL_LIMIT`<br>`WASM_MAX_MEMORY_MB`<br>`MANIFEST_PATH` | `1,000,000`<br>`128 MB`<br>None | [`logrix-handlers`](crates/logrix-handlers) |
 | **GraphQL API Server** | `GRAPHQL_MAX_DEPTH`<br>`GRAPHQL_MAX_COMPLEXITY`<br>`GRAPHQL_DEFAULT_LIMIT`<br>`GRAPHQL_MAX_LIMIT`<br>`GRAPHQL_QUERY_TIMEOUT_SECS` | `7`<br>`200`<br>`100`<br>`1000`<br>`5s` | [`logrix-api`](crates/logrix-api) |
 | **Webhook Dispatcher** | `ENABLE_WEBHOOKS`<br>`WEBHOOK_URL`<br>`WEBHOOK_SECRET`<br>`WEBHOOK_TIMEOUT_SECS`<br>`WEBHOOK_MAX_RETRIES` | `false`<br>None<br>`""`<br>`5s`<br>`1` | [`logrix-webhook`](crates/logrix-webhook) |
-| **Cloud Object Storage** | `S3_BUCKET`<br>`S3_ENDPOINT`<br>`S3_PREFIX` | None<br>None<br>None | [`logrix-blob-s3`](crates/logrix-blob-s3) |
+| **Cloud Object Storage** | `S3_BUCKET`<br>`S3_ENDPOINT`<br>`S3_PREFIX`<br>`AWS_REGION` | None<br>None<br>None<br>`us-east-1` | [`logrix-blob-s3`](crates/logrix-blob-s3) |
 | **Fault Tolerance Primitives** | Circuit breakers, Token bucket rate limiting, Jitter backoff | Tuned per subsystem | [`logrix-resilience`](crates/logrix-resilience) |
 | **Unified CLI Runner** | Full flag & subcommand reference | See CLI guide | [`logrix-cli`](crates/logrix-cli) |
 

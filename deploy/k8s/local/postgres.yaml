@@ -41,10 +41,10 @@ spec:
           env:
             - name: POSTGRES_USER
               value: "logrix"
-            - name: POSTGRES_PASSWORD
-              value: "logrix"
             - name: POSTGRES_DB
               value: "logrix"
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: "trust"
             - name: PGDATA
               value: "/var/lib/postgresql/data/pgdata"
           ports:

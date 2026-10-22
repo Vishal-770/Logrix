@@ -1,12 +1,13 @@
-{{- if or (and .Values.localDev .Values.localDev.enabled) (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.postgres (empty .Values.config.databaseUrl)) }}
+{{- if or (and .Values.localDev .Values.localDev.enabled (not .Values.config.existingSecret)) (and .Values.builtIn .Values.builtIn.enabled .Values.builtIn.postgres (empty .Values.config.databaseUrl) (not .Values.config.existingSecret)) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "logrix.fullname" . }}-postgres
   labels:
     {{- include "logrix.labels" . | nindent 4 }}
     app.kubernetes.io/component: local-postgres
 spec:
+  serviceName: {{ include "logrix.fullname" . }}-postgres
   replicas: 1
   selector:
     matchLabels:
@@ -16,16 +17,31 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "logrix.name" . }}-postgres
     spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgres
           image: postgres:16-alpine
           env:
             - name: POSTGRES_USER
-              value: "logrix"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
-              value: "logrixpassword"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
-              value: "logrix"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logrix.internalSecretName" . }}
+                  key: POSTGRES_DB
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           ports:
             - containerPort: 5432
               name: postgres
@@ -36,6 +52,28 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      {{- if not .Values.builtIn.persistence.enabled }}
+      volumes:
+        - name: postgres-data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.builtIn.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.builtIn.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.builtIn.postgresStorage }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

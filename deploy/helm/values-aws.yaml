@@ -21,6 +21,7 @@ config:
   contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
   rpcUrl: "https://arb1.arbitrum.io/rpc"
   queueDriver: "sqs"
+  awsRegion: "us-east-1"
   reconcilerIntervalSecs: 30
   ringBufferDepth: 256
   # Production DB credentials injected from Kubernetes Secret (managed by AWS Secrets Manager or External Secrets)
@@ -69,11 +70,18 @@ serviceAccount:
   create: true
   name: "logrix-sa"
   annotations:
-    # AWS IAM Roles for Service Accounts (IRSA)
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-processor-role"
+    # Fallback role for workloads that do not use a dedicated ServiceAccount.
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-processor-irsa"
+    eks.amazonaws.com/sts-regional-endpoints: "true"
 
 ingester:
   replicas: 2
+  serviceAccount:
+    create: true
+    name: "logrix-ingester"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-ingester-irsa"
+      eks.amazonaws.com/sts-regional-endpoints: "true"
   leaderElection:
     enabled: true
     leaseName: "logrix-ingester-lease"
@@ -87,6 +95,12 @@ ingester:
 
 processor:
   replicas: 2
+  serviceAccount:
+    create: true
+    name: "logrix-processor"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-processor-irsa"
+      eks.amazonaws.com/sts-regional-endpoints: "true"
   keda:
     enabled: true
     minReplicaCount: 2
@@ -96,6 +110,10 @@ processor:
     sqs:
       queueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/logrix-live-jobs"
       awsRegion: "us-east-1"
+    triggerAuthentication:
+      enabled: true
+      podIdentityProvider: "aws"
+      identityOwner: "workload"
   resources:
     requests:
       cpu: 500m
@@ -106,6 +124,12 @@ processor:
 
 api:
   replicas: 2
+  serviceAccount:
+    create: true
+    name: "logrix-api"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-api-irsa"
+      eks.amazonaws.com/sts-regional-endpoints: "true"
   hpa:
     enabled: true
     minReplicas: 2
@@ -122,9 +146,16 @@ api:
     type: ClusterIP
     port: 4000
 
+webhook:
+  serviceAccount:
+    create: true
+    name: "logrix-webhook"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/logrix-production-webhook-irsa"
+      eks.amazonaws.com/sts-regional-endpoints: "true"
+
 serviceMonitor:
   enabled: true
   interval: 15s
   scrapeTimeout: 10s
   labels: {}
-

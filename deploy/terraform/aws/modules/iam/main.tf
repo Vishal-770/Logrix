@@ -171,3 +171,49 @@ resource "aws_iam_role_policy" "api_policy" {
     ]
   })
 }
+
+# Webhook Dispatcher IRSA Role
+resource "aws_iam_role" "webhook" {
+  name = "${var.project_name}-${var.environment}-webhook-irsa"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+      Condition = {
+        StringLike = {
+          "${var.oidc_provider_url}:sub" = [
+            "system:serviceaccount:${var.k8s_namespace}:logrix-webhook"
+          ]
+        }
+        StringEquals = {
+          "${var.oidc_provider_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "webhook_policy" {
+  name = "${var.project_name}-${var.environment}-webhook-policy"
+  role = aws_iam_role.webhook.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:DeleteMessageBatch",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueAttributes"
+      ]
+      Resource = var.sqs_queue_arns
+    }]
+  })
+}

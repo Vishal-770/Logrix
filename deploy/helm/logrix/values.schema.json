@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "config": {
+      "type": "object",
+      "properties": {
+        "chainId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contractAddress": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]{40}$"
+        },
+        "rpcUrl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queueDriver": {
+          "type": "string",
+          "enum": ["rabbitmq", "sqs"]
+        },
+        "awsRegion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "databaseMaxConnections": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "databaseMinConnections": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sqsWaitTimeSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "sqsMaxMessages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "webhookSecret": {
+          "type": "string"
+        }
+      }
+    },
+    "builtIn": {
+      "type": "object",
+      "properties": {
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "postgresStorage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rabbitmqStorage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minioStorage": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    }
+  },
+  "required": ["config", "image"]
+}
