@@ -16,5 +16,7 @@ pub mod rollback;
 
 pub use buffer::{RollingBlockBuffer, DEFAULT_RING_BUFFER_CAPACITY};
 pub use detector::{ContinuityStatus, ReorgDetector, DEFAULT_MAX_REORG_DEPTH};
-pub use reconciler::{GapReconciler, DEFAULT_HEAD_OFFSET, DEFAULT_LAG_THRESHOLD};
+pub use reconciler::{
+    GapReconciler, DEFAULT_HEAD_OFFSET, DEFAULT_LAG_THRESHOLD, DEFAULT_RECONCILER_CHUNK_SIZE,
+};
 pub use rollback::ReorgHandler;

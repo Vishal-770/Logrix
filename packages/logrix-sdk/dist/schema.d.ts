@@ -98,8 +98,8 @@ export declare const LogrixConfigSchema: z.ZodObject<{
     indexing: z.ZodOptional<z.ZodObject<{
         ringBufferDepth: z.ZodDefault<z.ZodNumber>;
         reconcilerIntervalSecs: z.ZodDefault<z.ZodNumber>;
-        chunkSize: z.ZodOptional<z.ZodNumber>;
-        reconcilerChunkSize: z.ZodOptional<z.ZodNumber>;
+        chunkSize: z.ZodDefault<z.ZodNumber>;
+        reconcilerChunkSize: z.ZodDefault<z.ZodNumber>;
         reconcilerLagThreshold: z.ZodOptional<z.ZodNumber>;
         chainHeadPollMs: z.ZodOptional<z.ZodNumber>;
         maxQueueDepth: z.ZodOptional<z.ZodNumber>;

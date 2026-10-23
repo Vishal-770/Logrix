@@ -10,7 +10,6 @@ use logrix_core::{
     ports::ChainPort,
 };
 use serde_json::{json, Value};
-use tracing::debug;
 
 #[async_trait]
 impl ChainPort for EvmChainClient {
@@ -61,36 +60,23 @@ impl ChainPort for EvmChainClient {
         to_block: u64,
         addresses: &[Address],
     ) -> LogrixResult<Vec<EventLog>> {
-        let mut filter = json!({
-            "fromBlock": format!("0x{:x}", from_block),
-            "toBlock": format!("0x{:x}", to_block),
-        });
-
-        if !addresses.is_empty() {
-            let addr_strs: Vec<String> = addresses.iter().map(|a| format!("{:#x}", a)).collect();
-            filter["address"] = json!(addr_strs);
+        if from_block > to_block {
+            return Ok(Vec::new());
+        }
+        let max_chunk = self.chunker.chunk_size().max(1);
+        if to_block - from_block < max_chunk {
+            return self.fetch_rpc_logs(from_block, to_block, addresses).await;
         }
 
-        let res = self.call_rpc("eth_getLogs", json!([filter])).await?;
-        let logs_array = res.as_array().ok_or_else(|| {
-            LogrixError::new(
-                ErrorClass::Permanent,
-                ErrorSource::ChainRpc,
-                "eth_getLogs did not return an array",
-            )
-        })?;
-
-        let mut event_logs = Vec::with_capacity(logs_array.len());
-        for item in logs_array {
-            event_logs.push(try_parse_rpc_log(item)?);
+        let mut all_logs = Vec::new();
+        let mut cur = from_block;
+        while cur <= to_block {
+            let chunk_end = (cur + max_chunk - 1).min(to_block);
+            let mut logs = self.fetch_rpc_logs(cur, chunk_end, addresses).await?;
+            all_logs.append(&mut logs);
+            cur = chunk_end + 1;
         }
-        debug!(
-            from_block,
-            to_block,
-            count = event_logs.len(),
-            "Fetched logs from EVM RPC"
-        );
-        Ok(event_logs)
+        Ok(all_logs)
     }
 
     async fn fetch_block_envelope(

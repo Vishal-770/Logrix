@@ -45,9 +45,10 @@ async fn test_gap_reconciler_resets_inflight_marker_on_reorg_rollback() {
         .unwrap();
 
     // Reconciler should detect backward jump and re-dispatch from 111..=129
+    // Sliced into 2 jobs: 111..=120 and 121..=129
     let rescheduled = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(rescheduled, 19);
-    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 2);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 3);
 
     let _ = mock_queue.consume(QueueType::Backfill).await.unwrap();
     let second_job = mock_queue
@@ -57,6 +58,17 @@ async fn test_gap_reconciler_resets_inflight_marker_on_reorg_rollback() {
         .unwrap();
     if let QueueMessage::BackfillRange(job) = second_job.message {
         assert_eq!(job.from_block, 111);
+        assert_eq!(job.to_block, 120);
+    } else {
+        panic!("Expected BackfillRange job");
+    }
+    let third_job = mock_queue
+        .consume(QueueType::Backfill)
+        .await
+        .unwrap()
+        .unwrap();
+    if let QueueMessage::BackfillRange(job) = third_job.message {
+        assert_eq!(job.from_block, 121);
         assert_eq!(job.to_block, 129);
     } else {
         panic!("Expected BackfillRange job");

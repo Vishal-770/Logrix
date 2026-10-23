@@ -50,8 +50,8 @@ exports.LogrixConfigSchema = zod_1.z.object({
     indexing: zod_1.z.object({
         ringBufferDepth: zod_1.z.number().int().positive().default(128),
         reconcilerIntervalSecs: zod_1.z.number().int().positive().default(30),
-        chunkSize: zod_1.z.number().int().positive().optional(),
-        reconcilerChunkSize: zod_1.z.number().int().positive().optional(),
+        chunkSize: zod_1.z.number().int().positive().default(10),
+        reconcilerChunkSize: zod_1.z.number().int().positive().default(10),
         reconcilerLagThreshold: zod_1.z.number().int().nonnegative().optional(),
         chainHeadPollMs: zod_1.z.number().int().positive().optional(),
         maxQueueDepth: zod_1.z.number().int().positive().optional(),

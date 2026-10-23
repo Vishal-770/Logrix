@@ -53,7 +53,7 @@ config:
   reconcilerIntervalSecs: 30
   ringBufferDepth: 128
   # Extended runtime tuning & resilience parameters
-  reconcilerChunkSize: ""
+  reconcilerChunkSize: 10
   reconcilerLagThreshold: 50
   chainHeadPollMs: 1500
   rabbitmqPrefetch: 100

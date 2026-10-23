@@ -22,9 +22,9 @@ pub struct EvmClientConfig {
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const DEFAULT_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 pub const DEFAULT_POOL_MAX_IDLE_PER_HOST: usize = 20;
-pub const DEFAULT_CHUNK_INITIAL: u64 = 500;
-pub const DEFAULT_CHUNK_MIN: u64 = 5;
-pub const DEFAULT_CHUNK_MAX: u64 = 2000;
+pub const DEFAULT_CHUNK_INITIAL: u64 = 10;
+pub const DEFAULT_CHUNK_MIN: u64 = 1;
+pub const DEFAULT_CHUNK_MAX: u64 = 10;
 pub const DEFAULT_CHUNK_ADDITIVE_STEP: u64 = 50;
 pub const DEFAULT_CHUNK_SUCCESS_THRESHOLD: u64 = 3;
 pub const DEFAULT_CHUNK_TARGET_LATENCY: Duration = Duration::from_millis(800);

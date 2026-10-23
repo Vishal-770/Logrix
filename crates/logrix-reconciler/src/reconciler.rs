@@ -12,6 +12,9 @@ pub const DEFAULT_LAG_THRESHOLD: u64 = 50;
 /// Default reconciliation head offset behind chain head (1 block).
 pub const DEFAULT_HEAD_OFFSET: u64 = 1;
 
+/// Default block chunk size for gap reconciler refill jobs (10 blocks).
+pub const DEFAULT_RECONCILER_CHUNK_SIZE: u64 = 10;
+
 /// Self-healing continuous gap reconciler.
 ///
 /// Runs periodically in the background to detect missing block gaps between the
@@ -45,7 +48,7 @@ impl GapReconciler {
             chain_client,
             interval,
             lag_threshold: DEFAULT_LAG_THRESHOLD,
-            chunk_size: None,
+            chunk_size: Some(DEFAULT_RECONCILER_CHUNK_SIZE),
             last_dispatched_to: Arc::new(AtomicU64::new(0)),
             last_checkpoint_seen: Arc::new(AtomicU64::new(0)),
         }
@@ -131,33 +134,24 @@ impl GapReconciler {
                 "Gap reconciler detected lagging checkpoint behind chain head. Dispatching refill jobs."
             );
 
-            if let Some(chunk_size) = self.chunk_size {
-                let mut cur = from_block;
-                while cur <= to_block {
-                    let chunk_end = (cur + chunk_size - 1).min(to_block);
-                    let job = BlockRangeJob::try_new(
-                        self.chain_id,
-                        cur,
-                        chunk_end,
-                        format!("{}:{}-{}", self.chain_id, cur, chunk_end),
-                    )?;
-                    self.queue
-                        .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
-                        .await?;
-                    self.last_dispatched_to.store(chunk_end, Ordering::Relaxed);
-                    cur = chunk_end + 1;
-                }
-            } else {
+            let chunk_size = self
+                .chunk_size
+                .unwrap_or(DEFAULT_RECONCILER_CHUNK_SIZE)
+                .max(1);
+            let mut cur = from_block;
+            while cur <= to_block {
+                let chunk_end = (cur + chunk_size - 1).min(to_block);
                 let job = BlockRangeJob::try_new(
                     self.chain_id,
-                    from_block,
-                    to_block,
-                    format!("{}:{}-{}", self.chain_id, from_block, to_block),
+                    cur,
+                    chunk_end,
+                    format!("{}:{}-{}", self.chain_id, cur, chunk_end),
                 )?;
                 self.queue
                     .publish(QueueType::Backfill, &QueueMessage::BackfillRange(job))
                     .await?;
-                self.last_dispatched_to.store(to_block, Ordering::Relaxed);
+                self.last_dispatched_to.store(chunk_end, Ordering::Relaxed);
+                cur = chunk_end + 1;
             }
 
             return Ok(missing_count);

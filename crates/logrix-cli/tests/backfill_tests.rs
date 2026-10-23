@@ -81,6 +81,7 @@ fn test_config(chain_id: ChainId) -> ProcessorConfig {
         reconciler_interval_secs: 30,
         reconciler_chunk_size: None,
         reconciler_lag_threshold: 50,
+        chunk_size: 10,
         manifest_path: None,
         enable_webhooks: false,
         s3_bucket: None,

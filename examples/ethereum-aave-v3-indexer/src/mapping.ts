@@ -1,4 +1,4 @@
-import { BigInt, log } from "@logrix/sdk";
+import { BigInt, log, EventLog, allocate } from "@logrix/sdk";
 import {
   SupplyEvent,
   WithdrawEvent,
@@ -16,6 +16,60 @@ import {
   LiquidationAction,
   FlashLoanAction,
 } from "./generated/schema";
+
+// Required export so the Logrix Rust engine can allocate linear memory
+export { allocate } from "@logrix/sdk";
+
+// ---------------------------------------------------------------------------
+// Entry point called by the Logrix engine for matched event logs.
+// ---------------------------------------------------------------------------
+export function handle_event(ptr: i32, len: i32): i32 {
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = load<u8>(ptr + i);
+  }
+  const rawJson = String.UTF8.decode(bytes.buffer);
+  const logObj = EventLog.fromJson(rawJson);
+
+  if (logObj.topics.length == 0) {
+    return 0;
+  }
+
+  const topic0 = logObj.topics[0];
+
+  // Supply: 0x2b627736bca15cd5381dcf80b0bf11fd197d01a037c52b927a881a10fb73ba61
+  if (topic0.startsWith("0x2b627736")) {
+    handleSupply(new SupplyEvent(logObj));
+    return 1;
+  }
+  // Withdraw: 0x3115d1449a7b732c986cba18244e897a450f61e1bb8d589cd2e69e6c892a1b0f
+  if (topic0.startsWith("0x3115d144")) {
+    handleWithdraw(new WithdrawEvent(logObj));
+    return 1;
+  }
+  // Borrow: 0xb3d081b630faf2286ba829b5050d29bc50463228134ec378ea827860957174fb
+  if (topic0.startsWith("0xb3d081b6")) {
+    handleBorrow(new BorrowEvent(logObj));
+    return 1;
+  }
+  // Repay: 0xa534c8dbe71f871f9f3530e97a74601fea17b426cae02e1c5aee42c96c784051
+  if (topic0.startsWith("0xa534c8db")) {
+    handleRepay(new RepayEvent(logObj));
+    return 1;
+  }
+  // LiquidationCall: 0xe413a321e86e37203b87b2046e7f227181c039b23b379965a388bdf20b085144
+  if (topic0.startsWith("0xe413a321")) {
+    handleLiquidationCall(new LiquidationCallEvent(logObj));
+    return 1;
+  }
+  // FlashLoan: 0xefefdef48797d283b674b8f596d6d7a7ec369533f83441586e2d3848017085a4
+  if (topic0.startsWith("0xefefdef4")) {
+    handleFlashLoan(new FlashLoanEvent(logObj));
+    return 1;
+  }
+
+  return 0;
+}
 
 const PROTOCOL_ID = "aave-v3-ethereum";
 

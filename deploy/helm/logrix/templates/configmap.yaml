@@ -38,9 +38,7 @@ data:
   {{- end }}
   RECONCILER_INTERVAL_SECS: {{ .Values.config.reconcilerIntervalSecs | default 30 | quote }}
   RING_BUFFER_DEPTH: {{ .Values.config.ringBufferDepth | default 128 | quote }}
-  {{- if .Values.config.reconcilerChunkSize }}
-  RECONCILER_CHUNK_SIZE: {{ .Values.config.reconcilerChunkSize | quote }}
-  {{- end }}
+  RECONCILER_CHUNK_SIZE: {{ .Values.config.reconcilerChunkSize | default 10 | quote }}
   RECONCILER_LAG_THRESHOLD: {{ .Values.config.reconcilerLagThreshold | default 50 | quote }}
   CHAIN_HEAD_POLL_MS: {{ .Values.config.chainHeadPollMs | default 1500 | quote }}
   RABBITMQ_PREFETCH: {{ .Values.config.rabbitmqPrefetch | default 100 | quote }}
