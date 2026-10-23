@@ -111,8 +111,7 @@ processor:
       awsRegion: "us-east-1"
     triggerAuthentication:
       enabled: true
-      podIdentityProvider: "aws"
-      identityOwner: "workload"
+      podIdentityProvider: "aws-k8s"
   resources:
     requests:
       cpu: 500m

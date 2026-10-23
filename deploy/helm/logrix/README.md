@@ -84,7 +84,7 @@ Before deploying the long-running ingester and processor workloads, run the Logr
 
 ```bash
 kubectl run logrix-migrator --rm -i --restart=Never \
-  --image=ghcr.io/vishal-770/logrix:0.8.3 \
+  --image=ghcr.io/vishal-770/logrix:0.8.4 \
   -n logrix \
   --env="DATABASE_URL=$CLEAN_DB_URL" \
   -- command logrix migrate
@@ -96,7 +96,7 @@ Deploy from the published OCI registry, passing dynamic cloud resource endpoints
 
 ```bash
 helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
-  --version 0.8.3 \
+  --version 0.8.4 \
   -n logrix \
   --disable-openapi-validation \
   --set config.existingSecret="logrix-secrets" \
@@ -157,7 +157,7 @@ helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `image.repository` | string | `ghcr.io/vishal-770/logrix` | Docker image repository |
-| `image.tag` | string | `""` | Tag override (defaults to `Chart.appVersion`, e.g. `0.8.3`) |
+| `image.tag` | string | `""` | Tag override (defaults to `Chart.appVersion`, e.g. `0.8.4`) |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 
 ### Core Runtime Parameters (`config`)
@@ -213,7 +213,7 @@ Container images (`ghcr.io/vishal-770/logrix`) and OCI Helm charts (`oci://ghcr.
 
 To trigger an automated release:
 ```bash
-git tag v0.8.3
-git push origin v0.8.3
+git tag v0.8.4
+git push origin v0.8.4
 ```
 This builds and pushes multi-architecture images to GitHub Container Registry, packages the Helm chart with the matching version, and publishes the OCI artifact.

@@ -81,7 +81,6 @@ function getOrCreateProtocol(): Protocol {
     protocol.totalBorrowedCount = BigInt.zero();
     protocol.totalLiquidatedCount = BigInt.zero();
     protocol.totalFlashLoansCount = BigInt.zero();
-    protocol.save();
   }
   return protocol;
 }
@@ -94,7 +93,6 @@ function getOrCreateUser(userAddress: string): User {
     user.supplyCount = BigInt.zero();
     user.borrowCount = BigInt.zero();
     user.liquidationCount = BigInt.zero();
-    user.save();
   }
   return user;
 }
@@ -107,7 +105,6 @@ function getOrCreateReserve(assetAddress: string): Reserve {
     reserve.totalSupplied = BigInt.zero();
     reserve.totalBorrowed = BigInt.zero();
     reserve.totalLiquidated = BigInt.zero();
-    reserve.save();
   }
   return reserve;
 }

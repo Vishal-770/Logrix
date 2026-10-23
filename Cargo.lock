@@ -3825,7 +3825,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "logrix-api"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-blob-s3"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -3869,7 +3869,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-chain-evm"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-cli"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -3920,7 +3920,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-core"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-primitives",
@@ -3936,7 +3936,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-handlers"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "logrix-core",
@@ -3952,7 +3952,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-queue-rabbitmq"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "async-trait",
  "lapin",
@@ -3968,7 +3968,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-queue-sqs"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -3986,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-reconciler"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -4006,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-resilience"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "logrix-core",
  "parking_lot",
@@ -4019,7 +4019,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-rpc-gateway"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -4038,7 +4038,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-store-postgres"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -4056,7 +4056,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-testkit"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -4071,7 +4071,7 @@ dependencies = [
 
 [[package]]
 name = "logrix-webhook"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "async-trait",
  "chrono",

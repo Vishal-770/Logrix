@@ -15,15 +15,23 @@ impl PostgresStore {
         }
 
         let now = chrono::Utc::now();
-        let mut chain_ids = Vec::with_capacity(entities.len());
-        let mut entity_types = Vec::with_capacity(entities.len());
-        let mut entity_ids = Vec::with_capacity(entities.len());
-        let mut datas = Vec::with_capacity(entities.len());
-        let mut block_numbers = Vec::with_capacity(entities.len());
-        let mut is_reverteds = Vec::with_capacity(entities.len());
-        let mut updated_ats = Vec::with_capacity(entities.len());
-
+        // Deduplicate entities by (entity_type, entity_id), keeping the last update
+        // to prevent PostgreSQL "ON CONFLICT DO UPDATE command cannot affect row a second time".
+        let mut deduped: std::collections::HashMap<(&str, &str), &EntityInsert> =
+            std::collections::HashMap::with_capacity(entities.len());
         for e in entities {
+            deduped.insert((e.entity_type.as_str(), e.entity_id.as_str()), e);
+        }
+
+        let mut chain_ids = Vec::with_capacity(deduped.len());
+        let mut entity_types = Vec::with_capacity(deduped.len());
+        let mut entity_ids = Vec::with_capacity(deduped.len());
+        let mut datas = Vec::with_capacity(deduped.len());
+        let mut block_numbers = Vec::with_capacity(deduped.len());
+        let mut is_reverteds = Vec::with_capacity(deduped.len());
+        let mut updated_ats = Vec::with_capacity(deduped.len());
+
+        for e in deduped.values() {
             chain_ids.push(chain_id as i64);
             entity_types.push(e.entity_type.clone());
             entity_ids.push(e.entity_id.clone());
@@ -71,8 +79,8 @@ impl PostgresStore {
                 )
             })?;
 
-        let payloads: Vec<String> = entities
-            .iter()
+        let payloads: Vec<String> = deduped
+            .values()
             .map(|e| {
                 serde_json::json!({
                     "chain_id": chain_id,

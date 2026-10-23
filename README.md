@@ -136,7 +136,7 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
 4. **Run Initial Database Migrations:**
    ```bash
    kubectl run logrix-migrator --rm -i --restart=Never \
-     --image=ghcr.io/vishal-770/logrix:0.8.3 \
+     --image=ghcr.io/vishal-770/logrix:0.8.4 \
      -n logrix \
      --env="DATABASE_URL=$CLEAN_DB_URL" \
      -- command logrix migrate
@@ -145,7 +145,7 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
 5. **Deploy from Remote OCI Helm Chart:**
    ```bash
    helm upgrade --install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     --version 0.8.3 \
+     --version 0.8.4 \
      -n logrix \
      --disable-openapi-validation \
      --set config.existingSecret="logrix-secrets" \
@@ -161,7 +161,7 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
      --set processor.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<processor_irsa_arn>" \
      --set api.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="<api_irsa_arn>"
    ```
-   > **Note on Versioning**: The remote OCI Helm chart version (`--version 0.8.3`) automatically sets the container image tag (`ghcr.io/vishal-770/logrix:0.8.3`) via `appVersion`. Environment overlays (`values-aws.yaml`) omit `image.tag` so that bumping the chart version cleanly updates workloads without version pinning drift.
+   > **Note on Versioning**: The remote OCI Helm chart version (`--version 0.8.4`) automatically sets the container image tag (`ghcr.io/vishal-770/logrix:0.8.4`) via `appVersion`. Environment overlays (`values-aws.yaml`) omit `image.tag` so that bumping the chart version cleanly updates workloads without version pinning drift.
 
 6. **Verify Indexing & GraphQL Endpoints:**
    ```bash
