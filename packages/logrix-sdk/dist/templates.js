@@ -213,7 +213,6 @@ function valuesAwsTemplate(a) {
     const doc = {
         image: {
             repository: "ghcr.io/vishal-770/logrix",
-            tag: "0.8.3",
             pullPolicy: "IfNotPresent",
         },
         builtIn: {
