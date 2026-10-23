@@ -15,35 +15,53 @@ pub async fn run_consumer_loop(
     let mut backoff = Duration::from_millis(500);
     let max_backoff = Duration::from_secs(5);
 
+    let mut check_live_first = true;
+
     loop {
+        let (first_q, second_q) = if check_live_first {
+            (QueueType::Live, QueueType::Backfill)
+        } else {
+            (QueueType::Backfill, QueueType::Live)
+        };
+        check_live_first = !check_live_first;
+
         let msg_res = tokio::select! {
             _ = crate::shutdown::wait_for_shutdown_signal() => {
                 info!("Shutdown signal received; draining processor consumer loop");
                 let _ = shutdown_tx.send(true);
                 break;
             }
-            res = ctx.queue.consume(QueueType::Backfill) => match res {
+            res = ctx.queue.consume(first_q) => match res {
                 Ok(Some(h)) => {
                     backoff = Duration::from_millis(500);
-                    Some((QueueType::Backfill, h))
+                    Some((first_q, h))
                 }
-                Ok(None) => match ctx.queue.consume(QueueType::Live).await {
+                Ok(None) => match ctx.queue.consume(second_q).await {
                     Ok(opt) => {
                         backoff = Duration::from_millis(500);
-                        opt.map(|h| (QueueType::Live, h))
+                        opt.map(|h| (second_q, h))
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "Error consuming from live queue; backing off");
+                        tracing::warn!(error = %e, queue = ?second_q, "Error consuming from secondary queue; backing off");
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(max_backoff);
                         None
                     }
                 },
                 Err(e) => {
-                    tracing::warn!(error = %e, "Error consuming from backfill queue; backing off");
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(max_backoff);
-                    None
+                    tracing::warn!(error = %e, queue = ?first_q, "Error consuming from primary queue; checking secondary");
+                    match ctx.queue.consume(second_q).await {
+                        Ok(opt) => {
+                            backoff = Duration::from_millis(500);
+                            opt.map(|h| (second_q, h))
+                        }
+                        Err(e2) => {
+                            tracing::warn!(error = %e2, queue = ?second_q, "Both queues errored; backing off");
+                            tokio::time::sleep(backoff).await;
+                            backoff = (backoff * 2).min(max_backoff);
+                            None
+                        }
+                    }
                 }
             }
         };

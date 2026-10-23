@@ -85,7 +85,11 @@ pub async fn handle_backfill_range(
                     || err.contains("range")
                     || err.contains("exceeded")
                     || err.contains("10000 results")
-                    || err.contains("413"))
+                    || err.contains("413")
+                    || err.contains("400")
+                    || err.contains("-32600")
+                    || err.contains("fallback providers failed")
+                    || err.contains("Bad Request"))
             {
                 let (first, second_opt) = job.split_half();
                 warn!(

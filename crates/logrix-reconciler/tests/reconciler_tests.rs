@@ -81,7 +81,7 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
     let scheduled = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled, 24);
 
-    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 3);
     let handle = mock_queue
         .consume(QueueType::Backfill)
         .await
@@ -89,7 +89,7 @@ async fn test_gap_reconciler_detects_and_refills_missing_ranges() {
         .unwrap();
     if let QueueMessage::BackfillRange(job) = handle.message {
         assert_eq!(job.from_block, 101);
-        assert_eq!(job.to_block, 124);
+        assert_eq!(job.to_block, 110);
     } else {
         panic!("Expected BackfillRange job in queue");
     }
@@ -121,16 +121,16 @@ async fn test_gap_reconciler_deduplicates_in_flight_ranges() {
 
     let scheduled = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled, 24);
-    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 3);
 
     let scheduled_again = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled_again, 0);
-    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 1);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 3);
 
     *mock_chain.head_block.lock().await = 135;
     let scheduled_delta = reconciler.check_and_reconcile().await.unwrap();
     assert_eq!(scheduled_delta, 10);
-    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 2);
+    assert_eq!(mock_queue.depth(QueueType::Backfill).await.unwrap(), 4);
 }
 
 #[tokio::test]
@@ -172,6 +172,7 @@ async fn test_gap_reconciler_graceful_shutdown() {
 fn test_reconciler_default_constants() {
     assert_eq!(logrix_reconciler::DEFAULT_LAG_THRESHOLD, 50);
     assert_eq!(logrix_reconciler::DEFAULT_HEAD_OFFSET, 1);
+    assert_eq!(logrix_reconciler::DEFAULT_RECONCILER_CHUNK_SIZE, 10);
     assert_eq!(logrix_reconciler::DEFAULT_RING_BUFFER_CAPACITY, 128);
     assert_eq!(logrix_reconciler::DEFAULT_MAX_REORG_DEPTH, 128);
 }

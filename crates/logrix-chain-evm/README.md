@@ -48,9 +48,9 @@ indexing:
 | `timeout` | `.with_timeout()` | `15s` | Optional | HTTP request timeout for JSON-RPC network calls |
 | `pool_idle_timeout` | N/A | `90s` | Optional | Maximum idle connection retention duration in HTTP pool |
 | `pool_max_idle_per_host` | N/A | `20` | Optional | Maximum idle sockets kept open per RPC host |
-| `chunk_initial` | `.with_chunk_bounds()` | `500` blocks | Optional | Initial block range size for adaptive chunking queries |
-| `chunk_min` | `.with_chunk_bounds()` | `5` blocks | Optional | Minimum block range floor when halving after RPC errors |
-| `chunk_max` | `.with_chunk_bounds()` | `2000` blocks | Optional | Maximum block range ceiling when expanding under light load |
+| `chunk_initial` | `.with_chunk_bounds()` | `10` blocks | Optional | Initial block range size for adaptive chunking queries |
+| `chunk_min` | `.with_chunk_bounds()` | `1` blocks | Optional | Minimum block range floor when halving after RPC errors |
+| `chunk_max` | `.with_chunk_bounds()` | `10` blocks | Optional | Maximum block range ceiling when expanding under light load |
 | `chunk_additive_step` | N/A | `50` blocks | Optional | Additive increase step size upon consecutive successful queries |
 | `chunk_success_threshold` | N/A | `3` queries | Optional | Consecutive successful queries before increasing chunk size |
 | `chunk_target_latency` | N/A | `800ms` | Optional | Latency threshold above which chunk expansion halts |

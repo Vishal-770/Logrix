@@ -93,4 +93,45 @@ impl EvmChainClient {
     pub fn chunker(&self) -> &AdaptiveChunker {
         &self.chunker
     }
+
+    /// Execute a single eth_getLogs JSON-RPC call.
+    pub(crate) async fn fetch_rpc_logs(
+        &self,
+        from_block: u64,
+        to_block: u64,
+        addresses: &[alloy_primitives::Address],
+    ) -> logrix_core::error::LogrixResult<Vec<logrix_core::domain::EventLog>> {
+        let mut filter = serde_json::json!({
+            "fromBlock": format!("0x{:x}", from_block),
+            "toBlock": format!("0x{:x}", to_block),
+        });
+
+        if !addresses.is_empty() {
+            let addr_strs: Vec<String> = addresses.iter().map(|a| format!("{:#x}", a)).collect();
+            filter["address"] = serde_json::json!(addr_strs);
+        }
+
+        let res = self
+            .call_rpc("eth_getLogs", serde_json::json!([filter]))
+            .await?;
+        let logs_array = res.as_array().ok_or_else(|| {
+            logrix_core::error::LogrixError::new(
+                logrix_core::error::ErrorClass::Permanent,
+                logrix_core::error::ErrorSource::ChainRpc,
+                "eth_getLogs did not return an array",
+            )
+        })?;
+
+        let mut event_logs = Vec::with_capacity(logs_array.len());
+        for item in logs_array {
+            event_logs.push(crate::parser::try_parse_rpc_log(item)?);
+        }
+        tracing::debug!(
+            from_block,
+            to_block,
+            count = event_logs.len(),
+            "Fetched logs from EVM RPC"
+        );
+        Ok(event_logs)
+    }
 }

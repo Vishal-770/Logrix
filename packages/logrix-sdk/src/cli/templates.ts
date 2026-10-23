@@ -86,6 +86,8 @@ export function logrixYamlTemplate(a: InitAnswers): string {
   doc.indexing = {
     ringBufferDepth: a.ringBufferDepth ?? 128,
     reconcilerIntervalSecs: a.reconcilerIntervalSecs ?? 30,
+    chunkSize: 10,
+    reconcilerChunkSize: 10,
   };
 
   return stringifyYaml(doc, { indent: 2 });

@@ -33,17 +33,19 @@ pub async fn run_processor(
         queue.clone(),
         detector.clone(),
     );
-    let mut reconciler = GapReconciler::new(
+    let reconciler_chunk = config
+        .reconciler_chunk_size
+        .unwrap_or(config.chunk_size)
+        .max(1);
+    let reconciler = GapReconciler::new(
         config.chain_id,
         store.clone(),
         queue.clone(),
         gateway.clone(),
         Duration::from_secs(config.reconciler_interval_secs),
     )
-    .with_lag_threshold(config.reconciler_lag_threshold);
-    if let Some(cs) = config.reconciler_chunk_size {
-        reconciler = reconciler.with_chunk_size(cs);
-    }
+    .with_lag_threshold(config.reconciler_lag_threshold)
+    .with_chunk_size(reconciler_chunk);
     let (shutdown_tx, shutdown_rx) = crate::shutdown::shutdown_channel();
     let reconciler_rx = shutdown_rx.clone();
     let reconciler_task = tokio::spawn(async move {

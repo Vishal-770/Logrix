@@ -133,3 +133,16 @@ async fn test_rpc_call_range_limit_error_returns_shrinkable_and_halves_chunk() {
     // Must immediately return Shrinkable without executing futile retries
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn test_fetch_logs_slices_large_range_into_bounded_sub_batches() {
+    let (url, hits) = spawn_mock_server(200, r#"{"jsonrpc":"2.0","id":1,"result":[]}"#).await;
+    // Default chunk size is 10
+    let client = EvmChainClient::new_with_config(ChainId::new(1), url, EvmClientConfig::default());
+    assert_eq!(client.chunker().chunk_size(), 10);
+
+    // Requesting 25 blocks (1..=25) should result in 3 sub-queries: [1..=10], [11..=20], [21..=25]
+    let logs = client.fetch_logs(1, 25, &[]).await.unwrap();
+    assert!(logs.is_empty());
+    assert_eq!(hits.load(Ordering::SeqCst), 3);
+}

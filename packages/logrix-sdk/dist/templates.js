@@ -75,6 +75,8 @@ function logrixYamlTemplate(a) {
     doc.indexing = {
         ringBufferDepth: a.ringBufferDepth ?? 128,
         reconcilerIntervalSecs: a.reconcilerIntervalSecs ?? 30,
+        chunkSize: 10,
+        reconcilerChunkSize: 10,
     };
     return (0, yaml_1.stringify)(doc, { indent: 2 });
 }

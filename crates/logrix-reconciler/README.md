@@ -31,7 +31,7 @@ End users configure gap reconciliation and chain reorganization detection parame
 indexing:
   ringBufferDepth: 128            # Rolling parent-hash ring buffer size for reorg detection
   reconcilerIntervalSecs: 30      # Periodic background gap audit interval in seconds
-  reconcilerChunkSize: 50         # Chunk size when backfilling discovered block gaps
+  reconcilerChunkSize: 10         # Chunk size when backfilling discovered block gaps
   reconcilerLagThreshold: 25      # Block lag behind chain head required to trigger backfill
 ```
 
