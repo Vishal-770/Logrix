@@ -117,15 +117,18 @@ pub async fn handle_backfill_range(
 }
 
 fn is_range_limit_error(err: &str) -> bool {
-    err.contains("more than")
-        || err.contains("limit")
-        || err.contains("range")
-        || err.contains("exceeded")
-        || err.contains("10000 results")
-        || err.contains("413")
-        || err.contains("HTTP 400")
-        || err.contains("status: 400")
-        || err.contains("code: 400")
-        || err.contains("-32600")
-        || err.contains("Bad Request")
+    let lower = err.to_ascii_lowercase();
+    lower.contains("more than")
+        || lower.contains("range")
+        || lower.contains("exceeded")
+        || lower.contains("10000 results")
+        || lower.contains("block limit")
+        || lower.contains("query size")
+        || lower.contains("413")
+        || ((lower.contains("bad request") || lower.contains("-32600") || lower.contains("400"))
+            && (lower.contains("range")
+                || lower.contains("limit")
+                || lower.contains("size")
+                || lower.contains("large")
+                || lower.contains("block")))
 }

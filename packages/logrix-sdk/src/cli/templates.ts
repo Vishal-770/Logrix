@@ -231,7 +231,6 @@ export function valuesAwsTemplate(a: InitAnswers): string {
   const doc: any = {
     image: {
       repository: "ghcr.io/vishal-770/logrix",
-      tag: "0.8.3",
       pullPolicy: "IfNotPresent",
     },
     builtIn: {

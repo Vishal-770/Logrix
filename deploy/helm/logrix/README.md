@@ -157,7 +157,7 @@ helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `image.repository` | string | `ghcr.io/vishal-770/logrix` | Docker image repository |
-| `image.tag` | string | `0.8.0` | Immutable image version tag |
+| `image.tag` | string | `""` | Tag override (defaults to `Chart.appVersion`, e.g. `0.8.3`) |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 
 ### Core Runtime Parameters (`config`)
@@ -206,13 +206,14 @@ helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
 
 ---
 
-## 6. Container & Helm Chart Releases
-
 Container images (`ghcr.io/vishal-770/logrix`) and OCI Helm charts (`oci://ghcr.io/vishal-770/charts/logrix`) are published via the dedicated `Release Container & Helm Chart` CI/CD workflow, completely independent of the npm SDK release cycle.
+
+- **Single Source of Truth**: The container version is governed strictly by `appVersion` in `Chart.yaml`. Default Helm values set `image.tag: ""` so the container image automatically tracks the chart version.
+- **Overlay Hygiene**: Production profiles (`values-aws.yaml`) and indexer configurations omit `image.tag` so running `helm upgrade --install ... --version <new-version>` cleanly updates both the chart and container image without version pinning traps.
 
 To trigger an automated release:
 ```bash
-git tag v0.7.4
-git push origin v0.7.4
+git tag v0.8.3
+git push origin v0.8.3
 ```
 This builds and pushes multi-architecture images to GitHub Container Registry, packages the Helm chart with the matching version, and publishes the OCI artifact.
