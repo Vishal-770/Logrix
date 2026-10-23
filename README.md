@@ -136,7 +136,7 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
 4. **Run Initial Database Migrations:**
    ```bash
    kubectl run logrix-migrator --rm -i --restart=Never \
-     --image=ghcr.io/vishal-770/logrix:0.8.0 \
+     --image=ghcr.io/vishal-770/logrix:0.8.3 \
      -n logrix \
      --env="DATABASE_URL=$CLEAN_DB_URL" \
      -- command logrix migrate
@@ -145,7 +145,7 @@ Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 Postgr
 5. **Deploy from Remote OCI Helm Chart:**
    ```bash
    helm upgrade --install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
-     --version 0.8.2 \
+     --version 0.8.3 \
      -n logrix \
      --disable-openapi-validation \
      --set config.existingSecret="logrix-secrets" \
