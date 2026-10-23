@@ -79,18 +79,7 @@ pub async fn handle_backfill_range(
         }
         Err(e) => {
             let err = e.to_string();
-            if job.from_block < job.to_block
-                && (err.contains("more than")
-                    || err.contains("limit")
-                    || err.contains("range")
-                    || err.contains("exceeded")
-                    || err.contains("10000 results")
-                    || err.contains("413")
-                    || err.contains("400")
-                    || err.contains("-32600")
-                    || err.contains("fallback providers failed")
-                    || err.contains("Bad Request"))
-            {
+            if job.from_block < job.to_block && is_range_limit_error(&err) {
                 let (first, second_opt) = job.split_half();
                 warn!(
                     from = job.from_block,
@@ -125,4 +114,18 @@ pub async fn handle_backfill_range(
         }
     }
     Ok(())
+}
+
+fn is_range_limit_error(err: &str) -> bool {
+    err.contains("more than")
+        || err.contains("limit")
+        || err.contains("range")
+        || err.contains("exceeded")
+        || err.contains("10000 results")
+        || err.contains("413")
+        || err.contains("HTTP 400")
+        || err.contains("status: 400")
+        || err.contains("code: 400")
+        || err.contains("-32600")
+        || err.contains("Bad Request")
 }

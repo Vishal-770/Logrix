@@ -51,9 +51,14 @@ pub async fn run_consumer_loop(
                 Err(e) => {
                     tracing::warn!(error = %e, queue = ?first_q, "Error consuming from primary queue; checking secondary");
                     match ctx.queue.consume(second_q).await {
-                        Ok(opt) => {
+                        Ok(Some(h)) => {
                             backoff = Duration::from_millis(500);
-                            opt.map(|h| (second_q, h))
+                            Some((second_q, h))
+                        }
+                        Ok(None) => {
+                            tokio::time::sleep(backoff).await;
+                            backoff = (backoff * 2).min(max_backoff);
+                            None
                         }
                         Err(e2) => {
                             tracing::warn!(error = %e2, queue = ?second_q, "Both queues errored; backing off");
