@@ -84,7 +84,7 @@ Before deploying the long-running ingester and processor workloads, run the Logr
 
 ```bash
 kubectl run logrix-migrator --rm -i --restart=Never \
-  --image=ghcr.io/vishal-770/logrix:0.8.0 \
+  --image=ghcr.io/vishal-770/logrix:0.8.3 \
   -n logrix \
   --env="DATABASE_URL=$CLEAN_DB_URL" \
   -- command logrix migrate
@@ -96,7 +96,7 @@ Deploy from the published OCI registry, passing dynamic cloud resource endpoints
 
 ```bash
 helm upgrade --install logrix oci://ghcr.io/vishal-770/charts/logrix \
-  --version 0.8.2 \
+  --version 0.8.3 \
   -n logrix \
   --disable-openapi-validation \
   --set config.existingSecret="logrix-secrets" \
