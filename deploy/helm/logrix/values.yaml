@@ -21,7 +21,8 @@ global:
 image:
   repository: ghcr.io/vishal-770/logrix
   pullPolicy: IfNotPresent
-  tag: "0.8.3"
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 config:
   chainId: 421614
