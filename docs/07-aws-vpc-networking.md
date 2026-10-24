@@ -29,7 +29,7 @@ The Logrix AWS networking architecture adheres to three core production principl
 |   |  | NAT Gateway (Elastic IP) |     | Public ALBs / NLBs    |     (Spare AZ)      |   |
 |   |  +------------^-------------+     +-----------------------+                     |   |
 |   +---------------|-----------------------------------------------------------------+   |
-|                   | Outbound SNAT                                                       |
+|                   | Outbound SNAT (for EVM RPC & SQS APIs)                              |
 |   +---------------v-----------------------------------------------------------------+   |
 |   | PRIVATE SUBNETS (0.0.0.0/0 -> NAT Gateway)                                      |   |
 |   |                                                                                 |   |
@@ -48,6 +48,16 @@ The Logrix AWS networking architecture adheres to three core production principl
 |   |  +--------------------------+     +-----------------------+                     |   |
 |   +---------------------------------------------------------------------------------+   |
 +-----------------------------------------------------------------------------------------+
+                    | Outbound HTTPS via NAT                | Direct VPC Route
+                    v                                       v
+    +-------------------------------+       +-------------------------------+
+    | AWS Regional Services (SQS)   |       | AWS Regional Services (S3)    |
+    | sqs.us-east-1.amazonaws.com   |       | s3.us-east-1.amazonaws.com    |
+    | - logrix-production-live      |       | - logrix-production-archive-* |
+    | - logrix-production-backfill  |       +-------------------------------+
+    | - logrix-production-webhook   |
+    | - logrix-production-dlq       |
+    +-------------------------------+
 ```
 
 ---
@@ -142,7 +152,47 @@ resource "aws_vpc_endpoint" "s3" {
 
 ---
 
-## 6. EKS Pod Networking via AWS VPC CNI
+## 6. Amazon SQS Connectivity & Network Architecture
+
+### Where Does SQS Live in AWS?
+A frequent architectural question is whether Amazon SQS queues reside inside the customer VPC CIDR block.
+
+**Amazon SQS is a multi-tenant AWS Regional Service.** By default, SQS queues do not sit inside private VPC subnets. Instead, their API endpoints resolve to public AWS regional endpoints:
+```text
+https://sqs.<region>.amazonaws.com/<account-id>/<queue-name>
+```
+
+### How EKS Pods Reach SQS
+Because `logrix-ingester` and `logrix-processor` run inside private subnets (`10.0.64.0/20`, etc.) with no public IP addresses:
+
+1. **DNS Resolution**: The pod queries CoreDNS, which resolves `sqs.us-east-1.amazonaws.com` to AWS regional IP addresses.
+2. **Egress via NAT Gateway**: The packet matches `0.0.0.0/0` in the private route table (`aws_route_table.private`), forwarding to the **NAT Gateway** in `pub-us-east-1a`.
+3. **SNAT & Internet Gateway**: The NAT Gateway translates the private source IP (e.g. `10.0.64.12`) to its Elastic IP and routes the packet out through the Internet Gateway (`igw`) to the AWS SQS frontends.
+4. **Encryption & Authentication**: All traffic is encrypted in-flight via TLS 1.3. Access is authenticated cryptographically via AWS Signature Version 4 (SigV4) using short-lived IAM IRSA credentials exchanged from STS.
+
+### Alternative: AWS PrivateLink (VPC Interface Endpoint for SQS)
+For air-gapped environments or architectures with strict zero-internet egress requirements, AWS allows configuring an **Interface VPC Endpoint** for SQS (`com.amazonaws.<region>.sqs`):
+
+```hcl
+# Optional: Interface VPC Endpoint for SQS (AWS PrivateLink)
+resource "aws_vpc_endpoint" "sqs" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.sqs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = module.vpc.private_subnet_ids
+  security_group_ids  = [module.eks.cluster_security_group_id]
+  private_dns_enabled = true
+}
+```
+
+#### Why Logrix Currently Routes SQS via NAT Gateway:
+1. **Cost Economics**: An Interface Endpoint creates Elastic Network Interfaces (ENIs) inside each private subnet, costing **$0.01/hour per AZ (~$21.60/month for 3 AZs)** plus data processing fees.
+2. **Payload Size**: Unlike S3 (which transfers hundreds of gigabytes of raw compressed blockchain blocks), SQS messages in Logrix carry lightweight JSON metadata (block numbers, range hashes, and chunk ranges -- typically <5 KB per job). The data transfer cost through the NAT Gateway is pennies per month.
+3. **Single Unified Egress Path**: The NAT Gateway is already required for EVM JSON-RPC polling (Alchemy / Infura) and GitHub Container Registry image pulls. Routing SQS through the existing NAT Gateway keeps total AWS infrastructure cost at ~$0.03/day.
+
+---
+
+## 7. EKS Pod Networking via AWS VPC CNI
 
 Logrix runs on Amazon EKS using the official **AWS VPC CNI** plugin (`AmazonEKS_CNI_Policy` attached in `deploy/terraform/aws/modules/eks/main.tf`).
 
@@ -164,7 +214,7 @@ vpc_config {
 
 ---
 
-## 7. Aurora PostgreSQL Network Isolation & Security Groups
+## 8. Aurora PostgreSQL Network Isolation & Security Groups
 
 The Aurora Serverless v2 PostgreSQL database is created in `deploy/terraform/aws/modules/rds/main.tf` with multi-layered network isolation:
 
@@ -205,7 +255,7 @@ Only network packets carrying the EKS cluster security group tag can complete a 
 
 ---
 
-## 8. End-to-End Packet Traversal Flows
+## 9. End-to-End Packet Traversal Flows
 
 ### Ingester -> External EVM RPC Node
 ```text
@@ -214,6 +264,16 @@ logrix-ingester (10.0.64.12)
   -> NAT Gateway (10.0.0.45) [SNAT to Elastic IP]
   -> Internet Gateway (igw)
   -> Alchemy / Infura HTTPS RPC Endpoint
+```
+
+### Ingester / Processor -> Amazon SQS Queues
+```text
+logrix-ingester / logrix-processor (10.0.64.12 / 10.0.80.34)
+  -> CoreDNS resolves sqs.us-east-1.amazonaws.com
+  -> Private Route Table (priv-rt) matches 0.0.0.0/0
+  -> NAT Gateway (10.0.0.45) [SNAT to Elastic IP]
+  -> Internet Gateway (igw)
+  -> AWS Regional SQS Service (Live / Backfill / DLQ Queues)
 ```
 
 ### Processor -> Aurora PostgreSQL
@@ -245,7 +305,7 @@ Operator Workstation
 
 ---
 
-## 9. Verification & Network Diagnostics
+## 10. Verification & Network Diagnostics
 
 ### Verify Pod IP Allocation (AWS VPC CNI)
 ```bash
