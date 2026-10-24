@@ -99,7 +99,7 @@ helm install my-indexer oci://ghcr.io/vishal-770/charts/logrix \
 
 Production cloud architecture utilizing AWS EKS, AWS Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3. Live deployments strictly consume the remote published OCI Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
 
-For detailed operational procedures, see the [AWS EKS Production Operations Guide](docs/AWS_EKS_OPERATIONS_GUIDE.md). For end-to-end details on zero-credential IAM, IRSA token projection, and Secrets Manager integration, see [AWS Security Architecture (IRSA & Secrets Management)](docs/06-aws-security-irsa-secrets.md).
+For detailed operational procedures, see the [AWS EKS Production Operations Guide](docs/AWS_EKS_OPERATIONS_GUIDE.md). For end-to-end details on zero-credential IAM, IRSA token projection, and Secrets Manager integration, see [AWS Security Architecture (IRSA & Secrets Management)](docs/06-aws-security-irsa-secrets.md). For multi-AZ subnetting, route tables, and S3 Gateway endpoints, see [AWS Networking & VPC Architecture](docs/07-aws-vpc-networking.md).
 
 1. **Provision Infrastructure (Terraform):**
    ```bash

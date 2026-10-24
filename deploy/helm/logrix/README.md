@@ -41,7 +41,7 @@ kubectl port-forward svc/logrix-api 4000:4000 -n logrix
 
 In production cloud environments, Logrix runs exclusively on managed AWS infrastructure (Amazon Aurora Serverless v2 PostgreSQL, Amazon SQS, and Amazon S3) with zero local container dependencies. Live deployments strictly consume the remote published OCI Helm chart (`oci://ghcr.io/vishal-770/charts/logrix`).
 
-For an in-depth breakdown of IRSA token exchange, IAM least-privilege matrix, and AWS Secrets Manager integration, see [AWS Security & IRSA Architecture](../../../docs/06-aws-security-irsa-secrets.md).
+For an in-depth breakdown of IRSA token exchange, IAM least-privilege matrix, and AWS Secrets Manager integration, see [AWS Security & IRSA Architecture](../../../docs/06-aws-security-irsa-secrets.md). For VPC subnetting, route tables, and S3 Gateway endpoints, see [AWS Networking & VPC Architecture](../../../docs/07-aws-vpc-networking.md).
 
 ### Step 1: Connect `kubectl` to EKS Cluster
 ```bash

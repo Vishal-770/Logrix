@@ -12,7 +12,7 @@ An operational guide covering the entire lifecycle of Logrix on AWS:
 9. Complete Destruction & Teardown (Clean Resource Removal)
 10. Comprehensive Troubleshooting Reference
 
-For deep-dive technical architecture on zero-credential IAM Roles for Service Accounts (IRSA), OIDC token projection, and Secrets Manager integration, refer to [AWS Security Architecture (IRSA & Secrets Management)](06-aws-security-irsa-secrets.md).
+For deep-dive technical architecture on zero-credential IAM Roles for Service Accounts (IRSA), OIDC token projection, and Secrets Manager integration, refer to [AWS Security Architecture (IRSA & Secrets Management)](06-aws-security-irsa-secrets.md). For VPC topology, multi-AZ subnets, and S3 Gateway endpoints, see [AWS Networking & VPC Architecture](07-aws-vpc-networking.md).
 
 ---
 
