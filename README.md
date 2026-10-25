@@ -265,8 +265,9 @@ serviceMonitor:
   interval: 15s
 ```
 
-### 5. AWS Operations & Infrastructure Inspection
-For full A-to-Z production AWS CLI inspection commands across EKS, Aurora Serverless v2, SQS, S3, VPC PrivateLink, and Cost Explorer, see the [AWS Infrastructure Inspection Guide](docs/08-aws-infrastructure-inspection-guide.md).
+### 5. Production Operations & Inspection Guides
+- **AWS Infrastructure Inspection**: Full A-to-Z AWS CLI commands across EKS, Aurora Serverless v2, SQS, S3, VPC PrivateLink, and Cost Explorer in the [AWS Infrastructure Inspection Guide](docs/08-aws-infrastructure-inspection-guide.md).
+- **Kubernetes Cluster Operations**: Comprehensive `kubectl` commands for pod troubleshooting, KEDA autoscaling, rolling upgrades, and RBAC in the [Kubernetes Cluster Operations Guide](docs/09-kubernetes-cluster-operations-guide.md).
 
 ---
 
