@@ -265,6 +265,9 @@ serviceMonitor:
   interval: 15s
 ```
 
+### 5. AWS Operations & Infrastructure Inspection
+For full A-to-Z production AWS CLI inspection commands across EKS, Aurora Serverless v2, SQS, S3, VPC PrivateLink, and Cost Explorer, see the [AWS Infrastructure Inspection Guide](docs/08-aws-infrastructure-inspection-guide.md).
+
 ---
 
 ## License
