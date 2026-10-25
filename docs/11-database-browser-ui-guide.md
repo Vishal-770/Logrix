@@ -1,33 +1,80 @@
 # Database Web UI Guide: Connecting to AWS Aurora PostgreSQL
 
-This guide explains how to fetch the PostgreSQL connection string directly from AWS, establish a secure local tunnel into the private VPC, and run a lightweight browser-based database UI container (`sosedoff/pgweb`) to inspect indexed tables and execute SQL queries.
+This guide documents the fastest, most reliable ways to connect a graphical browser UI to the private AWS Aurora PostgreSQL database in the Logrix cluster.
 
-No passwords or secrets are hardcoded in this guide. Credentials are retrieved dynamically using the AWS CLI and AWS Secrets Manager.
+No passwords or secrets are hardcoded in this guide. Credentials are dynamically injected from Kubernetes secrets and AWS Secrets Manager.
 
 ---
 
 ## Architecture Overview
 
-AWS Aurora PostgreSQL is deployed inside **private VPC subnets** without public IP addresses for enterprise security. To inspect the database through a graphical web interface on your workstation:
+AWS Aurora PostgreSQL is deployed inside **private VPC subnets** without public IP addresses for enterprise security. To inspect the database through a graphical web interface:
 
 ```
 [ Your Browser (http://localhost:8081) ]
                   │
                   ▼
-[ Local Docker Container: sosedoff/pgweb ]
+[ kubectl port-forward (localhost:8081) ]
                   │
-                  ▼ (localhost:5432)
-[ kubectl port-forward tunnel ]
+                  ▼ (Encrypted Kube-API Tunnel)
+[ Ephemeral Pod inside EKS: pgweb-ui ]
                   │
-                  ▼ (Private VPC via EKS)
+                  ▼ (Internal Private VPC: Port 5432)
 [ AWS Aurora Serverless v2 PostgreSQL ]
 ```
 
 ---
 
-## Step 1: Fetch the Connection String from AWS
+## Method 1: The Direct In-Cluster Pod (Recommended: Fastest & Zero Local Setup)
 
-Run this command in your terminal. It dynamically queries **AWS Secrets Manager** and **AWS RDS** to construct the complete connection string:
+This is the cleanest and fastest method. You **do not need Docker installed on your workstation**, you never have to copy-paste passwords, and no local network bridging is required.
+
+### Step 1: Launch the `pgweb` Pod in Kubernetes (Terminal 1)
+Run this command to start an ephemeral `pgweb` container directly inside the AWS EKS cluster. It automatically reads the connection string from the existing `logrix-secrets` secret:
+
+```bash
+kubectl run pgweb-ui --rm -i --restart=Never --image=sosedoff/pgweb -n logrix \
+  --env="PGWEB_DATABASE_URL=$(kubectl get secret logrix-secrets -n logrix -o jsonpath='{.data.DATABASE_URL}' | base64 -d)" \
+  --command -- pgweb --bind=0.0.0.0 --listen=8081
+```
+
+Once connected, you will see output like:
+```text
+Connecting to server...
+Connected to PostgreSQL 16.8
+Checking database objects...
+Starting server...
+To view database open http://0.0.0.0:8081/ in browser
+```
+*Leave this terminal open while using the web interface.*
+
+### Step 2: Forward the Port to Your Browser (Terminal 2)
+Open a second terminal tab and forward port `8081` to your workstation:
+
+```bash
+kubectl port-forward pod/pgweb-ui 8081:8081 -n logrix
+```
+
+### Step 3: Open in Browser
+Open your browser and navigate to:
+```text
+http://localhost:8081
+```
+
+### Step 4: Clean Up
+When you are finished viewing the database:
+1. In Terminal 2 (port-forward): Press `Ctrl + C`.
+2. In Terminal 1 (`pgweb-ui`): Press `Ctrl + C`.
+3. Because `--rm` was specified, Kubernetes **automatically deletes the pod**. No resources or costs are left behind.
+
+---
+
+## Method 2: Running `pgweb` via Local Docker Container
+
+If you prefer running the `pgweb` container on your local machine using Docker:
+
+### Step 1: Fetch the Connection String from AWS
+Extract your cluster endpoint, username, and URL-encoded password dynamically:
 
 ```bash
 aws secretsmanager get-secret-value \
@@ -36,68 +83,72 @@ aws secretsmanager get-secret-value \
   --query "SecretString" --output text | jq -r '"postgres://" + .username + ":" + (.password | @uri) + "@'$(aws rds describe-db-clusters --region us-east-1 --query "DBClusters[0].Endpoint" --output text)':5432/logrix"'
 ```
 
-This outputs your full connection string in the following format:
+This outputs:
 ```text
 postgres://<username>:<encoded-password>@<aurora-cluster-endpoint>:5432/logrix
 ```
 
----
-
-## Step 2: Open the Database Tunnel (Terminal 1)
-
-Since Aurora does not accept direct public internet connections, run an ephemeral proxy pod inside the Kubernetes cluster and forward port `5432` to your local machine:
+### Step 2: Open the Local Database Tunnel (Terminal 1)
+Forward port `5432` from the private VPC to your workstation:
 
 ```bash
-# 1. Fetch the cluster endpoint dynamically
 DB_HOST=$(aws rds describe-db-clusters --region us-east-1 --query "DBClusters[0].Endpoint" --output text)
 
-# 2. Start a TCP forwarder pod inside the cluster
 kubectl run db-tunnel --image=alpine/socat --restart=Never -n logrix -- \
   -d -d TCP-LISTEN:5432,fork,reuseaddr TCP:${DB_HOST}:5432
 
-# 3. Forward port 5432 to your local workstation
 kubectl port-forward pod/db-tunnel 5432:5432 -n logrix
 ```
 
-Leave this terminal tab open while you use the web interface.
-
----
-
-## Step 3: Run the Web UI Container (Terminal 2)
-
-Open a **new terminal tab** and run the `sosedoff/pgweb` container. Replace `<username>` and `<encoded-password>` with the values extracted in Step 1:
-
+### Step 3: Run the Local Docker Container (Terminal 2)
 ```bash
 docker run --rm -it -p 8081:8081 --name pgweb \
   sosedoff/pgweb \
   --url "postgres://<username>:<encoded-password>@host.docker.internal:5432/logrix?sslmode=disable"
 ```
 
-*Note for Linux users: If `host.docker.internal` is not mapped on your system, add `--add-host=host.docker.internal:host-gateway` to the `docker run` command, or connect to `127.0.0.1:5432`.*
+Open `http://localhost:8081` in your browser.
 
----
-
-## Step 4: Open in Your Browser
-
-Open your browser and navigate to:
-```text
-http://localhost:8081
-```
-
-### Features Available in pgweb:
-* **Schema & Table Browser**: Browse all tables on the left navigation bar (`checkpoints`, `supply_actions`, `user`, `reserve`, etc.).
-* **Data Viewer**: Inspect rows, filter columns, and sort by block numbers or timestamps.
-* **SQL Query Console**: Execute custom SQL queries with syntax highlighting and auto-completion.
-* **Data Export**: Export query results directly to CSV or JSON.
-
----
-
-## Step 5: Clean Up
-
-When you are done exploring:
-1. Stop the Docker container: Press `Ctrl + C` in Terminal 2.
-2. Stop the port-forwarding tunnel: Press `Ctrl + C` in Terminal 1.
-3. Delete the temporary tunnel pod from Kubernetes:
+### Step 4: Clean Up
+1. Stop Docker: Press `Ctrl + C` in Terminal 2.
+2. Stop Tunnel: Press `Ctrl + C` in Terminal 1.
+3. Delete the bridge pod:
 ```bash
 kubectl delete pod db-tunnel -n logrix
+```
+
+---
+
+## 3. Useful SQL Queries to Run in pgweb
+
+Once connected to `pgweb`, open the **Query** tab and run these queries to inspect indexed blockchain data:
+
+### Inspect Latest Block Checkpoint
+```sql
+SELECT chain_id, last_indexed_block, last_indexed_hash, updated_at 
+FROM logrix_checkpoints;
+```
+
+### Inspect Computed GraphQL Entities (SupplyAction, Protocol, User)
+```sql
+SELECT entity_type, entity_id, block_number, data 
+FROM logrix_entities 
+ORDER BY block_number DESC 
+LIMIT 10;
+```
+
+### Inspect Filtered Deposits
+```sql
+SELECT entity_id, block_number, data->>'amount' AS amount, data->>'user' AS user_address 
+FROM logrix_entities 
+WHERE entity_type = 'SupplyAction' 
+ORDER BY block_number DESC 
+LIMIT 10;
+```
+
+### Check Protocol Summary Totals
+```sql
+SELECT entity_id, data 
+FROM logrix_entities 
+WHERE entity_type = 'Protocol';
 ```
