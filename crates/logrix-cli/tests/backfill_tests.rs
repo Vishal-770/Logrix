@@ -1,4 +1,3 @@
-use alloy_primitives::Address;
 use logrix_cli::{
     handlers::handle_backfill_range,
     processor::{ProcessorConfig, ProcessorContext},
@@ -12,6 +11,7 @@ use logrix_rpc_gateway::{ManagedProvider, ProviderPool, RpcGateway};
 use logrix_store_postgres::PostgresStore;
 use logrix_testkit::{MockQueuePort, MockStorePort};
 use sqlx::PgPool;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -36,7 +36,7 @@ async fn run_backfill(block_status: u16, block_body: &'static str) -> (bool, Arc
         PgPool::connect_lazy("postgres://unused@localhost/logrix").expect("lazy pool"),
         "test",
     );
-    let config = test_config(chain_id);
+    let config = ProcessorConfig::for_testing(chain_id);
     let ctx = ProcessorContext {
         config: &config,
         store: &store,
@@ -46,6 +46,7 @@ async fn run_backfill(block_status: u16, block_body: &'static str) -> (bool, Arc
         gateway: &gateway,
         queue: &queue,
         engine: None,
+        last_dispatched_gap: Arc::new(AtomicU64::new(0)),
     };
     let job = BlockRangeJob::new(chain_id, 100, 100, "test:100-100");
     queue
@@ -65,35 +66,6 @@ async fn run_backfill(block_status: u16, block_body: &'static str) -> (bool, Arc
         handle_backfill_range(&ctx, &job, &handle).await.is_ok(),
         mock_queue,
     )
-}
-
-fn test_config(chain_id: ChainId) -> ProcessorConfig {
-    ProcessorConfig {
-        chain_id,
-        database_url: "postgres://unused@localhost/logrix".to_string(),
-        database_max_connections: 1,
-        database_min_connections: 0,
-        database_statement_timeout_secs: 30,
-        target_contract: Address::ZERO,
-        ring_buffer_depth: 8,
-        webhook_url: None,
-        webhook_secret: String::new(),
-        reconciler_interval_secs: 30,
-        reconciler_chunk_size: None,
-        reconciler_lag_threshold: 50,
-        chunk_size: 10,
-        manifest_path: None,
-        enable_webhooks: false,
-        s3_bucket: None,
-        s3_endpoint: None,
-        s3_prefix: None,
-        wasm_fuel_limit: 1_000_000,
-        wasm_max_memory_mb: 128,
-        webhook_timeout_secs: 5,
-        webhook_max_retries: 1,
-        webhook_worker_idle_ms: 100,
-        webhook_worker_backoff_ms: 100,
-    }
 }
 
 async fn spawn_rpc_server(block_status: u16, block_body: &'static str) -> String {

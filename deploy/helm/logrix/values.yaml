@@ -154,12 +154,15 @@ processor:
     cooldownPeriod: 300
     pollingInterval: 15
     targetQueueDepth: 30
+    targetBackfillQueueDepth: 50
     queueType: rabbitmq
     rabbitmq:
       queueName: "logrix.live.jobs"
+      backfillQueueName: "logrix.backfill.jobs"
       host: ""
     sqs:
       queueUrl: ""
+      backfillQueueUrl: ""
       awsRegion: "us-east-1"
     triggerAuthentication:
       enabled: true

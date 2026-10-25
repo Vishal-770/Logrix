@@ -4,6 +4,7 @@ use logrix_core::{domain::ChainId, error::LogrixResult, ports::QueuePort};
 use logrix_handlers::UserLogicEngine;
 use logrix_reconciler::{ReorgDetector, ReorgHandler};
 use logrix_store_postgres::PostgresStore;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -75,6 +76,36 @@ impl ProcessorConfig {
         })
     }
 
+    #[must_use]
+    pub fn for_testing(chain_id: ChainId) -> Self {
+        Self {
+            chain_id,
+            database_url: "postgres://unused@localhost/logrix".into(),
+            database_max_connections: 1,
+            database_min_connections: 0,
+            database_statement_timeout_secs: 30,
+            target_contract: Address::ZERO,
+            ring_buffer_depth: 8,
+            webhook_url: None,
+            webhook_secret: String::new(),
+            reconciler_interval_secs: 30,
+            reconciler_chunk_size: Some(10),
+            reconciler_lag_threshold: 50,
+            chunk_size: 10,
+            manifest_path: None,
+            enable_webhooks: false,
+            s3_bucket: None,
+            s3_endpoint: None,
+            s3_prefix: None,
+            wasm_fuel_limit: 1_000_000,
+            wasm_max_memory_mb: 128,
+            webhook_timeout_secs: 5,
+            webhook_max_retries: 1,
+            webhook_worker_idle_ms: 100,
+            webhook_worker_backoff_ms: 100,
+        }
+    }
+
     pub async fn init_blob_store(&self) -> LogrixResult<Option<S3BlobStore>> {
         if let Some(ref bucket) = self.s3_bucket {
             let s3_conf =
@@ -96,6 +127,7 @@ pub struct ProcessorContext<'a> {
     pub gateway: &'a logrix_rpc_gateway::RpcGateway,
     pub queue: &'a Arc<dyn QueuePort>,
     pub engine: Option<&'a UserLogicEngine>,
+    pub last_dispatched_gap: Arc<AtomicU64>,
 }
 
 impl<'a> ProcessorContext<'a> {

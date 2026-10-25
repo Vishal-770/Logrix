@@ -1,7 +1,8 @@
-use logrix_core::ports::QueuePort;
+use logrix_core::ports::{QueuePort, StorePort};
 use logrix_reconciler::{GapReconciler, ReorgDetector, ReorgHandler};
 use logrix_store_postgres::PostgresStore;
 use logrix_webhook::{generate_secret, WebhookDispatcherService, WebhookStore};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -88,6 +89,14 @@ pub async fn run_processor(
         .await
         .map_err(|e| Box::new(std::io::Error::other(e.to_string())) as DynError)?;
 
+    let initial_tip = store
+        .get_checkpoint(config.chain_id)
+        .await
+        .ok()
+        .flatten()
+        .map_or(0, |cp| cp.last_indexed_block);
+    let last_dispatched_gap = Arc::new(AtomicU64::new(initial_tip));
+
     let ctx = ProcessorContext {
         config: &config,
         store: &store,
@@ -97,6 +106,7 @@ pub async fn run_processor(
         gateway: &gateway,
         queue: &queue,
         engine: engine_opt.as_ref(),
+        last_dispatched_gap,
     };
 
     let run_res = crate::processor_loop::run_consumer_loop(&ctx, shutdown_tx).await;
