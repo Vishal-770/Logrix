@@ -1,5 +1,6 @@
 {{- if and .Values.processor.enabled .Values.processor.keda.enabled }}
 {{- $sqsQueueURL := default .Values.config.sqsLiveUrl .Values.processor.keda.sqs.queueUrl }}
+{{- $sqsBackfillURL := default .Values.config.sqsBackfillUrl .Values.processor.keda.sqs.backfillQueueUrl }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -27,6 +28,17 @@ spec:
       authenticationRef:
         name: {{ include "logrix.processorSqsTriggerAuthenticationName" . }}
       {{- end }}
+    {{- if $sqsBackfillURL }}
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: {{ $sqsBackfillURL | quote }}
+        queueLength: {{ .Values.processor.keda.targetBackfillQueueDepth | default 50 | quote }}
+        awsRegion: {{ default .Values.config.awsRegion .Values.processor.keda.sqs.awsRegion | default "us-east-1" | quote }}
+      {{- if .Values.processor.keda.triggerAuthentication.enabled }}
+      authenticationRef:
+        name: {{ include "logrix.processorSqsTriggerAuthenticationName" . }}
+      {{- end }}
+    {{- end }}
     {{- else }}
     - type: rabbitmq
       metadata:
@@ -40,5 +52,19 @@ spec:
         {{- else }}
         host: {{ required "processor.keda.rabbitmq.host or config.rabbitmqUrl is required when RabbitMQ TriggerAuthentication is disabled" (default .Values.config.rabbitmqUrl .Values.processor.keda.rabbitmq.host) | quote }}
         {{- end }}
-{{- end }}
+    {{- if .Values.processor.keda.rabbitmq.backfillQueueName }}
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: {{ .Values.processor.keda.rabbitmq.backfillQueueName | quote }}
+        mode: QueueLength
+        value: {{ .Values.processor.keda.targetBackfillQueueDepth | default 50 | quote }}
+        {{- if .Values.processor.keda.rabbitmqTriggerAuthentication.enabled }}
+      authenticationRef:
+        name: {{ include "logrix.processorRabbitmqTriggerAuthenticationName" . }}
+        {{- else }}
+        host: {{ required "processor.keda.rabbitmq.host or config.rabbitmqUrl is required when RabbitMQ TriggerAuthentication is disabled" (default .Values.config.rabbitmqUrl .Values.processor.keda.rabbitmq.host) | quote }}
+        {{- end }}
+    {{- end }}
+    {{- end }}
 {{- end }}

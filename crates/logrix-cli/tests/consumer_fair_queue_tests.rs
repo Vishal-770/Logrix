@@ -1,4 +1,3 @@
-use alloy_primitives::Address;
 use logrix_cli::processor_loop::run_consumer_loop;
 use logrix_cli::processor_types::{ProcessorConfig, ProcessorContext};
 use logrix_core::{
@@ -10,6 +9,7 @@ use logrix_rpc_gateway::{ManagedProvider, ProviderPool, RpcGateway};
 use logrix_store_postgres::PostgresStore;
 use logrix_testkit::{MockQueuePort, MockStorePort};
 use sqlx::PgPool;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,32 +39,7 @@ async fn test_fair_queue_consumes_both_live_and_backfill() {
         "test",
     );
 
-    let config = ProcessorConfig {
-        chain_id,
-        database_url: "postgres://unused@localhost/logrix".into(),
-        database_max_connections: 1,
-        database_min_connections: 0,
-        database_statement_timeout_secs: 30,
-        target_contract: Address::ZERO,
-        ring_buffer_depth: 8,
-        webhook_url: None,
-        webhook_secret: String::new(),
-        reconciler_interval_secs: 30,
-        reconciler_chunk_size: Some(10),
-        reconciler_lag_threshold: 50,
-        chunk_size: 10,
-        manifest_path: None,
-        enable_webhooks: false,
-        s3_bucket: None,
-        s3_endpoint: None,
-        s3_prefix: None,
-        wasm_fuel_limit: 1_000_000,
-        wasm_max_memory_mb: 128,
-        webhook_timeout_secs: 5,
-        webhook_max_retries: 1,
-        webhook_worker_idle_ms: 100,
-        webhook_worker_backoff_ms: 100,
-    };
+    let config = ProcessorConfig::for_testing(chain_id);
 
     let ctx = ProcessorContext {
         config: &config,
@@ -75,6 +50,7 @@ async fn test_fair_queue_consumes_both_live_and_backfill() {
         gateway: &gateway,
         queue: &queue,
         engine: None,
+        last_dispatched_gap: Arc::new(AtomicU64::new(0)),
     };
 
     queue
@@ -133,32 +109,7 @@ async fn test_consumer_loop_backs_off_when_primary_errors_and_secondary_empty() 
         "test",
     );
 
-    let config = ProcessorConfig {
-        chain_id,
-        database_url: "postgres://unused@localhost/logrix".into(),
-        database_max_connections: 1,
-        database_min_connections: 0,
-        database_statement_timeout_secs: 30,
-        target_contract: Address::ZERO,
-        ring_buffer_depth: 8,
-        webhook_url: None,
-        webhook_secret: String::new(),
-        reconciler_interval_secs: 30,
-        reconciler_chunk_size: Some(10),
-        reconciler_lag_threshold: 50,
-        chunk_size: 10,
-        manifest_path: None,
-        enable_webhooks: false,
-        s3_bucket: None,
-        s3_endpoint: None,
-        s3_prefix: None,
-        wasm_fuel_limit: 1_000_000,
-        wasm_max_memory_mb: 128,
-        webhook_timeout_secs: 5,
-        webhook_max_retries: 1,
-        webhook_worker_idle_ms: 100,
-        webhook_worker_backoff_ms: 100,
-    };
+    let config = ProcessorConfig::for_testing(chain_id);
 
     let ctx = ProcessorContext {
         config: &config,
@@ -169,6 +120,7 @@ async fn test_consumer_loop_backs_off_when_primary_errors_and_secondary_empty() 
         gateway: &gateway,
         queue: &queue,
         engine: None,
+        last_dispatched_gap: Arc::new(AtomicU64::new(0)),
     };
 
     let (shutdown_tx, _shutdown_rx) = tokio::sync::watch::channel(false);

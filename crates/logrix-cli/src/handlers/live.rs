@@ -3,6 +3,7 @@ use crate::processor::ProcessorContext;
 use logrix_core::domain::{BlockRangeJob, MessageHandle, QueueMessage, QueueType};
 use logrix_core::ports::ChainPort;
 use logrix_reconciler::ContinuityStatus;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tracing::warn;
 
@@ -109,20 +110,37 @@ pub async fn handle_live_block(
         }
         Ok(ContinuityStatus::GapDetected {
             from_block,
-            to_block,
+            to_block: _,
         }) => {
-            let gap = BlockRangeJob::try_new(
-                ctx.config.chain_id,
-                from_block,
-                to_block,
-                format!("{}:{from_block}-{to_block}", ctx.config.chain_id),
-            )?;
-            let _ = ctx
-                .queue
-                .publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap))
-                .await;
-            let _ = ctx.queue.nack(handle, true).await;
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            let last_disp = ctx.last_dispatched_gap.load(Ordering::Relaxed);
+            let effective_from = from_block.max(last_disp + 1);
+
+            if effective_from <= env.block_number {
+                let gap = BlockRangeJob::try_new(
+                    ctx.config.chain_id,
+                    effective_from,
+                    env.block_number,
+                    format!(
+                        "{}:{}-{}",
+                        ctx.config.chain_id, effective_from, env.block_number
+                    ),
+                )?;
+                if ctx
+                    .queue
+                    .publish(QueueType::Backfill, &QueueMessage::BackfillRange(gap))
+                    .await
+                    .is_ok()
+                {
+                    ctx.last_dispatched_gap
+                        .store(env.block_number, Ordering::Relaxed);
+                    let _ = ctx.queue.ack(handle).await;
+                } else {
+                    let _ = ctx.queue.nack(handle, true).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            } else {
+                let _ = ctx.queue.ack(handle).await;
+            }
         }
         Err(_) => {
             let _ = ctx.queue.nack(handle, true).await;
