@@ -70,3 +70,10 @@ helm install aave-v3-indexer oci://ghcr.io/vishal-770/charts/logrix \
   -f indexer-values.yaml \
   --set config.existingSecret=logrix-secrets
 ```
+
+---
+
+## Querying Indexed Data
+
+For complete ready-to-run GraphQL queries across supplies, borrows, liquidations, flash loans, and users, see [QUERIES.md](QUERIES.md).
+
