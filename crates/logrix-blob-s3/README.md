@@ -60,3 +60,7 @@ let config = S3Config::builder("my-archive-bucket")
     .await?;
 ```
 
+---
+
+## Architecture & Detailed Guide
+For a deep dive into tiered storage philosophy, Zstd compression, S3 key schemas, and VPC Gateway endpoints, see the [S3 Blob Storage Architecture & Operational Guide](docs/s3-architecture-and-usage-guide.md).

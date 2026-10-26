@@ -270,6 +270,7 @@ serviceMonitor:
 - **Kubernetes Cluster Operations**: Comprehensive `kubectl` commands for pod troubleshooting, rolling upgrades, and RBAC in the [Kubernetes Cluster Operations Guide](docs/09-kubernetes-cluster-operations-guide.md).
 - **KEDA Autoscaling Architecture**: Plain-English guide on how KEDA coordinates between AWS SQS, IAM/IRSA, and Kubernetes Pods in the [KEDA Autoscaling Guide](docs/10-keda-autoscaling-architecture.md).
 - **Database Browser Web UI**: Step-by-step instructions for connecting a browser UI (`pgweb`) to AWS Aurora PostgreSQL in the [Database Web UI Guide](docs/11-database-browser-ui-guide.md).
+- **S3 Cold Storage Architecture**: Detailed guide on tiered storage, Zstd block compression, and VPC Gateway endpoints in the [S3 Cold Storage Guide](docs/12-s3-cold-storage-architecture.md).
 
 ---
 
